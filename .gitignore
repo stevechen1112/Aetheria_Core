@@ -18,6 +18,11 @@ ENV/
 .coverage
 *.log
 feedback_log.jsonl
+tarot_reading_*.txt
+ziwei_fortune_*.txt
+output_*_analysis_*.txt
+output_*_fortune_*.txt
+output_*_validation_*.txt
 
 # IDE
 .vscode/

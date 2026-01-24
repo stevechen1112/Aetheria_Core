@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Aetheria Web App</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="bg"></div>
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo">A</div>
+        <div>
+          <div class="title">Aetheria</div>
+          <div class="subtitle">命理老師互動 Web App</div>
+        </div>
+      </div>
+      <div class="env">
+        <label for="apiBase">API 位址</label>
+        <input id="apiBase" type="text" value="http://localhost:5001" />
+        <button id="saveApi">儲存</button>
+      </div>
+    </header>
+
+    <main class="container">
+      <section class="panel hero">
+        <div>
+          <h1>像真人命理老師一樣的對話體驗</h1>
+          <p>
+            我會先理解你的心情，再釐清重點，最後給出可行的建議與下一步。你可以在這裡完成命盤建立、
+            鎖盤確認，並與 Aetheria 進行後續對話。
+          </p>
+          <div class="chips">
+            <span>共感 → 釐清 → 解讀 → 建議</span>
+            <span>鎖盤一致性</span>
+            <span>溫度語氣控制</span>
+          </div>
+        </div>
+        <div class="hero-card">
+          <h3>快速開始</h3>
+          <ol>
+            <li>註冊或登入帳號</li>
+            <li>填寫基本資料並建立命盤</li>
+            <li>確認鎖盤並開始對話</li>
+          </ol>
+          <div class="hero-actions">
+            <button class="primary" data-scroll="setup">建立命盤</button>
+            <button class="ghost" data-scroll="chat">開始對話</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="guide" class="panel guide">
+        <div class="guide-step active" data-step="1">
+          <div class="guide-title">第 1 步：建立你的帳號</div>
+          <p>這能保存命盤與對話摘要，讓我逐步更理解你。</p>
+        </div>
+        <div class="guide-step" data-step="2">
+          <div class="guide-title">第 2 步：建立命盤並鎖定</div>
+          <p>鎖盤後，我會以同一份命盤作為所有回應的基礎。</p>
+        </div>
+        <div class="guide-step" data-step="3">
+          <div class="guide-title">第 3 步：開始對話</div>
+          <p>你可以從事業、感情、近期決策開始，我會逐步陪你拆解。</p>
+        </div>
+      </section>
+
+      <section id="auth" class="grid">
+        <div class="panel">
+          <h2>會員註冊</h2>
+          <p class="helper">溫柔提醒：註冊後可保存命盤與對話記憶。</p>
+          <div class="form-grid">
+            <label>
+              Email
+              <input id="registerEmail" type="email" placeholder="you@example.com" />
+            </label>
+            <label>
+              密碼
+              <input id="registerPassword" type="password" placeholder="至少 8 碼" />
+            </label>
+            <label>
+              顯示名稱
+              <input id="registerName" type="text" placeholder="想被稱呼的名字" />
+            </label>
+          </div>
+          <div class="actions">
+            <button id="registerButton" class="primary">註冊</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h2>會員登入</h2>
+          <p class="helper">登入後會自動帶入你的偏好語氣與會員資料。</p>
+          <div class="form-grid">
+            <label>
+              Email
+              <input id="loginEmail" type="email" placeholder="you@example.com" />
+            </label>
+            <label>
+              密碼
+              <input id="loginPassword" type="password" placeholder="輸入密碼" />
+            </label>
+          </div>
+          <div class="actions">
+            <button id="loginButton" class="primary">登入</button>
+            <button id="logoutButton" class="ghost">登出</button>
+          </div>
+          <div id="authStatus" class="status">尚未登入</div>
+        </div>
+      </section>
+
+      <section class="grid">
+        <div class="panel">
+          <h2>個人化偏好</h2>
+          <p class="helper">把你喜歡的語氣告訴我，我會保持一致。</p>
+          <div class="form-grid">
+            <label>
+              偏好語氣
+              <select id="prefTone">
+                <option value="溫暖專業">溫暖專業</option>
+                <option value="理性直接">理性直接</option>
+                <option value="安撫支持">安撫支持</option>
+              </select>
+            </label>
+            <label>
+              回覆長度
+              <select id="prefLength">
+                <option value="精簡">精簡</option>
+                <option value="適中" selected>適中</option>
+                <option value="深入">深入</option>
+              </select>
+            </label>
+          </div>
+          <div class="actions">
+            <button id="savePrefs" class="ghost">儲存偏好</button>
+          </div>
+          <div id="prefStatus" class="status">偏好尚未更新</div>
+        </div>
+
+        <div class="panel">
+          <h2>會員資訊</h2>
+          <div id="profileInfo" class="summary empty">請先登入</div>
+        </div>
+      </section>
+
+      <section id="setup" class="grid">
+        <div class="panel">
+          <h2>建立命盤</h2>
+          <div class="form-grid">
+            <label>
+              使用者 ID
+              <input id="userId" type="text" placeholder="user_001" />
+            </label>
+            <label>
+              出生日期
+              <input id="birthDate" type="text" placeholder="農曆68年9月23日" />
+            </label>
+            <label>
+              出生時間
+              <input id="birthTime" type="text" placeholder="23:58" />
+            </label>
+            <label>
+              出生地點
+              <input id="birthLocation" type="text" placeholder="台灣彰化市" />
+            </label>
+            <label>
+              性別
+              <select id="gender">
+                <option value="男">男</option>
+                <option value="女">女</option>
+                <option value="未指定">未指定</option>
+              </select>
+            </label>
+          </div>
+          <div class="actions">
+            <button id="createChart" class="primary">生成命盤</button>
+            <button id="confirmLock" class="ghost">確認鎖盤</button>
+          </div>
+          <div id="chartStatus" class="status">尚未建立命盤</div>
+        </div>
+
+        <div class="panel">
+          <h2>命盤摘要</h2>
+          <div id="chartSummary" class="summary empty">
+            這裡會顯示命盤重點與鎖盤狀態
+          </div>
+        </div>
+      </section>
+
+      <section id="chat" class="panel chat">
+        <div class="chat-header">
+          <div>
+            <h2>與命理老師對話</h2>
+            <p>保持「真人感」：簡短共感 → 分析 → 建議 → 下一步提問</p>
+          </div>
+          <div class="tone">
+            <label>語氣</label>
+            <select id="toneSelect">
+              <option value="溫暖專業">溫暖專業</option>
+              <option value="理性直接">理性直接</option>
+              <option value="安撫支持">安撫支持</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="summary" id="conversationSummary">
+          對話摘要會顯示在這裡
+        </div>
+
+        <div class="chat-suggestions">
+          <div class="suggestions-title">推薦問題</div>
+          <div class="suggestions">
+            <button class="suggestion" data-suggestion="我最近工作有點迷惘，事業方向怎麼看？">事業方向</button>
+            <button class="suggestion" data-suggestion="感情關係卡住了，能幫我看看嗎？">感情關係</button>
+            <button class="suggestion" data-suggestion="近期有重大決策，要注意什麼？">近期決策</button>
+          </div>
+        </div>
+
+        <div id="chatLog" class="chat-log"></div>
+
+        <div class="chat-input">
+          <input id="messageInput" type="text" placeholder="想了解感情或事業，可以直接說" />
+          <button id="sendMessage" class="primary">送出</button>
+        </div>
+        <div class="hint">
+          建議提問：事業方向、感情走向、近期決策、家庭關係
+        </div>
+      </section>
+
+      <section class="panel footer">
+        <div>
+          <h3>體驗設計重點</h3>
+          <ul>
+            <li>回覆節奏：先共感一句，再進入分析</li>
+            <li>一致性：鎖盤後保持同一命盤基礎</li>
+            <li>溫度：結尾提供 2-3 個可選下一步</li>
+          </ul>
+        </div>
+        <div class="footer-card">
+          <h4>API 端點</h4>
+          <ul>
+            <li>POST /api/chart/initial-analysis</li>
+            <li>POST /api/chart/confirm-lock</li>
+            <li>POST /api/chat/message</li>
+          </ul>
+        </div>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

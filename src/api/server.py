@@ -1,0 +1,4256 @@
+"""
+Aetheria 定盤系統 API
+提供命盤分析、鎖定、查詢功能
+支持紫微斗数、八字命理、交叉验证
+"""
+
+import os
+import sys
+import json
+import re
+import uuid
+import hmac
+import hashlib
+import secrets
+from datetime import datetime, date, timedelta
+from typing import Dict, Optional, Tuple
+from pathlib import Path
+
+# 確保專案根目錄在 Python 路徑中
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(ROOT_DIR))
+
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+from dotenv import load_dotenv
+
+try:
+    from opencc import OpenCC
+except Exception:
+    OpenCC = None
+
+# 從 src 模組導入計算器
+from src.calculators.chart_extractor import ChartExtractor
+from src.calculators.fortune import FortuneTeller
+from src.calculators.bazi import BaziCalculator
+from src.calculators.astrology import AstrologyCalculator
+from src.calculators.tarot import TarotCalculator
+from src.calculators.numerology import NumerologyCalculator
+from src.calculators.name import NameCalculator
+
+# 從 src 模組導入提示詞
+from src.prompts.fortune import (
+    FORTUNE_ANNUAL_ANALYSIS,
+    FORTUNE_MONTHLY_ANALYSIS,
+    FORTUNE_QUESTION_ANALYSIS,
+    FORTUNE_AUSPICIOUS_DAYS
+)
+from src.prompts.synastry import (
+    SYNASTRY_MARRIAGE_ANALYSIS,
+    SYNASTRY_PARTNERSHIP_ANALYSIS,
+    SYNASTRY_QUICK_CHECK
+)
+from src.prompts.date_selection import (
+    DATE_SELECTION_MARRIAGE,
+    DATE_SELECTION_BUSINESS,
+    DATE_SELECTION_MOVING,
+    DATE_SELECTION_QUICK
+)
+from src.prompts.bazi import (
+    format_bazi_analysis_prompt,
+    format_bazi_fortune_prompt,
+    format_cross_validation_prompt
+)
+from src.prompts.astrology import (
+    get_natal_chart_analysis_prompt,
+    get_synastry_analysis_prompt,
+    get_transit_analysis_prompt,
+    get_career_analysis_prompt
+)
+from src.prompts.tarot import generate_tarot_prompt
+from src.prompts.numerology import generate_numerology_prompt
+from src.prompts.name import generate_name_prompt, generate_name_suggestion_prompt
+from src.prompts.integrated import generate_integrated_prompt, generate_comparison_prompt
+from src.prompts.strategic import (
+    generate_strategic_profile_prompt,
+    generate_birth_rectifier_prompt,
+    generate_relationship_ecosystem_prompt,
+    generate_decision_sandbox_prompt
+)
+from src.utils.gemini_client import GeminiClient
+from src.utils.logger import get_logger, setup_logger
+from src.utils.errors import (
+    AetheriaException,
+    MissingParameterException,
+    UserNotFoundException,
+    ChartNotLockedException,
+    AIAPIException,
+    register_error_handlers
+)
+from src.utils.database import get_database, AetheriaDatabase
+
+# 載入環境變數
+load_dotenv()
+
+# 初始化 Gemini 客戶端（使用新 SDK）
+gemini_client = GeminiClient(
+    api_key=os.getenv('GEMINI_API_KEY'),
+    model_name=os.getenv('MODEL_NAME', 'gemini-2.0-flash-exp'),
+    temperature=float(os.getenv('TEMPERATURE', '0.4')),
+    max_output_tokens=int(os.getenv('MAX_OUTPUT_TOKENS', '8192'))
+)
+
+
+def to_zh_tw(text: str) -> str:
+    """將簡體中文轉為台灣繁體（s2twp）。"""
+    if not text:
+        return text
+    if OpenCC is None:
+        return text
+    try:
+        return OpenCC('s2twp').convert(text)
+    except Exception:
+        return text
+
+app = Flask(__name__)
+CORS(app)  # 允許跨域請求
+
+# 註冊錯誤處理器
+register_error_handlers(app)
+
+# 初始化日誌系統
+logger = setup_logger(log_level='INFO')
+logger.info("Aetheria API 服務初始化中...")
+
+# 初始化資料庫
+db = get_database(str(ROOT_DIR / 'data' / 'aetheria.db'))
+logger.info("SQLite 資料庫已初始化")
+
+# 資料儲存目錄（使用專案根目錄的 data 資料夾）- 保留用於向後相容
+DATA_DIR = ROOT_DIR / 'data'
+DATA_DIR.mkdir(exist_ok=True)
+
+USERS_FILE = DATA_DIR / 'users.json'
+LOCKS_FILE = DATA_DIR / 'chart_locks.json'
+
+# 初始化資料檔案（向後相容，逐步遷移到 SQLite）
+if not USERS_FILE.exists():
+    USERS_FILE.write_text('{}', encoding='utf-8')
+if not LOCKS_FILE.exists():
+    LOCKS_FILE.write_text('{}', encoding='utf-8')
+
+# 初始化西洋占星計算器
+astrology_calc = AstrologyCalculator()
+
+# 初始化塔羅牌計算器
+tarot_calc = TarotCalculator()
+
+# 初始化靈數學計算器
+numerology_calc = NumerologyCalculator()
+
+# 初始化姓名學計算器
+name_calc = NameCalculator()
+
+# 初始化提取器
+extractor = ChartExtractor()
+
+# ============================================
+# Prompt 模板
+# ============================================
+
+SYSTEM_INSTRUCTION = """
+你是 Aetheria，精通紫微斗數的 AI 命理顧問。
+
+重要原則：
+1. 準確性最重要，不可編造星曜
+2. 晚子時（23:00-01:00）的判定邏輯要明確說明
+3. 必須明確說出命宮位置、主星、格局
+4. 結構清晰，先說命盤結構，再說詳細分析
+
+輸出風格：專業、溫暖、具啟發性
+"""
+
+INITIAL_ANALYSIS_PROMPT = """
+請為以下用戶提供完整的紫微斗數命盤分析：
+
+出生日期：{birth_date}
+出生時間：{birth_time}
+出生地點：{birth_location}
+性別：{gender}
+
+請按照以下格式輸出（約1500-2000字）：
+
+### 一、命盤基礎結構
+1. **時辰判定**：說明如何處理時辰（特別是晚子時）
+2. **命宮**：位於哪個宮位？主星是什麼？輔星有哪些？
+3. **核心格局**：屬於什麼格局？（如機月同梁、殺破狼等）
+4. **關鍵宮位**：
+   - 官祿宮（事業）：宮位、主星、四化
+   - 財帛宮（財運）：宮位、主星、四化
+   - 夫妻宮（感情）：宮位、主星、四化
+
+### 二、詳細命盤分析
+（各宮位深度解讀，約1000字）
+
+### 三、性格特質與人生建議
+（日常語言描述，核心關鍵詞至少5個，約500字）
+
+**注意**：必須明確說出宮位（如「戌宮」「申宮」），不可模糊帶過。
+"""
+
+CHAT_WITH_LOCKED_CHART_PROMPT = """
+【已鎖定的命盤結構】（此為用戶首次分析時確認的正確命盤，請在所有回應中依據此結構）
+
+{chart_structure}
+
+【用戶當前問題】
+{user_question}
+
+【回應要求】
+1. 必須基於上述鎖定的命盤結構
+2. 不要重新排盤或改變宮位配置
+3. 深入分析當前問題與命盤的關聯
+4. 提供具體可行的建議
+5. 語氣溫暖、專業、具啟發性
+"""
+
+CHAT_TEACHER_STYLE_PROMPT = """
+你是一位溫暖而專業的命理老師，回答時要像真人對談，有同理心但不誇大、不恐嚇。
+
+語氣偏好：{tone}
+
+回應結構請嚴格遵守：
+1) 共感一句（簡短、真誠）
+2) 解讀重點（2-4 點，清晰條列）
+3) 可行建議（2-3 點，具體可行）
+4) 下一步問題（1 句，邀請對話延伸）
+
+注意：
+- 避免絕對斷言，改用「可能、傾向、建議」
+- 若涉及健康/法律等敏感議題，提醒以專業意見為準
+"""
+
+SUMMARY_SYSTEM_INSTRUCTION = """
+你是一位對話摘要員，專注提取重點且保持中立。
+"""
+
+CONVERSATION_SUMMARY_PROMPT = """
+請將以下對話濃縮為 3-5 句摘要，包含：
+1) 使用者核心關注點
+2) 情緒或狀態
+3) 已給的建議方向
+
+對話紀錄：
+{conversation}
+"""
+
+# ============================================
+# 資料存取函式
+# ============================================
+
+def load_json(file_path: Path) -> Dict:
+    """載入 JSON 檔案"""
+    with open(file_path, 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+def save_json(file_path: Path, data: Dict):
+    """儲存 JSON 檔案"""
+    with open(file_path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+def parse_birth_time_str(birth_time_str: Optional[str]) -> Optional[Tuple[int, int]]:
+    """解析出生時間字串，回傳 (hour, minute)"""
+    if not birth_time_str:
+        return None
+    text = str(birth_time_str).strip()
+    match = re.match(r'^(\d{1,2})(?::(\d{1,2}))?$', text)
+    if not match:
+        return None
+    hour = int(match.group(1))
+    minute = int(match.group(2) or 0)
+    if 0 <= hour <= 23 and 0 <= minute <= 59:
+        return hour, minute
+    return None
+
+def _build_user_response(user_row: Dict) -> Dict:
+    """將資料庫格式轉為舊版使用者格式"""
+    if not user_row:
+        return {}
+    birth_date = user_row.get('gregorian_birth_date')
+    if not birth_date and user_row.get('birth_year') and user_row.get('birth_month') and user_row.get('birth_day'):
+        birth_date = f"{user_row['birth_year']}-{int(user_row['birth_month']):02d}-{int(user_row['birth_day']):02d}"
+    birth_time = None
+    if user_row.get('birth_hour') is not None:
+        minute = int(user_row.get('birth_minute') or 0)
+        birth_time = f"{int(user_row['birth_hour']):02d}:{minute:02d}"
+    return {
+        'user_id': user_row.get('user_id'),
+        'name': user_row.get('name'),
+        'full_name': user_row.get('full_name'),
+        'gender': user_row.get('gender'),
+        'birth_date': birth_date,
+        'birth_time': birth_time,
+        'birth_location': user_row.get('birth_location'),
+        'longitude': user_row.get('longitude'),
+        'latitude': user_row.get('latitude'),
+        'gregorian_birth_date': user_row.get('gregorian_birth_date'),
+        'created_at': user_row.get('created_at'),
+        'updated_at': user_row.get('updated_at')
+    }
+
+def get_user(user_id: str) -> Optional[Dict]:
+    """取得用戶資料"""
+    user_row = db.get_user(user_id)
+    if user_row:
+        return _build_user_response(user_row)
+    # 向後相容：JSON 備援
+    if USERS_FILE.exists():
+        users = load_json(USERS_FILE)
+        return users.get(user_id)
+    return None
+
+def save_user(user_id: str, user_data: Dict):
+    """儲存用戶資料"""
+    birth_date = user_data.get('gregorian_birth_date') or user_data.get('birth_date')
+    parsed_date = parse_birth_date_str(birth_date)
+    parsed_time = parse_birth_time_str(user_data.get('birth_time'))
+
+    db_payload = {
+        'user_id': user_id,
+        'name': user_data.get('name'),
+        'full_name': user_data.get('full_name'),
+        'gender': user_data.get('gender'),
+        'birth_year': parsed_date[0] if parsed_date else None,
+        'birth_month': parsed_date[1] if parsed_date else None,
+        'birth_day': parsed_date[2] if parsed_date else None,
+        'birth_hour': parsed_time[0] if parsed_time else None,
+        'birth_minute': parsed_time[1] if parsed_time else None,
+        'birth_location': user_data.get('birth_location'),
+        'longitude': user_data.get('longitude'),
+        'latitude': user_data.get('latitude'),
+        'gregorian_birth_date': birth_date
+    }
+
+    existing = db.get_user(user_id)
+    if existing:
+        update_payload = {k: v for k, v in db_payload.items() if k != 'user_id' and v is not None}
+        if update_payload:
+            db.update_user(user_id, update_payload)
+    else:
+        db.create_user(db_payload)
+
+def get_chart_lock(user_id: str) -> Optional[Dict]:
+    """取得用戶的鎖定命盤"""
+    record = db.get_chart_lock(user_id)
+    if record:
+        chart_data = record.get('chart_data') or {}
+        if record.get('analysis') and not chart_data.get('original_analysis'):
+            chart_data['original_analysis'] = record.get('analysis')
+        return chart_data
+    # 向後相容：JSON 備援
+    if LOCKS_FILE.exists():
+        locks = load_json(LOCKS_FILE)
+        return locks.get(user_id)
+    return None
+
+def save_chart_lock(user_id: str, lock_data: Dict):
+    """儲存鎖定命盤"""
+    chart_type = lock_data.get('chart_type') or 'ziwei'
+    analysis = lock_data.get('original_analysis') or lock_data.get('analysis')
+    db.save_chart_lock(user_id, chart_type, lock_data, analysis)
+
+def migrate_json_to_sqlite():
+    """將舊版 JSON 資料遷移到 SQLite（僅首次）"""
+    try:
+        if USERS_FILE.exists() and len(db.list_users()) == 0:
+            users = load_json(USERS_FILE)
+            for user_id, user_data in users.items():
+                save_user(user_id, user_data)
+
+        if LOCKS_FILE.exists():
+            locks = load_json(LOCKS_FILE)
+            for user_id, lock_data in locks.items():
+                if db.get_chart_lock(user_id) is None:
+                    save_chart_lock(user_id, lock_data)
+    except Exception as e:
+        logger.warning(f'JSON 遷移到 SQLite 失敗: {str(e)}')
+
+def normalize_gender(value: Optional[str]) -> str:
+    """統一性別格式為「男/女/未指定」"""
+    if not value:
+        return "未指定"
+    value = str(value).strip().lower()
+    if value in ["男", "male", "m", "man", "男性", "boy"]:
+        return "男"
+    if value in ["女", "female", "f", "woman", "女性", "girl"]:
+        return "女"
+    return "未指定"
+
+def suggest_next_steps(message: str) -> list:
+    """根據使用者問題提供下一步建議"""
+    text = (message or "").lower()
+    if any(k in text for k in ["感情", "愛情", "婚姻", "伴侶", "關係"]):
+        return ["感情走向細節", "伴侶互動建議", "提升關係的具體做法"]
+    if any(k in text for k in ["工作", "事業", "職場", "升遷", "轉職"]):
+        return ["近期職場策略", "適合的發展方向", "時間點與節奏"]
+    if any(k in text for k in ["財", "金錢", "投資", "理財"]):
+        return ["財務風險提醒", "可行的理財步驟", "近期財運節奏"]
+    if any(k in text for k in ["健康", "疾病", "身體"]):
+        return ["生活作息調整", "壓力與能量平衡", "就醫與檢查提醒"]
+    return ["事業方向", "感情關係", "近期決策"]
+
+def build_conversation_log(history: list) -> str:
+    """將歷史記錄整理成對話文字"""
+    lines = []
+    for item in history:
+        request_data = item.get('request_data') or {}
+        response_data = item.get('response_data') or {}
+        user_msg = request_data.get('message')
+        ai_msg = response_data.get('reply') or response_data.get('response')
+        if user_msg:
+            lines.append(f"使用者：{user_msg}")
+        if ai_msg:
+            lines.append(f"命理老師：{ai_msg}")
+    return "\n".join(lines)
+
+def hash_password(password: str) -> Dict[str, str]:
+    """雜湊密碼（PBKDF2-HMAC-SHA256）"""
+    salt = secrets.token_hex(16)
+    pwd_hash = hashlib.pbkdf2_hmac(
+        'sha256',
+        password.encode('utf-8'),
+        salt.encode('utf-8'),
+        100000
+    ).hex()
+    return {'hash': pwd_hash, 'salt': salt}
+
+def verify_password(password: str, stored_hash: str, salt: str) -> bool:
+    """驗證密碼"""
+    pwd_hash = hashlib.pbkdf2_hmac(
+        'sha256',
+        password.encode('utf-8'),
+        salt.encode('utf-8'),
+        100000
+    ).hex()
+    return hmac.compare_digest(pwd_hash, stored_hash)
+
+def get_auth_token_from_request(data: Optional[Dict] = None) -> Optional[str]:
+    """從 Authorization header 或 payload 取得 token"""
+    auth_header = request.headers.get('Authorization', '')
+    if auth_header.lower().startswith('bearer '):
+        return auth_header.split(' ', 1)[1].strip()
+    if data:
+        return data.get('token')
+    return None
+
+def require_auth_user_id() -> str:
+    """驗證 session 並回傳 user_id"""
+    token = get_auth_token_from_request(request.json or {})
+    if not token:
+        raise MissingParameterException('token')
+    session = db.get_session(token)
+    if not session:
+        raise UserNotFoundException('session')
+    expires_at = session.get('expires_at')
+    if expires_at:
+        try:
+            if datetime.fromisoformat(expires_at) < datetime.now():
+                db.delete_session(token)
+                raise UserNotFoundException('session')
+        except Exception:
+            pass
+    return session.get('user_id')
+
+def parse_birth_date_str(birth_date_str: Optional[str]) -> Optional[Tuple[int, int, int]]:
+    """解析出生日期字串，回傳 (year, month, day)"""
+    if not birth_date_str:
+        return None
+    text = str(birth_date_str).strip()
+    # 1) ISO 日期
+    try:
+        dt = date.fromisoformat(text)
+        return dt.year, dt.month, dt.day
+    except Exception:
+        pass
+    # 2) 農曆/民國字串，例如「農曆68年9月23日」
+    match = re.search(r'(\d{2,4})年(\d{1,2})月(\d{1,2})日', text)
+    if match:
+        year = int(match.group(1))
+        month = int(match.group(2))
+        day = int(match.group(3))
+        if year < 1900:
+            year += 1911
+        return year, month, day
+    return None
+
+def get_user_birth_info(user: Dict) -> Optional[Dict[str, int]]:
+    """從用戶資料取得出生年月日（優先使用國曆日期）"""
+    if not user:
+        return None
+    # 1) 國曆生日
+    gregorian = user.get('gregorian_birth_date')
+    parsed = parse_birth_date_str(gregorian)
+    if parsed:
+        return {'year': parsed[0], 'month': parsed[1], 'day': parsed[2]}
+    # 2) 其他日期欄位
+    parsed = parse_birth_date_str(user.get('birth_date'))
+    if parsed:
+        return {'year': parsed[0], 'month': parsed[1], 'day': parsed[2]}
+    return None
+
+# 啟動時嘗試遷移舊版 JSON 資料
+migrate_json_to_sqlite()
+
+
+# ============================================
+# 請求日誌中間件
+# ============================================
+
+@app.before_request
+def log_request_info():
+    """記錄每個請求的基本資訊"""
+    import time
+    request.start_time = time.time()
+    if request.endpoint != 'health_check':  # 健康檢查不記錄
+        logger.debug(f"收到請求: {request.method} {request.path}")
+
+
+@app.after_request
+def log_response_info(response):
+    """記錄每個回應的基本資訊"""
+    import time
+    if hasattr(request, 'start_time') and request.endpoint != 'health_check':
+        duration_ms = (time.time() - request.start_time) * 1000
+        logger.log_api_response(
+            request.path,
+            response.status_code,
+            duration_ms
+        )
+    return response
+
+
+# ============================================
+# Gemini API 呼叫
+# ============================================
+
+def call_gemini(prompt: str, system_instruction: str = SYSTEM_INSTRUCTION) -> str:
+    """
+    呼叫 Gemini API（使用新的 google.genai SDK）
+    
+    Args:
+        prompt: 提示詞
+        system_instruction: 系統指令（將前置到 prompt 中）
+        
+    Returns:
+        繁體中文的回應文字
+    """
+    import time
+    start_time = time.time()
+    
+    # 新 SDK 不支持 system_instruction，我們將它前置到 prompt 中
+    full_prompt = f"{system_instruction}\n\n{prompt}"
+    
+    try:
+        response_text = gemini_client.generate(full_prompt)
+        duration_ms = (time.time() - start_time) * 1000
+        logger.info(f"Gemini API 呼叫成功", duration_ms=duration_ms)
+        return to_zh_tw(response_text)
+    except Exception as e:
+        logger.error(f"Gemini API 呼叫失敗: {str(e)}")
+        raise AIAPIException(str(e))
+
+
+def build_astrology_core(natal: Dict) -> Dict:
+    """萃取戰略側寫所需的占星核心資料"""
+    if not natal:
+        return {}
+    planets = natal.get("planets", {})
+    houses = natal.get("houses", {})
+    return {
+        "sun": planets.get("sun"),
+        "moon": planets.get("moon"),
+        "ascendant": planets.get("ascendant"),
+        "midheaven": planets.get("midheaven"),
+        "house_10": houses.get("house_10"),
+        "house_6": houses.get("house_6"),
+        "house_2": houses.get("house_2")
+    }
+
+
+def build_meta_profile(
+    bazi: Optional[Dict],
+    numerology_profile: Optional[Dict],
+    name_analysis: Optional[Dict],
+    astrology_core: Optional[Dict]
+) -> Dict:
+    """建立全息側寫 Meta Profile（結構化摘要）"""
+    meta = {
+        "dominant_elements": [],
+        "core_numbers": {},
+        "career_axis": {},
+        "role_tags": [],
+        "risk_flags": []
+    }
+
+    if bazi:
+        day_master = bazi.get("日主")
+        strength = bazi.get("強弱", {}).get("结论") if isinstance(bazi.get("強弱"), dict) else bazi.get("強弱")
+        use_god = bazi.get("用神", {}).get("用神") if isinstance(bazi.get("用神"), dict) else bazi.get("用神")
+        avoid_god = bazi.get("用神", {}).get("忌神") if isinstance(bazi.get("用神"), dict) else None
+        if isinstance(day_master, dict) and day_master.get("五行"):
+            meta["dominant_elements"].append(day_master.get("五行"))
+        if use_god:
+            meta["dominant_elements"].extend(use_god if isinstance(use_god, list) else [use_god])
+        if strength:
+            meta["risk_flags"].append(f"身弱/身強判定：{strength}")
+        if avoid_god:
+            meta["risk_flags"].append(f"忌神：{avoid_god}")
+
+    if numerology_profile:
+        core = numerology_profile.get("core_numbers", {})
+        meta["core_numbers"] = {
+            "life_path": core.get("life_path"),
+            "expression": core.get("expression"),
+            "soul_urge": core.get("soul_urge")
+        }
+        lp = core.get("life_path")
+        if isinstance(lp, dict) and lp.get("is_master"):
+            meta["role_tags"].append("master_number")
+
+    if name_analysis:
+        grid = name_analysis.get("grid_analyses", {})
+        personality = grid.get("人格")
+        if isinstance(personality, dict) and personality.get("element"):
+            meta["dominant_elements"].append(personality.get("element"))
+
+    if astrology_core:
+        mc = astrology_core.get("midheaven", {}) or {}
+        house_10 = astrology_core.get("house_10", {}) or {}
+        mc_sign = mc.get("sign_zh") or house_10.get("sign_zh")
+        if mc_sign:
+            meta["career_axis"] = {
+                "midheaven_sign": mc_sign
+            }
+        if mc_sign in ["金牛座", "摩羯座", "處女座"]:
+            meta["role_tags"].append("builder")
+
+    # 基礎去重
+    meta["dominant_elements"] = list(dict.fromkeys(meta["dominant_elements"]))
+    meta["role_tags"] = list(dict.fromkeys(meta["role_tags"]))
+
+    return meta
+
+
+def build_bazi_candidate_summary(bazi: Dict) -> Dict:
+    """將八字輸出壓縮為生辰校正摘要"""
+    day_master = bazi.get("日主")
+    strength = bazi.get("強弱", {}).get("结论") if isinstance(bazi.get("強弱"), dict) else bazi.get("強弱")
+    use_god = bazi.get("用神", {}).get("用神") if isinstance(bazi.get("用神"), dict) else bazi.get("用神")
+    hour_pillar = bazi.get("時柱") or bazi.get("时柱")
+    return {
+        "day_master": day_master,
+        "strength": strength,
+        "use_god": use_god,
+        "hour_pillar": hour_pillar
+    }
+
+# ============================================
+# API 路由
+# ============================================
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    """健康檢查"""
+    logger.debug("健康檢查請求")
+    return jsonify({'status': 'ok', 'service': 'Aetheria Chart Locking API'})
+
+# ============================================
+# 會員系統
+# ============================================
+
+@app.route('/api/auth/register', methods=['POST'])
+def register_member():
+    """會員註冊"""
+    data = request.json or {}
+    email = data.get('email')
+    password = data.get('password')
+    phone = data.get('phone')
+    display_name = data.get('display_name')
+    consents = data.get('consents') or {}
+
+    if not email:
+        raise MissingParameterException('email')
+    if not password:
+        raise MissingParameterException('password')
+
+    if db.get_member_by_email(email):
+        return jsonify({'status': 'error', 'message': 'Email 已註冊'}), 409
+
+    user_id = uuid.uuid4().hex
+    hashed = hash_password(password)
+    db.create_member({
+        'user_id': user_id,
+        'email': email,
+        'phone': phone,
+        'display_name': display_name,
+        'password_hash': hashed['hash'],
+        'password_salt': hashed['salt']
+    })
+
+    if consents:
+        db.save_member_consents(user_id, consents)
+
+    token = uuid.uuid4().hex
+    expires_at = (datetime.now() + timedelta(days=30)).isoformat()
+    db.create_session(token, user_id, expires_at)
+
+    return jsonify({
+        'status': 'success',
+        'user_id': user_id,
+        'token': token,
+        'expires_at': expires_at
+    })
+
+@app.route('/api/auth/login', methods=['POST'])
+def login_member():
+    """會員登入"""
+    data = request.json or {}
+    email = data.get('email')
+    password = data.get('password')
+
+    if not email:
+        raise MissingParameterException('email')
+    if not password:
+        raise MissingParameterException('password')
+
+    member = db.get_member_by_email(email)
+    if not member:
+        return jsonify({'status': 'error', 'message': '帳號或密碼錯誤'}), 401
+
+    if not verify_password(password, member.get('password_hash'), member.get('password_salt')):
+        return jsonify({'status': 'error', 'message': '帳號或密碼錯誤'}), 401
+
+    token = uuid.uuid4().hex
+    expires_at = (datetime.now() + timedelta(days=30)).isoformat()
+    db.create_session(token, member.get('user_id'), expires_at)
+
+    return jsonify({
+        'status': 'success',
+        'user_id': member.get('user_id'),
+        'token': token,
+        'expires_at': expires_at
+    })
+
+@app.route('/api/auth/logout', methods=['POST'])
+def logout_member():
+    """會員登出"""
+    token = get_auth_token_from_request(request.json or {})
+    if not token:
+        raise MissingParameterException('token')
+    db.delete_session(token)
+    return jsonify({'status': 'success'})
+
+@app.route('/api/profile', methods=['GET'])
+def get_profile():
+    """取得會員資料"""
+    user_id = require_auth_user_id()
+    member = db.get_member_by_user_id(user_id) or {}
+    prefs = db.get_member_preferences(user_id) or {}
+    consents = db.get_member_consents(user_id) or {}
+
+    return jsonify({
+        'status': 'success',
+        'profile': {
+            'user_id': user_id,
+            'email': member.get('email'),
+            'phone': member.get('phone'),
+            'display_name': member.get('display_name'),
+            'created_at': member.get('created_at')
+        },
+        'preferences': prefs,
+        'consents': consents
+    })
+
+@app.route('/api/profile', methods=['PATCH'])
+def update_profile():
+    """更新會員資料與偏好"""
+    data = request.json or {}
+    user_id = require_auth_user_id()
+
+    profile_updates = {}
+    for key in ['phone', 'display_name']:
+        if key in data:
+            profile_updates[key] = data.get(key)
+
+    if profile_updates:
+        db.update_member(user_id, profile_updates)
+
+    if 'preferences' in data:
+        db.save_member_preferences(user_id, data.get('preferences') or {})
+
+    return jsonify({'status': 'success'})
+
+@app.route('/api/consent', methods=['POST'])
+def update_consent():
+    """更新會員同意紀錄"""
+    data = request.json or {}
+    user_id = require_auth_user_id()
+    db.save_member_consents(user_id, data)
+    return jsonify({'status': 'success'})
+
+@app.route('/api/chart/initial-analysis', methods=['POST'])
+def initial_analysis():
+    """
+    首次命盤分析
+    
+    Request:
+    {
+        "user_id": "user_123",
+        "birth_date": "農曆68年9月23日",
+        "birth_time": "23:58",
+        "birth_location": "台灣彰化市",
+        "gender": "男"
+    }
+    
+    Response:
+    {
+        "analysis": "完整分析文字",
+        "structure": {...},
+        "lock_id": "user_123",
+        "needs_confirmation": true
+    }
+    """
+    import time
+    start_time = time.time()
+    
+    data = request.json
+    user_id = data.get('user_id')
+    
+    # 參數驗證
+    if not user_id:
+        raise MissingParameterException('user_id')
+    
+    logger.log_api_request('/api/chart/initial-analysis', 'POST', user_id=user_id)
+    
+    try:
+        # 儲存用戶基本資料
+        user_data = {
+            'user_id': user_id,
+            'birth_date': data['birth_date'],
+            'birth_time': data['birth_time'],
+            'birth_location': data['birth_location'],
+            'gender': data['gender'],
+            'created_at': datetime.now().isoformat()
+        }
+        save_user(user_id, user_data)
+        
+        # 組合 Prompt
+        prompt = INITIAL_ANALYSIS_PROMPT.format(
+            birth_date=data['birth_date'],
+            birth_time=data['birth_time'],
+            birth_location=data['birth_location'],
+            gender=data['gender']
+        )
+        
+        # 呼叫 Gemini
+        logger.info(f'正在為用戶 {user_id} 生成命盤...', user_id=user_id)
+        analysis = call_gemini(prompt)
+        
+        # 提取結構
+        structure = extractor.extract_full_structure(analysis)
+        
+        # 驗證結構
+        is_valid, errors = extractor.validate_structure(structure)
+        
+        if not is_valid:
+            logger.warning(f'命盤結構提取不完整', user_id=user_id, errors=errors)
+            return jsonify({
+                'status': 'error',
+                'error': '命盤結構提取不完整',
+                'details': errors,
+                'raw_analysis': analysis
+            }), 400
+        
+        # 暫存到資料庫（待確認）
+        temp_lock = {
+            'user_id': user_id,
+            'chart_structure': structure,
+            'original_analysis': analysis,
+            'confirmation_status': 'pending',
+            'created_at': datetime.now().isoformat(),
+            'is_active': False
+        }
+        save_chart_lock(user_id, temp_lock)
+        
+        duration_ms = (time.time() - start_time) * 1000
+        logger.log_api_response('/api/chart/initial-analysis', 200, duration_ms)
+        logger.info(f'命盤生成完成，等待用戶確認', user_id=user_id)
+        
+        return jsonify({
+            'status': 'success',
+            'analysis': analysis,
+            'structure': structure,
+            'lock_id': user_id,
+            'needs_confirmation': True
+        })
+        
+    except AetheriaException:
+        raise  # 讓錯誤處理器處理
+    except Exception as e:
+        logger.error(f'命盤分析失敗: {str(e)}', user_id=user_id)
+        return jsonify({'status': 'error', 'error': str(e)}), 500
+
+@app.route('/api/chart/confirm-lock', methods=['POST'])
+def confirm_lock():
+    """
+    確認並鎖定命盤
+    
+    Request:
+    {
+        "user_id": "user_123"
+    }
+    
+    Response:
+    {
+        "status": "locked",
+        "message": "命盤已鎖定",
+        "locked_at": "2026-01-24T02:00:00"
+    }
+    """
+    try:
+        data = request.json
+        user_id = data.get('user_id')
+        
+        if not user_id:
+            raise MissingParameterException('user_id')
+        
+        # 取得暫存的命盤
+        lock = get_chart_lock(user_id)
+        
+        if not lock:
+            raise ChartNotFoundException(user_id, '找不到待確認的命盤')
+        
+        # 更新確認狀態
+        lock['confirmation_status'] = 'confirmed'
+        lock['confirmed_at'] = datetime.now().isoformat()
+        lock['is_active'] = True
+        
+        save_chart_lock(user_id, lock)
+        
+        logger.info(f'用戶 {user_id} 已確認並鎖定命盤', user_id=user_id)
+        
+        return jsonify({
+            'status': 'locked',
+            'message': '命盤已鎖定',
+            'locked_at': lock['confirmed_at']
+        })
+        
+    except AetheriaException:
+        raise
+    except Exception as e:
+        logger.error(f'確認鎖盤失敗: {str(e)}', user_id=user_id if 'user_id' in dir() else None)
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/chart/get-lock', methods=['GET'])
+def get_lock():
+    """
+    查詢用戶的鎖定命盤
+    
+    Query: ?user_id=user_123
+    
+    Response:
+    {
+        "locked": true,
+        "chart_structure": {...},
+        "locked_at": "2026-01-24T02:00:00"
+    }
+    """
+    try:
+        user_id = request.args.get('user_id')
+        
+        if not user_id:
+            raise MissingParameterException('user_id')
+        
+        lock = get_chart_lock(user_id)
+        
+        if not lock:
+            return jsonify({'locked': False, 'message': '尚未定盤'})
+        
+        if not lock.get('is_active'):
+            return jsonify({'locked': False, 'message': '命盤尚未確認'})
+        
+        return jsonify({
+            'locked': True,
+            'chart_structure': lock['chart_structure'],
+            'locked_at': lock.get('confirmed_at'),
+            'original_analysis': lock.get('original_analysis', '')[:500] + '...'
+        })
+        
+    except AetheriaException:
+        raise
+    except Exception as e:
+        logger.error(f'查詢鎖盤失敗: {str(e)}')
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/chat/message', methods=['POST'])
+def chat_message():
+    """
+    後續對話（自動注入鎖定結構）
+    
+    Request:
+    {
+        "user_id": "user_123",
+        "message": "我最近工作不順利，怎麼辦？"
+    }
+    
+    Response:
+    {
+        "response": "根據你的命盤...",
+        "chart_injected": true
+    }
+    """
+    try:
+        data = request.json
+        user_id = data.get('user_id')
+        message = data.get('message')
+        tone = data.get('tone')
+        
+        if not user_id:
+            raise MissingParameterException('user_id')
+        if not message:
+            raise MissingParameterException('message')
+        
+        # 取得鎖定的命盤
+        lock = get_chart_lock(user_id)
+        
+        if not lock or not lock.get('is_active'):
+            raise ChartNotLockedException(user_id)
+        
+        if not tone:
+            prefs = db.get_member_preferences(user_id) or {}
+            tone = prefs.get('tone') or '溫暖專業'
+
+        # 格式化命盤結構
+        structure = lock.get('chart_structure', {})
+        life_palace = structure.get('命宮', {})
+        main_stars = life_palace.get('主星') or []
+        main_stars_text = ', '.join(main_stars) if main_stars else '未提及'
+        life_palace_pos = life_palace.get('宮位', '未提及')
+        pattern_text = ', '.join(structure.get('格局', []) or []) or '未提及'
+        five_elements = structure.get('五行局', '未提及')
+
+        structure_text = f"""
+命宮：{main_stars_text} ({life_palace_pos}宮)
+格局：{pattern_text}
+五行局：{five_elements}
+
+十二宮配置：
+"""
+
+        for palace, info in structure.get('十二宮', {}).items():
+            stars = ', '.join(info.get('主星') or []) if info else '空宮'
+            trans = f" - {info.get('四化')}" if info and info.get('四化') else ''
+            palace_pos = info.get('宮位') if info else None
+            palace_pos_text = palace_pos if palace_pos else '未提及'
+            structure_text += f"- {palace} ({palace_pos_text}宮): {stars}{trans}\n"
+
+        # 組合 Prompt（注入結構 + 真人感模板）
+        prompt = "\n\n".join([
+            CHAT_WITH_LOCKED_CHART_PROMPT.format(
+                chart_structure=structure_text,
+                user_question=message
+            ),
+            CHAT_TEACHER_STYLE_PROMPT.format(tone=tone)
+        ])
+        
+        # 呼叫 Gemini
+        logger.info(f'正在為用戶 {user_id} 回應問題...', user_id=user_id)
+        response = call_gemini(prompt)
+        next_steps = suggest_next_steps(message)
+
+        db.save_analysis_history(
+            user_id,
+            'chat_message',
+            {'message': message, 'tone': tone},
+            {'reply': response}
+        )
+
+        conversation_summary = None
+        try:
+            history = db.get_analysis_history(user_id, limit=12)
+            chat_history = [item for item in history if item.get('analysis_type') == 'chat_message']
+            chat_history = list(reversed(chat_history))[-6:]
+            if chat_history:
+                conversation = build_conversation_log(chat_history)
+                summary_prompt = CONVERSATION_SUMMARY_PROMPT.format(conversation=conversation)
+                conversation_summary = call_gemini(summary_prompt, system_instruction=SUMMARY_SYSTEM_INSTRUCTION)
+        except Exception as e:
+            logger.warning(f'對話摘要生成失敗: {str(e)}', user_id=user_id)
+        
+        logger.info(f'回應完成', user_id=user_id)
+        
+        return jsonify({
+            'reply': response,
+            'chart_injected': True,
+            'tone': tone,
+            'next_steps': next_steps,
+            'conversation_summary': conversation_summary
+        })
+        
+    except AetheriaException:
+        raise
+    except Exception as e:
+        logger.error(f'對話失敗: {str(e)}', user_id=user_id if 'user_id' in dir() else None)
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/chart/relock', methods=['POST'])
+def relock_chart():
+    """
+    重新定盤
+    
+    Request:
+    {
+        "user_id": "user_123",
+        "reason": "時辰有誤，需重新排盤"
+    }
+    
+    Response:
+    {
+        "status": "relocked",
+        "message": "已重新定盤，請確認新的命盤結構"
+    }
+    """
+    try:
+        data = request.json
+        user_id = data.get('user_id')
+        reason = data.get('reason', '用戶要求重新定盤')
+        
+        if not user_id:
+            raise MissingParameterException('user_id')
+        
+        # 取得用戶資料
+        user = get_user(user_id)
+        
+        if not user:
+            raise UserNotFoundException(user_id)
+        
+        # 停用舊的鎖定
+        old_lock = get_chart_lock(user_id)
+        if old_lock:
+            old_lock['is_active'] = False
+            old_lock['deactivated_at'] = datetime.now().isoformat()
+            old_lock['deactivate_reason'] = reason
+            save_chart_lock(user_id + '_old', old_lock)
+        
+        logger.info(f'用戶 {user_id} 重新定盤，原因：{reason}', user_id=user_id)
+        
+        # 返回前端，讓它重新呼叫 initial-analysis
+        return jsonify({
+            'status': 'ready_for_reanalysis',
+            'message': '已清除舊命盤，請重新進行命盤分析'
+        })
+        
+    except AetheriaException:
+        raise
+    except Exception as e:
+        logger.error(f'重新定盤失敗: {str(e)}')
+        return jsonify({'error': str(e)}), 500
+
+# ============================================
+# 流年運勢 API
+# ============================================
+
+@app.route('/api/fortune/annual', methods=['POST'])
+def fortune_annual():
+    """
+    年度流年運勢分析
+    
+    Request:
+    {
+        "user_id": "user_123",
+        "target_year": 2026  (可選，默認當前年份)
+    }
+    
+    Response:
+    {
+        "fortune_data": {...},
+        "analysis": "完整流年分析文字"
+    }
+    """
+    try:
+        data = request.json
+        user_id = data.get('user_id')
+        target_year = data.get('target_year', datetime.now().year)
+        
+        if not user_id:
+            raise MissingParameterException('user_id')
+        
+        # 取得鎖定的命盤
+        lock = get_chart_lock(user_id)
+        if not lock or not lock.get('is_active'):
+            raise ChartNotLockedException(user_id)
+        
+        # 取得用戶資料
+        user = get_user(user_id)
+        if not user:
+            raise UserNotFoundException(user_id)
+        
+        # 取得用戶出生日期
+        birth_info = get_user_birth_info(user)
+        if not birth_info:
+            raise InvalidParameterException('birth_date', '用戶缺少可解析的出生日期')
+        
+        # 創建流年計算器
+        ming_gong_branch = lock['chart_structure']['命宮']['宮位']
+        teller = FortuneTeller(
+            birth_year=birth_info['year'],
+            birth_month=birth_info['month'],
+            birth_day=birth_info['day'],
+            gender=normalize_gender(user.get('gender')),
+            ming_gong_branch=ming_gong_branch
+        )
+        
+        # 計算流年運勢
+        fortune_data = teller.get_fortune_summary(target_year)
+        fortune_text = teller.format_fortune_text(fortune_data)
+        
+        # 格式化命盤結構
+        structure = lock['chart_structure']
+        structure_text = f"""
+命宮：{', '.join(structure['命宮']['主星'])} ({structure['命宮']['宮位']}宮)
+格局：{', '.join(structure['格局'])}
+"""
+        
+        # 組合 Prompt
+        prompt = FORTUNE_ANNUAL_ANALYSIS.format(
+            chart_structure=structure_text,
+            fortune_info=fortune_text,
+            target_year=target_year,
+            da_xian_number=fortune_data['da_xian']['da_xian_number'],
+            da_xian_age_range=f"{fortune_data['da_xian']['age_range'][0]}-{fortune_data['da_xian']['age_range'][1]}",
+            da_xian_palace=fortune_data['da_xian']['palace_name'],
+            liu_nian_palace=fortune_data['liu_nian']['palace_name'],
+            gan_zhi=fortune_data['liu_nian']['gan_zhi']
+        )
+        
+        # 呼叫 Gemini
+        logger.info(f'正在生成 {target_year} 年流年分析...', user_id=user_id)
+        analysis = call_gemini(prompt)
+        
+        return jsonify({
+            'fortune_data': fortune_data,
+            'analysis': analysis
+        })
+        
+    except AetheriaException:
+        raise
+    except Exception as e:
+        logger.error(f'流年分析失敗: {str(e)}', user_id=user_id if 'user_id' in dir() else None)
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/fortune/monthly', methods=['POST'])
+def fortune_monthly():
+    """
+    流月運勢分析
+    
+    Request:
+    {
+        "user_id": "user_123",
+        "target_year": 2026,  (可選)
+        "target_month": 1     (可選)
+    }
+    """
+    try:
+        data = request.json
+        user_id = data.get('user_id')
+        target_year = data.get('target_year', datetime.now().year)
+        target_month = data.get('target_month', datetime.now().month)
+        
+        if not user_id:
+            raise MissingParameterException('user_id')
+        
+        # 取得鎖定的命盤
+        lock = get_chart_lock(user_id)
+        if not lock or not lock.get('is_active'):
+            raise ChartNotLockedException(user_id)
+        
+        # 計算流月
+        ming_gong_branch = lock['chart_structure']['命宮']['宮位']
+        
+        user = get_user(user_id)
+        birth_info = get_user_birth_info(user)
+        if not birth_info:
+            raise InvalidParameterException('birth_date', '用戶缺少可解析的出生日期')
+        
+        teller = FortuneTeller(
+            birth_year=birth_info['year'],
+            birth_month=birth_info['month'],
+            birth_day=birth_info['day'],
+            gender=normalize_gender(user.get('gender')),
+            ming_gong_branch=ming_gong_branch
+        )
+        
+        fortune_data = teller.get_fortune_summary(target_year, target_month)
+        fortune_text = teller.format_fortune_text(fortune_data)
+        
+        # 格式化命盤結構
+        structure = lock['chart_structure']
+        structure_text = f"""
+命宮：{', '.join(structure['命宮']['主星'])} ({structure['命宮']['宮位']}宮)
+格局：{', '.join(structure['格局'])}
+"""
+        
+        # 組合 Prompt
+        prompt = FORTUNE_MONTHLY_ANALYSIS.format(
+            chart_structure=structure_text,
+            fortune_info=fortune_text,
+            target_year=target_year,
+            target_month=target_month,
+            liu_yue_palace=fortune_data['liu_yue']['palace_name']
+        )
+        
+        # 呼叫 Gemini
+        logger.info(f'正在生成 {target_year} 年 {target_month} 月流月分析...', user_id=user_id)
+        analysis = call_gemini(prompt)
+        
+        return jsonify({
+            'fortune_data': fortune_data,
+            'analysis': analysis
+        })
+        
+    except AetheriaException:
+        raise
+    except Exception as e:
+        logger.error(f'流月分析失敗: {str(e)}', user_id=user_id if 'user_id' in dir() else None)
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/fortune/question', methods=['POST'])
+def fortune_question():
+    """
+    基於流年的特定問題分析
+    
+    Request:
+    {
+        "user_id": "user_123",
+        "question": "今年適合換工作嗎？"
+    }
+    """
+    try:
+        data = request.json
+        user_id = data.get('user_id')
+        question = data.get('question')
+        
+        if not user_id:
+            raise MissingParameterException('user_id')
+        if not question:
+            raise MissingParameterException('question')
+        
+        # 取得鎖定的命盤
+        lock = get_chart_lock(user_id)
+        if not lock or not lock.get('is_active'):
+            raise ChartNotLockedException(user_id)
+        
+        # 計算當前流年
+        ming_gong_branch = lock['chart_structure']['命宮']['宮位']
+        
+        user = get_user(user_id)
+        birth_info = get_user_birth_info(user)
+        if not birth_info:
+            raise InvalidParameterException('birth_date', '用戶缺少可解析的出生日期')
+        
+        teller = FortuneTeller(
+            birth_year=birth_info['year'],
+            birth_month=birth_info['month'],
+            birth_day=birth_info['day'],
+            gender=normalize_gender(user.get('gender')),
+            ming_gong_branch=ming_gong_branch
+        )
+        
+        fortune_data = teller.get_fortune_summary()
+        fortune_text = teller.format_fortune_text(fortune_data)
+        
+        # 格式化命盤結構
+        structure = lock['chart_structure']
+        structure_text = f"""
+命宮：{', '.join(structure['命宮']['主星'])} ({structure['命宮']['宮位']}宮)
+格局：{', '.join(structure['格局'])}
+
+十二宮配置：
+"""
+        for palace, info in structure.get('十二宮', {}).items():
+            stars = ', '.join(info['主星']) if info['主星'] else '空宮'
+            structure_text += f"- {palace} ({info['宮位']}宮): {stars}\n"
+        
+        # 組合 Prompt
+        prompt = FORTUNE_QUESTION_ANALYSIS.format(
+            chart_structure=structure_text,
+            fortune_info=fortune_text,
+            user_question=question
+        )
+        
+        # 呼叫 Gemini
+        logger.info(f'正在分析問題：{question}', user_id=user_id)
+        analysis = call_gemini(prompt)
+        
+        return jsonify({
+            'fortune_data': fortune_data,
+            'analysis': analysis
+        })
+        
+    except AetheriaException:
+        raise
+    except Exception as e:
+        logger.error(f'流年問題分析失敗: {str(e)}', user_id=user_id if 'user_id' in dir() else None)
+        return jsonify({'error': str(e)}), 500
+
+# ============================================
+# 合盤分析端點
+# ============================================
+
+@app.route('/api/synastry/marriage', methods=['POST'])
+def synastry_marriage():
+    """合盤分析：婚配相性"""
+    try:
+        data = request.json
+        user_a_id = data.get('user_a_id')
+        user_b_id = data.get('user_b_id')
+        
+        if not user_a_id:
+            raise MissingParameterException('user_a_id')
+        if not user_b_id:
+            raise MissingParameterException('user_b_id')
+        
+        # 獲取兩位用戶的鎖定命盤
+        lock_a = get_chart_lock(user_a_id)
+        lock_b = get_chart_lock(user_b_id)
+        
+        if not lock_a:
+            raise ChartNotLockedException(user_a_id)
+        if not lock_b:
+            raise ChartNotLockedException(user_b_id)
+        
+        # 獲取用戶資料
+        user_a = get_user(user_a_id)
+        user_b = get_user(user_b_id)
+        
+        # 格式化資料
+        person_a_info = f"""
+姓名代號：{user_a_id}
+出生：{user_a.get('birth_date', 'N/A')}
+性別：{user_a.get('gender', 'N/A')}
+"""
+        
+        person_b_info = f"""
+姓名代號：{user_b_id}
+出生：{user_b.get('birth_date', 'N/A')}
+性別：{user_b.get('gender', 'N/A')}
+"""
+        
+        # 格式化命盤結構
+        chart_a = json.dumps(lock_a['chart_structure'], ensure_ascii=False, indent=2)
+        chart_b = json.dumps(lock_b['chart_structure'], ensure_ascii=False, indent=2)
+        
+        # 組合 Prompt
+        prompt = SYNASTRY_MARRIAGE_ANALYSIS.format(
+            person_a_info=person_a_info,
+            person_a_chart=chart_a,
+            person_b_info=person_b_info,
+            person_b_chart=chart_b
+        )
+        
+        # 呼叫 Gemini
+        logger.info(f'正在分析婚配合盤：{user_a_id} & {user_b_id}')
+        analysis = call_gemini(prompt)
+        
+        return jsonify({
+            'user_a_id': user_a_id,
+            'user_b_id': user_b_id,
+            'analysis_type': '婚配相性',
+            'analysis': analysis
+        })
+        
+    except AetheriaException:
+        raise
+    except Exception as e:
+        logger.error(f'婚配合盤分析失敗: {str(e)}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/synastry/partnership', methods=['POST'])
+def synastry_partnership():
+    """合盤分析：合夥相性"""
+    try:
+        data = request.json
+        user_a_id = data.get('user_a_id')
+        user_b_id = data.get('user_b_id')
+        partnership_info = data.get('partnership_info', '未提供具體合夥項目資訊')
+        
+        if not user_a_id:
+            raise MissingParameterException('user_a_id')
+        if not user_b_id:
+            raise MissingParameterException('user_b_id')
+        
+        # 獲取兩位用戶的鎖定命盤
+        lock_a = get_chart_lock(user_a_id)
+        lock_b = get_chart_lock(user_b_id)
+        
+        if not lock_a:
+            raise ChartNotLockedException(user_a_id)
+        if not lock_b:
+            raise ChartNotLockedException(user_b_id)
+        
+        # 獲取用戶資料
+        user_a = get_user(user_a_id)
+        user_b = get_user(user_b_id)
+        
+        # 格式化資料
+        person_a_info = f"""
+姓名代號：{user_a_id}
+出生：{user_a.get('birth_date', 'N/A')}
+性別：{user_a.get('gender', 'N/A')}
+"""
+        
+        person_b_info = f"""
+姓名代號：{user_b_id}
+出生：{user_b.get('birth_date', 'N/A')}
+性別：{user_b.get('gender', 'N/A')}
+"""
+        
+        # 格式化命盤結構
+        chart_a = json.dumps(lock_a['chart_structure'], ensure_ascii=False, indent=2)
+        chart_b = json.dumps(lock_b['chart_structure'], ensure_ascii=False, indent=2)
+        
+        # 組合 Prompt
+        prompt = SYNASTRY_PARTNERSHIP_ANALYSIS.format(
+            person_a_info=person_a_info,
+            person_a_chart=chart_a,
+            person_b_info=person_b_info,
+            person_b_chart=chart_b,
+            partnership_info=partnership_info
+        )
+        
+        # 呼叫 Gemini
+        logger.info(f'正在分析合夥關係：{user_a_id} & {user_b_id}')
+        analysis = call_gemini(prompt)
+        
+        return jsonify({
+            'user_a_id': user_a_id,
+            'user_b_id': user_b_id,
+            'analysis_type': '合夥相性',
+            'partnership_info': partnership_info,
+            'analysis': analysis
+        })
+        
+    except AetheriaException:
+        raise
+    except Exception as e:
+        logger.error(f'合夥合盤分析失敗: {str(e)}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/synastry/quick', methods=['POST'])
+def synastry_quick():
+    """快速合盤評估"""
+    try:
+        data = request.json
+        user_a_id = data.get('user_a_id')
+        user_b_id = data.get('user_b_id')
+        analysis_type = data.get('analysis_type', '婚配')  # 婚配 或 合夥
+        
+        if not user_a_id:
+            raise MissingParameterException('user_a_id')
+        if not user_b_id:
+            raise MissingParameterException('user_b_id')
+        
+        # 獲取兩位用戶的鎖定命盤
+        lock_a = get_chart_lock(user_a_id)
+        lock_b = get_chart_lock(user_b_id)
+        
+        if not lock_a:
+            raise ChartNotLockedException(user_a_id)
+        if not lock_b:
+            raise ChartNotLockedException(user_b_id)
+        
+        # 獲取用戶資料
+        user_a = get_user(user_a_id)
+        user_b = get_user(user_b_id)
+        
+        # 提取關鍵資訊
+        chart_a = lock_a['chart_structure']
+        chart_b = lock_b['chart_structure']
+        
+        ming_gong_a = f"{', '.join(chart_a['命宮']['主星'])} ({chart_a['命宮']['宮位']}宮)"
+        ming_gong_b = f"{', '.join(chart_b['命宮']['主星'])} ({chart_b['命宮']['宮位']}宮)"
+        
+        # 根據分析類型選擇關鍵宮位
+        if analysis_type == '婚配':
+            key_palace_name = '夫妻宮'
+        else:
+            key_palace_name = '官祿宮'
+        
+        key_palace_a = chart_a.get('十二宮', {}).get(key_palace_name, {})
+        key_palace_b = chart_b.get('十二宮', {}).get(key_palace_name, {})
+        
+        key_info_a = f"{', '.join(key_palace_a.get('主星', ['空宮']))} ({key_palace_a.get('宮位', 'N/A')}宮)"
+        key_info_b = f"{', '.join(key_palace_b.get('主星', ['空宮']))} ({key_palace_b.get('宮位', 'N/A')}宮)"
+        
+        # 格式化資料
+        person_a_info = f"{user_a_id} - {user_a.get('gender', 'N/A')}"
+        person_b_info = f"{user_b_id} - {user_b.get('gender', 'N/A')}"
+        
+        # 組合 Prompt
+        prompt = SYNASTRY_QUICK_CHECK.format(
+            person_a_info=person_a_info,
+            person_a_ming_gong=ming_gong_a,
+            person_a_key_palace=key_info_a,
+            person_b_info=person_b_info,
+            person_b_ming_gong=ming_gong_b,
+            person_b_key_palace=key_info_b,
+            analysis_type=analysis_type
+        )
+        
+        # 呼叫 Gemini
+        logger.info(f'正在快速合盤：{user_a_id} & {user_b_id} ({analysis_type})')
+        analysis = call_gemini(prompt)
+        
+        return jsonify({
+            'user_a_id': user_a_id,
+            'user_b_id': user_b_id,
+            'analysis_type': f'快速{analysis_type}評估',
+            'analysis': analysis
+        })
+        
+    except AetheriaException:
+        raise
+    except Exception as e:
+        logger.error(f'快速合盤失敗: {str(e)}')
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================
+# 擇日功能端點
+# ============================================
+
+@app.route('/api/date-selection/marriage', methods=['POST'])
+def date_selection_marriage():
+    """擇日：婚嫁吉日"""
+    try:
+        data = request.json
+        groom_id = data.get('groom_id')
+        bride_id = data.get('bride_id')
+        target_year = data.get('target_year', datetime.now().year)
+        preferred_months = data.get('preferred_months', '全年皆可')
+        avoid_dates = data.get('avoid_dates', '無')
+        other_requirements = data.get('other_requirements', '無')
+        
+        if not groom_id or not bride_id:
+            return jsonify({'error': '需要提供新郎和新娘的 ID'}), 400
+        
+        # 獲取兩位用戶的鎖定命盤
+        lock_groom = get_chart_lock(groom_id)
+        lock_bride = get_chart_lock(bride_id)
+        
+        if not lock_groom or not lock_bride:
+            return jsonify({'error': '新郎新娘都需要先完成定盤'}), 400
+        
+        # 獲取用戶資料
+        groom = get_user(groom_id)
+        bride = get_user(bride_id)
+        
+        # 計算流年資訊（簡化版，實際需要從出生資料計算）
+        # 這裡使用 FortuneTeller 計算
+        birth_year_groom = 1979  # 需要從 birth_date 解析
+        birth_year_bride = 1980  # 需要從 birth_date 解析
+        
+        ming_gong_groom = lock_groom['chart_structure']['命宮']['宮位']
+        ming_gong_bride = lock_bride['chart_structure']['命宮']['宮位']
+        
+        teller_groom = FortuneTeller(
+            birth_year=birth_year_groom,
+            birth_month=9,
+            birth_day=23,
+            gender=groom.get('gender', '男'),
+            ming_gong_branch=ming_gong_groom
+        )
+        
+        teller_bride = FortuneTeller(
+            birth_year=birth_year_bride,
+            birth_month=5,
+            birth_day=15,
+            gender=bride.get('gender', '女'),
+            ming_gong_branch=ming_gong_bride
+        )
+        
+        da_xian_groom = teller_groom.calculate_da_xian(target_year)
+        liu_nian_groom = teller_groom.calculate_liu_nian(target_year)
+        
+        da_xian_bride = teller_bride.calculate_da_xian(target_year)
+        liu_nian_bride = teller_bride.calculate_liu_nian(target_year)
+        
+        # 格式化資料
+        groom_info = f"""
+姓名代號：{groom_id}
+出生：{groom.get('birth_date', 'N/A')}
+性別：{groom.get('gender', 'N/A')}
+"""
+        
+        bride_info = f"""
+姓名代號：{bride_id}
+出生：{bride.get('birth_date', 'N/A')}
+性別：{bride.get('gender', 'N/A')}
+"""
+        
+        groom_chart = json.dumps(lock_groom['chart_structure'], ensure_ascii=False, indent=2)
+        bride_chart = json.dumps(lock_bride['chart_structure'], ensure_ascii=False, indent=2)
+        
+        groom_da_xian_str = f"第{da_xian_groom['da_xian_number']}大限 ({da_xian_groom['age_range'][0]}-{da_xian_groom['age_range'][1]}歲) {da_xian_groom['palace_name']}"
+        bride_da_xian_str = f"第{da_xian_bride['da_xian_number']}大限 ({da_xian_bride['age_range'][0]}-{da_xian_bride['age_range'][1]}歲) {da_xian_bride['palace_name']}"
+        
+        groom_liu_nian_str = f"{liu_nian_groom['year']}年 {liu_nian_groom['gan_zhi']} {liu_nian_groom['palace_name']}"
+        bride_liu_nian_str = f"{liu_nian_bride['year']}年 {liu_nian_bride['gan_zhi']} {liu_nian_bride['palace_name']}"
+        
+        # 組合 Prompt
+        prompt = DATE_SELECTION_MARRIAGE.format(
+            groom_info=groom_info,
+            groom_chart=groom_chart,
+            groom_da_xian=groom_da_xian_str,
+            groom_liu_nian=groom_liu_nian_str,
+            bride_info=bride_info,
+            bride_chart=bride_chart,
+            bride_da_xian=bride_da_xian_str,
+            bride_liu_nian=bride_liu_nian_str,
+            target_year=target_year,
+            preferred_months=preferred_months,
+            avoid_dates=avoid_dates,
+            other_requirements=other_requirements
+        )
+        
+        # 呼叫 Gemini
+        logger.info(f'正在為婚禮擇日：{groom_id} & {bride_id} ({target_year}年)')
+        analysis = call_gemini(prompt)
+        
+        return jsonify({
+            'groom_id': groom_id,
+            'bride_id': bride_id,
+            'target_year': target_year,
+            'analysis_type': '婚嫁擇日',
+            'analysis': analysis
+        })
+        
+    except AetheriaException:
+        raise
+    except Exception as e:
+        logger.error(f'婚禮擇日失敗: {str(e)}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/date-selection/business', methods=['POST'])
+def date_selection_business():
+    """擇日：開業吉日"""
+    try:
+        data = request.json
+        owner_id = data.get('owner_id')
+        target_year = data.get('target_year', datetime.now().year)
+        business_type = data.get('business_type', '未指定')
+        business_nature = data.get('business_nature', '一般商業')
+        business_direction = data.get('business_direction', '未指定')
+        preferred_months = data.get('preferred_months', '全年皆可')
+        avoid_dates = data.get('avoid_dates', '無')
+        other_requirements = data.get('other_requirements', '無')
+        partner_id = data.get('partner_id')  # 可選
+        
+        if not owner_id:
+            return jsonify({'error': '需要提供負責人 ID'}), 400
+        
+        # 獲取負責人的鎖定命盤
+        lock_owner = get_chart_lock(owner_id)
+        
+        if not lock_owner:
+            return jsonify({'error': '負責人需要先完成定盤'}), 400
+        
+        owner = get_user(owner_id)
+        
+        # 計算流年資訊
+        birth_year = 1979  # 需要從 birth_date 解析
+        ming_gong = lock_owner['chart_structure']['命宮']['宮位']
+        
+        teller = FortuneTeller(
+            birth_year=birth_year,
+            birth_month=9,
+            birth_day=23,
+            gender=owner.get('gender', '男'),
+            ming_gong_branch=ming_gong
+        )
+        
+        da_xian = teller.calculate_da_xian(target_year)
+        liu_nian = teller.calculate_liu_nian(target_year)
+        
+        # 格式化資料
+        owner_info = f"""
+姓名代號：{owner_id}
+出生：{owner.get('birth_date', 'N/A')}
+性別：{owner.get('gender', 'N/A')}
+"""
+        
+        owner_chart = json.dumps(lock_owner['chart_structure'], ensure_ascii=False, indent=2)
+        
+        da_xian_str = f"第{da_xian['da_xian_number']}大限 ({da_xian['age_range'][0]}-{da_xian['age_range'][1]}歲) {da_xian['palace_name']}"
+        liu_nian_str = f"{liu_nian['year']}年 {liu_nian['gan_zhi']} {liu_nian['palace_name']}"
+        
+        # 合夥人資訊（如果有）
+        partner_chart_str = '無合夥人'
+        if partner_id:
+            lock_partner = get_chart_lock(partner_id)
+            if lock_partner:
+                partner_chart_str = json.dumps(lock_partner['chart_structure'], ensure_ascii=False, indent=2)
+        
+        # 組合 Prompt
+        prompt = DATE_SELECTION_BUSINESS.format(
+            owner_info=owner_info,
+            owner_chart=owner_chart,
+            owner_da_xian=da_xian_str,
+            owner_liu_nian=liu_nian_str,
+            business_type=business_type,
+            business_nature=business_nature,
+            business_direction=business_direction,
+            partner_chart=partner_chart_str,
+            target_year=target_year,
+            preferred_months=preferred_months,
+            avoid_dates=avoid_dates,
+            other_requirements=other_requirements
+        )
+        
+        # 呼叫 Gemini
+        logger.info(f'正在為開業擇日：{owner_id} ({target_year}年)')
+        analysis = call_gemini(prompt)
+        
+        return jsonify({
+            'owner_id': owner_id,
+            'target_year': target_year,
+            'business_type': business_type,
+            'analysis_type': '開業擇日',
+            'analysis': analysis
+        })
+        
+    except AetheriaException:
+        raise
+    except Exception as e:
+        logger.error(f'開業擇日失敗: {str(e)}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/date-selection/moving', methods=['POST'])
+def date_selection_moving():
+    """擇日：搬家入宅"""
+    try:
+        data = request.json
+        owner_id = data.get('owner_id')
+        target_year = data.get('target_year', datetime.now().year)
+        new_address = data.get('new_address', '未提供')
+        new_direction = data.get('new_direction', '未指定')
+        house_orientation = data.get('house_orientation', '未指定')
+        number_of_people = data.get('number_of_people', 1)
+        family_members = data.get('family_members', '僅宅主一人')
+        preferred_months = data.get('preferred_months', '全年皆可')
+        avoid_dates = data.get('avoid_dates', '無')
+        other_requirements = data.get('other_requirements', '無')
+        
+        if not owner_id:
+            return jsonify({'error': '需要提供宅主 ID'}), 400
+        
+        # 獲取宅主的鎖定命盤
+        lock_owner = get_chart_lock(owner_id)
+        
+        if not lock_owner:
+            return jsonify({'error': '宅主需要先完成定盤'}), 400
+        
+        owner = get_user(owner_id)
+        
+        # 計算流年資訊
+        birth_year = 1979
+        ming_gong = lock_owner['chart_structure']['命宮']['宮位']
+        
+        teller = FortuneTeller(
+            birth_year=birth_year,
+            birth_month=9,
+            birth_day=23,
+            gender=owner.get('gender', '男'),
+            ming_gong_branch=ming_gong
+        )
+        
+        da_xian = teller.calculate_da_xian(target_year)
+        liu_nian = teller.calculate_liu_nian(target_year)
+        
+        # 格式化資料
+        owner_info = f"""
+姓名代號：{owner_id}
+出生：{owner.get('birth_date', 'N/A')}
+性別：{owner.get('gender', 'N/A')}
+"""
+        
+        owner_chart = json.dumps(lock_owner['chart_structure'], ensure_ascii=False, indent=2)
+        
+        da_xian_str = f"第{da_xian['da_xian_number']}大限 ({da_xian['age_range'][0]}-{da_xian['age_range'][1]}歲) {da_xian['palace_name']}"
+        liu_nian_str = f"{liu_nian['year']}年 {liu_nian['gan_zhi']} {liu_nian['palace_name']}"
+        
+        # 組合 Prompt
+        prompt = DATE_SELECTION_MOVING.format(
+            owner_info=owner_info,
+            owner_chart=owner_chart,
+            owner_da_xian=da_xian_str,
+            owner_liu_nian=liu_nian_str,
+            family_members=family_members,
+            new_address=new_address,
+            new_direction=new_direction,
+            house_orientation=house_orientation,
+            number_of_people=number_of_people,
+            target_year=target_year,
+            preferred_months=preferred_months,
+            avoid_dates=avoid_dates,
+            other_requirements=other_requirements
+        )
+        
+        # 呼叫 Gemini
+        logger.info(f'正在為搬家擇日：{owner_id} ({target_year}年)')
+        analysis = call_gemini(prompt)
+        
+        return jsonify({
+            'owner_id': owner_id,
+            'target_year': target_year,
+            'new_address': new_address,
+            'analysis_type': '搬家入宅擇日',
+            'analysis': analysis
+        })
+        
+    except AetheriaException:
+        raise
+    except Exception as e:
+        logger.error(f'搬家擇日失敗: {str(e)}')
+        return jsonify({'error': str(e)}), 500
+
+# ============================================
+# 八字命理 API
+# ============================================
+
+@app.route('/api/bazi/calculate', methods=['POST'])
+def bazi_calculate():
+    """
+    八字排盘计算
+    
+    请求参数：
+    {
+        "year": 1979,
+        "month": 10,
+        "day": 11,
+        "hour": 23,
+        "minute": 58,
+        "gender": "male",
+        "longitude": 120.52,  # 可选，用于真太阳时修正
+        "use_apparent_solar_time": true  # 可选，是否使用真太阳时
+    }
+    """
+    try:
+        data = request.json
+        
+        # 验证必需参数
+        required_fields = ['year', 'month', 'day', 'hour', 'gender']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({
+                    'status': 'error',
+                    'message': f'缺少必需参数：{field}'
+                }), 400
+        
+        # 创建八字计算器
+        calculator = BaziCalculator()
+        gender = normalize_gender(data['gender'])
+        
+        # 计算八字
+        bazi_result = calculator.calculate_bazi(
+            year=data['year'],
+            month=data['month'],
+            day=data['day'],
+            hour=data['hour'],
+            minute=data.get('minute', 0),
+            gender=gender,
+            longitude=data.get('longitude'),
+            use_apparent_solar_time=data.get('use_apparent_solar_time', False)
+        )
+        
+        return jsonify({
+            'status': 'success',
+            'data': bazi_result
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'八字计算失败：{str(e)}'
+        }), 500
+
+
+@app.route('/api/bazi/analysis', methods=['POST'])
+def bazi_analysis():
+    """
+    八字命理分析
+    
+    请求参数：
+    {
+        "user_id": "test_user_001",
+        "year": 1979,
+        "month": 10,
+        "day": 11,
+        "hour": 23,
+        "minute": 58,
+        "gender": "male",
+        "longitude": 120.52,
+        "use_apparent_solar_time": true
+    }
+    """
+    try:
+        data = request.json
+        
+        # 验证必需参数
+        required_fields = ['year', 'month', 'day', 'hour', 'gender']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({
+                    'status': 'error',
+                    'message': f'缺少必需参数：{field}'
+                }), 400
+        
+        # 计算八字
+        calculator = BaziCalculator()
+        gender = normalize_gender(data['gender'])
+        bazi_result = calculator.calculate_bazi(
+            year=data['year'],
+            month=data['month'],
+            day=data['day'],
+            hour=data['hour'],
+            minute=data.get('minute', 0),
+            gender=gender,
+            longitude=data.get('longitude'),
+            use_apparent_solar_time=data.get('use_apparent_solar_time', False)
+        )
+        
+        # 生成分析提示词
+        prompt = format_bazi_analysis_prompt(
+            bazi_result=bazi_result,
+            gender=gender,
+            birth_year=data['year'],
+            birth_month=data['month'],
+            birth_day=data['day'],
+            birth_hour=data['hour']
+        )
+        
+        # 调用 AI 进行分析（使用統一的 call_gemini）
+        analysis_text = call_gemini(prompt)
+        
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'bazi_chart': bazi_result,
+                'analysis': analysis_text,
+                'user_id': data.get('user_id'),
+                'timestamp': datetime.now().isoformat()
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'八字分析失败：{str(e)}'
+        }), 500
+
+
+@app.route('/api/bazi/fortune', methods=['POST'])
+def bazi_fortune():
+    """
+    八字流年/流月运势分析
+    
+    请求参数：
+    {
+        "user_id": "test_user_001",
+        "year": 1979,
+        "month": 10,
+        "day": 11,
+        "hour": 23,
+        "gender": "male",
+        "query_year": 2024,
+        "query_month": null,  # 可选，如果为null则分析全年
+        "longitude": 120.52
+    }
+    """
+    try:
+        data = request.json
+        
+        # 验证必需参数
+        required_fields = ['year', 'month', 'day', 'hour', 'gender', 'query_year']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({
+                    'status': 'error',
+                    'message': f'缺少必需参数：{field}'
+                }), 400
+        
+        # 计算八字
+        calculator = BaziCalculator()
+        gender = normalize_gender(data['gender'])
+        bazi_result = calculator.calculate_bazi(
+            year=data['year'],
+            month=data['month'],
+            day=data['day'],
+            hour=data['hour'],
+            minute=data.get('minute', 0),
+            gender=gender,
+            longitude=data.get('longitude'),
+            use_apparent_solar_time=data.get('use_apparent_solar_time', False)
+        )
+        
+        # 生成运势分析提示词
+        prompt = format_bazi_fortune_prompt(
+            bazi_result=bazi_result,
+            query_year=data['query_year'],
+            query_month=data.get('query_month')
+        )
+        
+        # 调用 AI 进行分析（使用統一的 call_gemini）
+        analysis_text = call_gemini(prompt)
+        
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'bazi_chart': bazi_result,
+                'fortune_analysis': analysis_text,
+                'query_year': data['query_year'],
+                'query_month': data.get('query_month'),
+                'user_id': data.get('user_id'),
+                'timestamp': datetime.now().isoformat()
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'运势分析失败：{str(e)}'
+        }), 500
+
+
+@app.route('/api/cross-validation/ziwei-bazi', methods=['POST'])
+def cross_validation_ziwei_bazi():
+    """
+    紫微斗数 + 八字命理 交叉验证分析
+    
+    请求参数：
+    {
+        "user_id": "test_user_001",
+        "year": 1979,
+        "month": 10,
+        "day": 11,
+        "hour": 23,
+        "minute": 58,
+        "gender": "male",
+        "longitude": 120.52,
+        "use_apparent_solar_time": true
+    }
+    """
+    try:
+        data = request.json
+        
+        # 验证必需参数
+        required_fields = ['year', 'month', 'day', 'hour', 'gender']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({
+                    'status': 'error',
+                    'message': f'缺少必需参数：{field}'
+                }), 400
+        
+        user_id = data.get('user_id', 'anonymous')
+        user_facts = data.get('user_facts', '')
+        
+        # 1. 获取紫微斗数锁盘信息
+        lock_data = get_chart_lock(user_id)
+        if not lock_data or not lock_data.get('is_active'):
+            return jsonify({
+                'status': 'error',
+                'message': '用户未锁定紫微命盘，请先完成紫微斗数分析并锁定命盘'
+            }), 400
+        
+        # 2. 计算八字
+        calculator = BaziCalculator()
+        bazi_result = calculator.calculate_bazi(
+            year=data['year'],
+            month=data['month'],
+            day=data['day'],
+            hour=data['hour'],
+            minute=data.get('minute', 0),
+            gender=data['gender'],
+            longitude=data.get('longitude'),
+            use_apparent_solar_time=data.get('use_apparent_solar_time', False)
+        )
+        
+        # 3. 准备紫微命盘信息摘要
+        chart_structure = lock_data.get('chart_structure', {})
+        ming_gong = chart_structure.get('命宮', {})
+        
+        ziwei_chart_info = f"""
+    命宮：{ming_gong.get('宮位', '未知')} 宮
+    主星：{', '.join(ming_gong.get('主星', []))}
+    輔星：{', '.join(ming_gong.get('輔星', []))}
+    格局：{', '.join(chart_structure.get('格局', []))}
+    五行局：{chart_structure.get('五行局', '未知')}
+        """
+        
+        # 4. 如果有之前的紫微分析，获取摘要（简化版）
+        ziwei_analysis_summary = to_zh_tw(lock_data.get('initial_analysis_summary', 
+            "紫微分析摘要：請參考完整的紫微斗數分析報告"))
+        
+        # 5. 获取八字分析摘要（先进行简短分析）
+        bazi_summary_prompt = f"""请用200-300字简要总结以下八字的核心特点：
+
+年柱：{bazi_result['四柱']['年柱']['天干']}{bazi_result['四柱']['年柱']['地支']}
+月柱：{bazi_result['四柱']['月柱']['天干']}{bazi_result['四柱']['月柱']['地支']}
+日柱：{bazi_result['四柱']['日柱']['天干']}{bazi_result['四柱']['日柱']['地支']}
+时柱：{bazi_result['四柱']['时柱']['天干']}{bazi_result['四柱']['时柱']['地支']}
+
+日主：{bazi_result['日主']['天干']}（{bazi_result['日主']['五行']}）
+强弱：{bazi_result['强弱']['结论']}
+用神：{', '.join(bazi_result['用神']['用神'])}
+"""
+        
+        # 使用統一的 call_gemini
+        bazi_analysis_summary = call_gemini(bazi_summary_prompt)
+        
+        # 6. 生成交叉验证提示词
+        prompt = format_cross_validation_prompt(
+            user_id=user_id,
+            gender=data['gender'],
+            birth_year=data['year'],
+            birth_month=data['month'],
+            birth_day=data['day'],
+            birth_hour=data['hour'],
+            longitude=data.get('longitude', 120.0),
+            ziwei_chart_info=ziwei_chart_info,
+            ziwei_analysis_summary=ziwei_analysis_summary,
+            bazi_result=bazi_result,
+            bazi_analysis_summary=bazi_analysis_summary,
+            user_facts=user_facts
+        )
+        
+        # 7. 调用 AI 进行交叉验证分析（使用統一的 call_gemini）
+        validation_text = call_gemini(prompt)
+
+        body_palace = chart_structure.get('身宮', {}).get('宮位', '未知')
+        
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'ziwei_chart': {
+                    'locked_palace': ming_gong.get('宮位', '未知'),
+                    'body_palace': body_palace,
+                    'main_stars': ming_gong.get('主星', []),
+                    'aux_stars': ming_gong.get('輔星', []),
+                    'patterns': chart_structure.get('格局', [])
+                },
+                'bazi_chart': bazi_result,
+                'cross_validation_analysis': validation_text,
+                'ziwei_summary': ziwei_analysis_summary,
+                'bazi_summary': bazi_analysis_summary,
+                'user_id': user_id,
+                'timestamp': datetime.now().isoformat()
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'交叉验证分析失败：{str(e)}'
+        }), 500
+
+
+# ============================================
+# 西洋占星術 API
+# ============================================
+
+@app.route('/api/astrology/natal', methods=['POST'])
+def astrology_natal_chart():
+    """
+    西洋占星術本命盤分析
+    
+    Request Body:
+    {
+        "name": "姓名",
+        "year": 1979,
+        "month": 11,
+        "day": 12,
+        "hour": 23,
+        "minute": 58,
+        "city": "彰化市",  # 可選
+        "longitude": 120.52,  # 可選，若有則優先使用
+        "latitude": 24.08,  # 可選
+        "timezone": "Asia/Taipei",  # 可選
+        "user_facts": {  # 可選，用於交叉驗證
+            "性格特質": "...",
+            "職業": "..."
+        }
+    }
+    """
+    try:
+        data = request.json
+        
+        # 必填欄位
+        name = data.get('name')
+        year = data.get('year')
+        month = data.get('month')
+        day = data.get('day')
+        hour = data.get('hour')
+        minute = data.get('minute')
+        
+        if not all([name, year, month, day, hour is not None, minute is not None]):
+            return jsonify({
+                'status': 'error',
+                'message': '缺少必要參數：name, year, month, day, hour, minute'
+            }), 400
+        
+        # 可選欄位
+        city = data.get('city', 'Taipei')
+        longitude = data.get('longitude')
+        latitude = data.get('latitude')
+        timezone_str = data.get('timezone', 'Asia/Taipei')
+        user_facts = data.get('user_facts', None)
+        
+        # 計算本命盤
+        natal_chart = astrology_calc.calculate_natal_chart(
+            name=name,
+            year=year,
+            month=month,
+            day=day,
+            hour=hour,
+            minute=minute,
+            city=city,
+            longitude=longitude,
+            latitude=latitude,
+            timezone_str=timezone_str
+        )
+        
+        # 格式化為文本
+        chart_text = astrology_calc.format_for_gemini(natal_chart)
+        
+        # 生成 Gemini 分析提示詞
+        prompt = get_natal_chart_analysis_prompt(chart_text, user_facts)
+        
+        # 調用 Gemini 分析（使用統一的 call_gemini）
+        system_instruction = "你是專精西洋占星術的命理分析師，遵循「有所本」原則，所有解釋必須引用占星學經典理論。輸出必須使用繁體中文（台灣用語）。"
+        full_prompt = f"{system_instruction}\n\n{prompt}"
+        analysis = call_gemini(full_prompt, "")
+        
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'natal_chart': natal_chart,
+                'chart_text': chart_text,
+                'analysis': analysis,
+                'timestamp': datetime.now().isoformat()
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'本命盤分析失敗：{str(e)}'
+        }), 500
+
+
+@app.route('/api/astrology/synastry', methods=['POST'])
+def astrology_synastry():
+    """
+    西洋占星術合盤分析（兩人關係）
+    
+    Request Body:
+    {
+        "person1": {
+            "name": "...",
+            "year": 1979,
+            "month": 11,
+            "day": 12,
+            "hour": 23,
+            "minute": 58,
+            "longitude": 120.52,
+            "latitude": 24.08,
+            "timezone": "Asia/Taipei"
+        },
+        "person2": {
+            "name": "...",
+            "year": 1985,
+            ...
+        },
+        "relationship_facts": {  # 可選
+            "關係類型": "情侶",
+            "認識時間": "2020年"
+        }
+    }
+    """
+    try:
+        data = request.json
+        person1_data = data.get('person1')
+        person2_data = data.get('person2')
+        relationship_facts = data.get('relationship_facts', None)
+        
+        if not person1_data or not person2_data:
+            return jsonify({
+                'status': 'error',
+                'message': '缺少必要參數：person1, person2'
+            }), 400
+        
+        # 計算兩人的本命盤
+        chart1 = astrology_calc.calculate_natal_chart(**person1_data)
+        chart2 = astrology_calc.calculate_natal_chart(**person2_data)
+        
+        # 格式化為文本
+        chart1_text = astrology_calc.format_for_gemini(chart1)
+        chart2_text = astrology_calc.format_for_gemini(chart2)
+        
+        # 生成合盤分析提示詞
+        prompt = get_synastry_analysis_prompt(chart1_text, chart2_text, relationship_facts)
+        
+        # 調用 Gemini 分析
+        system_instruction = "你是專精合盤分析的西洋占星師，遵循「有所本」與「實證導向」原則。輸出必須使用繁體中文（台灣用語）。"
+        full_prompt = f"{system_instruction}\n\n{prompt}"
+        analysis = call_gemini(full_prompt)
+        
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'person1_chart': chart1,
+                'person2_chart': chart2,
+                'synastry_analysis': analysis,
+                'timestamp': datetime.now().isoformat()
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'合盤分析失敗：{str(e)}'
+        }), 500
+
+
+@app.route('/api/astrology/transit', methods=['POST'])
+def astrology_transit():
+    """
+    西洋占星術流年運勢分析
+    
+    Request Body:
+    {
+        "name": "...",
+        "year": 1979,
+        "month": 11,
+        "day": 12,
+        "hour": 23,
+        "minute": 58,
+        "longitude": 120.52,
+        "latitude": 24.08,
+        "timezone": "Asia/Taipei",
+        "transit_date": "2026-01-24"  # 要分析的日期
+    }
+    """
+    try:
+        data = request.json
+        transit_date = data.get('transit_date')
+        
+        if not transit_date:
+            return jsonify({
+                'status': 'error',
+                'message': '缺少必要參數：transit_date'
+            }), 400
+        
+        # 計算本命盤
+        natal_chart = astrology_calc.calculate_natal_chart(
+            name=data.get('name'),
+            year=data.get('year'),
+            month=data.get('month'),
+            day=data.get('day'),
+            hour=data.get('hour'),
+            minute=data.get('minute'),
+            longitude=data.get('longitude'),
+            latitude=data.get('latitude'),
+            timezone_str=data.get('timezone', 'Asia/Taipei')
+        )
+        
+        chart_text = astrology_calc.format_for_gemini(natal_chart)
+        
+        # 生成流年分析提示詞
+        prompt = get_transit_analysis_prompt(chart_text, transit_date)
+        
+        # 調用 Gemini 分析
+        system_instruction = "你是專精流年運勢的西洋占星師，遵循「有所本」原則。輸出必須使用繁體中文（台灣用語）。"
+        full_prompt = f"{system_instruction}\n\n{prompt}"
+        analysis = call_gemini(full_prompt)
+        
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'natal_chart': natal_chart,
+                'transit_date': transit_date,
+                'transit_analysis': analysis,
+                'timestamp': datetime.now().isoformat()
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'流年分析失敗：{str(e)}'
+        }), 500
+
+
+@app.route('/api/astrology/career', methods=['POST'])
+def astrology_career():
+    """
+    西洋占星術事業發展分析
+    
+    Request Body:
+    {
+        "name": "...",
+        "year": 1979,
+        "month": 11,
+        "day": 12,
+        "hour": 23,
+        "minute": 58,
+        "longitude": 120.52,
+        "latitude": 24.08,
+        "timezone": "Asia/Taipei",
+        "career_facts": {  # 可選
+            "current_job": "軟體工程師",
+            "work_history": "10年科技業經驗",
+            "career_goal": "創業"
+        }
+    }
+    """
+    try:
+        data = request.json
+        career_facts = data.get('career_facts', None)
+        
+        # 計算本命盤
+        natal_chart = astrology_calc.calculate_natal_chart(
+            name=data.get('name'),
+            year=data.get('year'),
+            month=data.get('month'),
+            day=data.get('day'),
+            hour=data.get('hour'),
+            minute=data.get('minute'),
+            longitude=data.get('longitude'),
+            latitude=data.get('latitude'),
+            timezone_str=data.get('timezone', 'Asia/Taipei')
+        )
+        
+        chart_text = astrology_calc.format_for_gemini(natal_chart)
+        
+        # 生成事業分析提示詞
+        prompt = get_career_analysis_prompt(chart_text, career_facts)
+        
+        # 調用 Gemini 分析
+        system_instruction = "你是專精事業占星的分析師，遵循「有所本」與「實證導向」原則。輸出必須使用繁體中文（台灣用語）。"
+        full_prompt = f"{system_instruction}\n\n{prompt}"
+        analysis = call_gemini(full_prompt)
+        
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'natal_chart': natal_chart,
+                'career_analysis': analysis,
+                'timestamp': datetime.now().isoformat()
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'事業分析失敗：{str(e)}'
+        }), 500
+
+
+# ============================================
+# 塔羅牌 API
+# ============================================
+
+@app.route('/api/tarot/reading', methods=['POST'])
+def tarot_reading():
+    """
+    塔羅牌解讀
+    
+    POST /api/tarot/reading
+    {
+        "spread_type": "single|three_card|celtic_cross|relationship|decision",
+        "question": "問題（可選）",
+        "context": "general|love|career|finance|health",
+        "allow_reversed": true/false（預設 true）
+    }
+    
+    Returns:
+        牌陣資訊、抽牌結果、AI 解讀
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        
+        spread_type = data.get('spread_type', 'single')
+        question = data.get('question')
+        context = data.get('context', 'general')
+        allow_reversed = data.get('allow_reversed', True)
+        
+        # 驗證牌陣類型
+        valid_spreads = ['single', 'three_card', 'celtic_cross', 'relationship', 'decision']
+        if spread_type not in valid_spreads:
+            return jsonify({
+                'status': 'error',
+                'message': f'不支援的牌陣類型。支援：{valid_spreads}'
+            }), 400
+        
+        # 驗證問題情境
+        valid_contexts = ['general', 'love', 'career', 'finance', 'health']
+        if context not in valid_contexts:
+            return jsonify({
+                'status': 'error',
+                'message': f'不支援的問題情境。支援：{valid_contexts}'
+            }), 400
+        
+        # 抽牌
+        reading = tarot_calc.draw_cards(
+            spread_type=spread_type,
+            question=question,
+            allow_reversed=allow_reversed
+        )
+        
+        # 生成 Prompt
+        prompts = generate_tarot_prompt(reading, context)
+        
+        # 調用 Gemini 解讀
+        system_instruction = prompts['system_prompt'] + "\n\n輸出必須使用繁體中文（台灣用語）。"
+        full_prompt = f"{system_instruction}\n\n{prompts['user_prompt']}"
+        analysis = call_gemini(full_prompt)
+        
+        # 準備回傳資料
+        reading_data = tarot_calc.to_dict(reading)
+        
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'reading_id': reading.reading_id,
+                'spread_type': spread_type,
+                'spread_name': reading.spread_name,
+                'question': question,
+                'context': context,
+                'cards': reading_data['cards'],
+                'interpretation': analysis,
+                'timestamp': reading.timestamp
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'塔羅牌解讀失敗：{str(e)}'
+        }), 500
+
+
+@app.route('/api/tarot/daily', methods=['GET'])
+def tarot_daily():
+    """
+    每日一牌
+    
+    GET /api/tarot/daily
+    
+    Returns:
+        今日指引（單張牌 + 簡短解讀）
+    """
+    try:
+        # 抽一張牌
+        reading = tarot_calc.draw_cards(
+            spread_type='single',
+            question='今日指引',
+            allow_reversed=True
+        )
+        
+        # 生成 Prompt
+        prompts = generate_tarot_prompt(reading, 'general')
+        
+        # 調用 Gemini 解讀
+        system_instruction = prompts['system_prompt'] + "\n\n輸出必須使用繁體中文（台灣用語）。請簡潔扼要，總字數控制在 300-400 字內。"
+        full_prompt = f"{system_instruction}\n\n{prompts['user_prompt']}"
+        analysis = call_gemini(full_prompt)
+        
+        # 取得牌卡資訊
+        card = reading.cards[0]
+        card_meaning = tarot_calc.get_card_meaning(card.id, card.is_reversed)
+        
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'card': {
+                    'name': card.name,
+                    'name_en': card.name_en,
+                    'is_reversed': card.is_reversed,
+                    'orientation': '逆位' if card.is_reversed else '正位',
+                    'keywords': card_meaning.get('keywords', []),
+                    'element': card_meaning.get('element'),
+                    'arcana': card_meaning.get('arcana')
+                },
+                'interpretation': analysis,
+                'date': datetime.now().strftime('%Y-%m-%d'),
+                'timestamp': reading.timestamp
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'每日一牌失敗：{str(e)}'
+        }), 500
+
+
+@app.route('/api/tarot/spreads', methods=['GET'])
+def tarot_spreads():
+    """
+    取得支援的牌陣列表
+    
+    GET /api/tarot/spreads
+    
+    Returns:
+        所有支援的牌陣資訊
+    """
+    try:
+        spreads = tarot_calc.spreads
+        spread_list = []
+        for spread_type, spread_info in spreads.items():
+            positions = spread_info.get('positions', [])
+            spread_list.append({
+                'type': spread_type,
+                'name': spread_info.get('name', spread_type),
+                'name_en': spread_info.get('name_en', ''),
+                'cards': len(positions),
+                'positions': positions,
+                'description': spread_info.get('description', ''),
+                'variations': spread_info.get('variations', [])
+            })
+        
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'spreads': spread_list,
+                'spreads_dict': spreads,
+                'total': len(spread_list)
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'取得牌陣列表失敗：{str(e)}'
+        }), 500
+
+
+@app.route('/api/tarot/card/<int:card_id>', methods=['GET'])
+def tarot_card_info(card_id: int):
+    """
+    取得單張牌的詳細資訊
+    
+    GET /api/tarot/card/<card_id>
+    
+    Returns:
+        牌卡完整資訊（正位與逆位牌義）
+    """
+    try:
+        if card_id < 0 or card_id > 77:
+            return jsonify({
+                'status': 'error',
+                'message': '牌卡 ID 必須在 0-77 之間'
+            }), 400
+        
+        upright = tarot_calc.get_card_meaning(card_id, is_reversed=False)
+        reversed_meaning = tarot_calc.get_card_meaning(card_id, is_reversed=True)
+        
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'card_id': card_id,
+                'name': upright.get('name'),
+                'name_en': upright.get('name_en'),
+                'number': upright.get('number'),
+                'arcana': upright.get('arcana'),
+                'suit': upright.get('suit'),
+                'element': upright.get('element'),
+                'keywords': upright.get('keywords'),
+                'symbolism': upright.get('symbolism'),
+                'archetype': upright.get('archetype'),
+                'upright': upright.get('all_meanings'),
+                'reversed': reversed_meaning.get('all_meanings')
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'取得牌卡資訊失敗：{str(e)}'
+        }), 500
+
+
+# ============================================
+# 靈數學 API 端點
+# ============================================
+
+@app.route('/api/numerology/profile', methods=['POST'])
+def numerology_profile():
+    """
+    計算完整靈數學檔案
+    
+    POST /api/numerology/profile
+    {
+        "birth_date": "1979-11-12",      # 必填：出生日期
+        "full_name": "CHEN YU CHU",       # 選填：英文全名（用於計算天賦數等）
+        "analysis_type": "full",          # 選填：分析類型 (life_path/full/personal_year/career)
+        "context": "general"              # 選填：情境 (general/love/career/finance/health)
+    }
+    """
+    try:
+        data = request.json
+        
+        # 解析出生日期
+        birth_date_str = data.get('birth_date')
+        if not birth_date_str:
+            return jsonify({
+                'status': 'error',
+                'message': '缺少必要參數：birth_date'
+            }), 400
+        
+        from datetime import date
+        birth_date = date.fromisoformat(birth_date_str)
+        
+        full_name = data.get('full_name', '')
+        analysis_type = data.get('analysis_type', 'full')
+        context = data.get('context', 'general')
+        
+        # 計算靈數檔案
+        profile = numerology_calc.calculate_full_profile(birth_date, full_name)
+        
+        # 生成 Prompt
+        prompts = generate_numerology_prompt(profile, numerology_calc, analysis_type, context)
+        
+        # 呼叫 Gemini
+        full_prompt = f"{prompts['system_prompt']}\n\n{prompts['user_prompt']}"
+        interpretation = call_gemini(full_prompt)
+        
+        # 組合結果
+        result = numerology_calc.to_dict(profile)
+        result['interpretation'] = interpretation
+        result['analysis_type'] = analysis_type
+        result['context'] = context
+        
+        return jsonify({
+            'status': 'success',
+            'data': result
+        })
+        
+    except ValueError as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'日期格式錯誤：{str(e)}'
+        }), 400
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'靈數學分析失敗：{str(e)}'
+        }), 500
+
+
+@app.route('/api/numerology/life-path', methods=['POST'])
+def numerology_life_path():
+    """
+    計算生命靈數（快速版）
+    
+    POST /api/numerology/life-path
+    {
+        "birth_date": "1979-11-12"
+    }
+    """
+    try:
+        data = request.json
+        
+        birth_date_str = data.get('birth_date')
+        if not birth_date_str:
+            return jsonify({
+                'status': 'error',
+                'message': '缺少必要參數：birth_date'
+            }), 400
+        
+        from datetime import date
+        birth_date = date.fromisoformat(birth_date_str)
+        
+        # 計算生命靈數
+        life_path, is_master, details = numerology_calc.calculate_life_path(birth_date)
+        meaning = numerology_calc.get_number_meaning(life_path, 'life_path')
+        
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'life_path': life_path,
+                'is_master_number': is_master,
+                'name': meaning.get('name', ''),
+                'name_en': meaning.get('name_en', ''),
+                'keywords': meaning.get('keywords', []),
+                'description': meaning.get('description', ''),
+                'calculation_details': details
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'生命靈數計算失敗：{str(e)}'
+        }), 500
+
+
+@app.route('/api/numerology/personal-year', methods=['POST'])
+def numerology_personal_year():
+    """
+    計算流年運勢
+    
+    POST /api/numerology/personal-year
+    {
+        "birth_date": "1979-11-12",
+        "year": 2026  # 選填，預設為當前年份
+    }
+    """
+    try:
+        data = request.json
+        
+        birth_date_str = data.get('birth_date')
+        if not birth_date_str:
+            return jsonify({
+                'status': 'error',
+                'message': '缺少必要參數：birth_date'
+            }), 400
+        
+        from datetime import date, datetime
+        birth_date = date.fromisoformat(birth_date_str)
+        target_year = data.get('year', datetime.now().year)
+        
+        # 計算流年
+        personal_year, is_master, details = numerology_calc.calculate_personal_year(birth_date, target_year)
+        meaning = numerology_calc.get_number_meaning(personal_year, 'personal_year')
+        
+        # 計算流月和流日
+        personal_month, _, _ = numerology_calc.calculate_personal_month(birth_date, target_year, datetime.now().month)
+        personal_day, _, _ = numerology_calc.calculate_personal_day(birth_date)
+        
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'year': target_year,
+                'personal_year': personal_year,
+                'is_master_number': is_master,
+                'theme': meaning.get('theme', ''),
+                'keywords': meaning.get('keywords', []),
+                'description': meaning.get('description', ''),
+                'advice': meaning.get('advice', ''),
+                'personal_month': personal_month,
+                'personal_day': personal_day,
+                'calculation_details': details
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'流年計算失敗：{str(e)}'
+        }), 500
+
+
+@app.route('/api/numerology/compatibility', methods=['POST'])
+def numerology_compatibility():
+    """
+    靈數相容性分析
+    
+    POST /api/numerology/compatibility
+    {
+        "person1": {
+            "birth_date": "1979-11-12",
+            "full_name": "CHEN YU CHU"
+        },
+        "person2": {
+            "birth_date": "1985-05-20",
+            "full_name": "WANG XIAO MING"
+        }
+    }
+    """
+    try:
+        data = request.json
+        
+        person1_data = data.get('person1', {})
+        person2_data = data.get('person2', {})
+        
+        if not person1_data.get('birth_date') or not person2_data.get('birth_date'):
+            return jsonify({
+                'status': 'error',
+                'message': '缺少必要參數：兩人的 birth_date'
+            }), 400
+        
+        from datetime import date
+        birth_date1 = date.fromisoformat(person1_data['birth_date'])
+        birth_date2 = date.fromisoformat(person2_data['birth_date'])
+        
+        full_name1 = person1_data.get('full_name', '')
+        full_name2 = person2_data.get('full_name', '')
+        
+        # 計算兩人的靈數檔案
+        profile1 = numerology_calc.calculate_full_profile(birth_date1, full_name1)
+        profile2 = numerology_calc.calculate_full_profile(birth_date2, full_name2)
+        
+        # 生成相容性分析 Prompt
+        prompts = generate_numerology_prompt(
+            profile1, numerology_calc, 
+            analysis_type='compatibility',
+            profile2=profile2
+        )
+        
+        # 呼叫 Gemini
+        full_prompt = f"{prompts['system_prompt']}\n\n{prompts['user_prompt']}"
+        interpretation = call_gemini(full_prompt)
+        
+        # 基本相容性評估
+        compatibility = numerology_calc.calculate_compatibility(
+            profile1.life_path, profile2.life_path
+        )
+        
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'person1': {
+                    'birth_date': birth_date1.isoformat(),
+                    'life_path': profile1.life_path,
+                    'expression': profile1.expression,
+                    'soul_urge': profile1.soul_urge
+                },
+                'person2': {
+                    'birth_date': birth_date2.isoformat(),
+                    'life_path': profile2.life_path,
+                    'expression': profile2.expression,
+                    'soul_urge': profile2.soul_urge
+                },
+                'compatibility': compatibility,
+                'interpretation': interpretation
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'相容性分析失敗：{str(e)}'
+        }), 500
+
+
+@app.route('/api/numerology/numbers', methods=['GET'])
+def numerology_numbers():
+    """
+    取得所有數字的含義
+    
+    GET /api/numerology/numbers?type=life_path
+    
+    Query params:
+        type: life_path (default), personal_year, birthday
+    """
+    try:
+        number_type = request.args.get('type', 'life_path')
+        
+        if number_type == 'life_path':
+            numbers = numerology_calc.data['life_path_numbers']['numbers']
+        elif number_type == 'personal_year':
+            numbers = numerology_calc.data['personal_year']['numbers']
+        elif number_type == 'birthday':
+            numbers = numerology_calc.data['birthday_number']['numbers']
+        else:
+            numbers = numerology_calc.data['life_path_numbers']['numbers']
+        
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'type': number_type,
+                'numbers': numbers
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'取得數字含義失敗：{str(e)}'
+        }), 500
+
+
+# ============================================
+# 姓名學 API 端點
+# ============================================
+
+@app.route('/api/name/analyze', methods=['POST'])
+def name_analyze():
+    """
+    姓名分析 - 五格剖象法完整分析
+    
+    Request Body:
+    {
+        "name": "王小明",
+        "analysis_type": "basic",  // basic, career, relationship
+        "bazi_element": "木",  // 可選，八字喜用神
+        "include_ai": true  // 是否包含 AI 解讀
+    }
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        name = data.get('name', '').strip()
+        analysis_type = data.get('analysis_type', 'basic')
+        bazi_element = data.get('bazi_element')
+        include_ai = data.get('include_ai', True)
+        
+        if not name or len(name) < 2:
+            return jsonify({
+                'status': 'error',
+                'message': '請提供有效的姓名（至少兩個字）'
+            }), 400
+        
+        # 計算姓名分析
+        analysis = name_calc.analyze(name, bazi_element)
+        result = name_calc.to_dict(analysis)
+        
+        # AI 解讀
+        if include_ai:
+            prompts = generate_name_prompt(analysis, analysis_type, bazi_element)
+            full_prompt = f"{prompts['system_prompt']}\n\n{prompts['user_prompt']}"
+            result['ai_interpretation'] = call_gemini(full_prompt)
+        
+        return jsonify({
+            'status': 'success',
+            'data': result
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'姓名分析失敗：{str(e)}'
+        }), 500
+
+
+@app.route('/api/name/five-grids', methods=['POST'])
+def name_five_grids():
+    """
+    五格數理計算 - 快速計算五格
+    
+    Request Body:
+    {
+        "name": "王小明"
+    }
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        name = data.get('name', '').strip()
+        
+        if not name or len(name) < 2:
+            return jsonify({
+                'status': 'error',
+                'message': '請提供有效的姓名'
+            }), 400
+        
+        # 計算
+        analysis = name_calc.analyze(name)
+        
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'name': name,
+                'surname': analysis.surname,
+                'given_name': analysis.given_name,
+                'surname_strokes': analysis.surname_strokes,
+                'given_name_strokes': analysis.given_name_strokes,
+                'total_strokes': analysis.total_strokes,
+                'five_grids': {
+                    '天格': analysis.five_grids.天格,
+                    '人格': analysis.five_grids.人格,
+                    '地格': analysis.five_grids.地格,
+                    '外格': analysis.five_grids.外格,
+                    '總格': analysis.five_grids.總格
+                },
+                'grid_fortunes': {
+                    name: grid.fortune
+                    for name, grid in analysis.grid_analyses.items()
+                },
+                'three_talents': analysis.three_talents,
+                'overall_fortune': analysis.overall_fortune
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'五格計算失敗：{str(e)}'
+        }), 500
+
+
+@app.route('/api/name/suggest', methods=['POST'])
+def name_suggest():
+    """
+    命名建議 - 根據姓氏與條件建議名字
+    
+    Request Body:
+    {
+        "surname": "陳",
+        "gender": "男",  // 男, 女, 中性
+        "bazi_element": "木",  // 可選
+        "desired_traits": ["聰明", "穩重"]  // 可選
+    }
+    """
+    try:
+        data = request.get_json()
+        surname = data.get('surname', '').strip()
+        gender = data.get('gender', '中性')
+        bazi_element = data.get('bazi_element')
+        desired_traits = data.get('desired_traits', [])
+        
+        if not surname:
+            return jsonify({
+                'status': 'error',
+                'message': '請提供姓氏'
+            }), 400
+        
+        # 計算姓氏筆畫
+        surname_strokes = sum(name_calc.get_stroke_count(c) for c in surname)
+        
+        # 生成 Prompt
+        prompts = generate_name_suggestion_prompt(
+            surname, surname_strokes, gender, bazi_element, desired_traits
+        )
+        
+        # AI 生成建議
+        full_prompt = f"{prompts['system_prompt']}\n\n{prompts['user_prompt']}"
+        suggestions = call_gemini(full_prompt)
+        
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'surname': surname,
+                'surname_strokes': surname_strokes,
+                'gender': gender,
+                'bazi_element': bazi_element,
+                'desired_traits': desired_traits,
+                'suggestions': suggestions
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'命名建議失敗：{str(e)}'
+        }), 500
+
+
+@app.route('/api/name/number/<int:number>', methods=['GET'])
+def name_number_meaning(number):
+    """
+    81 數理吉凶查詢
+    
+    GET /api/name/number/21
+    """
+    try:
+        # 81 數理循環
+        effective_number = ((number - 1) % 81) + 1
+        
+        meaning = name_calc.eighty_one.get(str(effective_number))
+        
+        if not meaning:
+            return jsonify({
+                'status': 'error',
+                'message': f'找不到數字 {number} 的含義'
+            }), 404
+        
+        # 計算五行
+        element = name_calc.get_element(number)
+        
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'number': number,
+                'effective_number': effective_number,
+                'element': element,
+                **meaning
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'查詢失敗：{str(e)}'
+        }), 500
+
+
+@app.route('/api/name/stroke/<char>', methods=['GET'])
+def name_stroke_count(char):
+    """
+    查詢單字康熙筆畫
+    
+    GET /api/name/stroke/陳
+    """
+    try:
+        if len(char) != 1:
+            return jsonify({
+                'status': 'error',
+                'message': '請提供單一漢字'
+            }), 400
+        
+        strokes = name_calc.get_stroke_count(char)
+        
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'character': char,
+                'strokes': strokes,
+                'element': name_calc.get_element(strokes)
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'查詢失敗：{str(e)}'
+        }), 500
+
+
+# ============================================
+# 整合分析 API 端點（靈數學 + 姓名學）
+# ============================================
+
+@app.route('/api/integrated/profile', methods=['POST'])
+def integrated_profile():
+    """
+    完整命理檔案 - 靈數學 + 姓名學整合分析
+    
+    Request Body:
+    {
+        "birth_date": "1979-11-12",    # 必填：出生日期
+        "chinese_name": "陳宥竹",       # 必填：中文姓名
+        "english_name": "CHEN YU CHU", # 選填：英文姓名（用於靈數天賦數等）
+        "analysis_focus": "general",    # 選填：分析焦點 (general/career/love/wealth/health)
+        "include_bazi": false,          # 選填：是否包含八字
+        "bazi_data": {}                 # 選填：八字資料
+    }
+    """
+    try:
+        data = request.get_json()
+        
+        birth_date_str = data.get('birth_date')
+        chinese_name = data.get('chinese_name', '').strip()
+        english_name = data.get('english_name', '').strip()
+        analysis_focus = data.get('analysis_focus', 'general')
+        include_bazi = data.get('include_bazi', False)
+        bazi_data = data.get('bazi_data')
+        gender = data.get('gender', '未指定')
+        
+        if not birth_date_str:
+            return jsonify({
+                'status': 'error',
+                'message': '缺少必要參數：birth_date'
+            }), 400
+        
+        if not chinese_name or len(chinese_name) < 2:
+            return jsonify({
+                'status': 'error',
+                'message': '請提供有效的中文姓名（至少兩個字）'
+            }), 400
+        
+        from datetime import date
+        birth_date = date.fromisoformat(birth_date_str)
+        
+        # 計算靈數學檔案
+        numerology_profile = numerology_calc.calculate_full_profile(birth_date, english_name)
+        
+        # 計算姓名學分析
+        name_analysis = name_calc.analyze(chinese_name)
+        
+        # 生成整合分析 Prompt
+        prompts = generate_integrated_prompt(
+            numerology_profile=numerology_profile,
+            name_analysis=name_analysis,
+            calc_numerology=numerology_calc,
+            include_bazi=include_bazi,
+            bazi_data=bazi_data,
+            analysis_focus=analysis_focus,
+            gender=gender
+        )
+        
+        # 呼叫 Gemini 進行深度分析
+        full_prompt = f"{prompts['system_prompt']}\n\n{prompts['user_prompt']}"
+        interpretation = call_gemini(full_prompt)
+        
+        # 組合結果
+        result = {
+            "profile_type": "integrated",
+            "analysis_focus": analysis_focus,
+            "birth_date": birth_date_str,
+            "names": {
+                "chinese": chinese_name,
+                "english": english_name if english_name else None
+            },
+            "numerology": numerology_calc.to_dict(numerology_profile),
+            "name_analysis": name_calc.to_dict(name_analysis),
+            "integrated_interpretation": interpretation
+        }
+        
+        return jsonify({
+            'status': 'success',
+            'data': result
+        })
+        
+    except ValueError as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'參數錯誤：{str(e)}'
+        }), 400
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'整合分析失敗：{str(e)}'
+        }), 500
+
+
+@app.route('/api/integrated/quick', methods=['POST'])
+def integrated_quick():
+    """
+    快速命理概覽 - 精簡版整合分析
+    
+    Request Body:
+    {
+        "birth_date": "1979-11-12",
+        "chinese_name": "陳宥竹",
+        "english_name": "CHEN YU CHU"  # 選填
+    }
+    """
+    try:
+        data = request.get_json()
+        
+        birth_date_str = data.get('birth_date')
+        chinese_name = data.get('chinese_name', '').strip()
+        english_name = data.get('english_name', '').strip()
+        
+        if not birth_date_str or not chinese_name:
+            return jsonify({
+                'status': 'error',
+                'message': '缺少必要參數：birth_date 和 chinese_name'
+            }), 400
+        
+        from datetime import date
+        birth_date = date.fromisoformat(birth_date_str)
+        
+        # 快速計算
+        life_path, is_master, _ = numerology_calc.calculate_life_path(birth_date)
+        personal_year, _, _ = numerology_calc.calculate_personal_year(birth_date)
+        
+        name_analysis = name_calc.analyze(chinese_name)
+        
+        lp_meaning = numerology_calc.get_number_meaning(life_path, 'life_path')
+        py_meaning = numerology_calc.get_number_meaning(personal_year, 'personal_year')
+        
+        return jsonify({
+            'status': 'success',
+            'data': {
+                "profile_type": "quick",
+                "birth_date": birth_date_str,
+                "chinese_name": chinese_name,
+                "numerology_summary": {
+                    "life_path": life_path,
+                    "is_master": is_master,
+                    "life_path_name": lp_meaning.get('name', ''),
+                    "life_path_keywords": lp_meaning.get('keywords', [])[:5],
+                    "personal_year": personal_year,
+                    "personal_year_theme": py_meaning.get('theme', '')
+                },
+                "name_summary": {
+                    "five_grids": {
+                        "天格": name_analysis.five_grids.天格,
+                        "人格": name_analysis.five_grids.人格,
+                        "地格": name_analysis.five_grids.地格,
+                        "外格": name_analysis.five_grids.外格,
+                        "總格": name_analysis.five_grids.總格
+                    },
+                    "three_talents": name_analysis.three_talents['combination'],
+                    "three_talents_fortune": name_analysis.three_talents['fortune'],
+                    "overall_fortune": name_analysis.overall_fortune,
+                    "personality_number": name_analysis.grid_analyses['人格'].number,
+                    "personality_fortune": name_analysis.grid_analyses['人格'].fortune
+                }
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'快速分析失敗：{str(e)}'
+        }), 500
+
+
+@app.route('/api/integrated/compatibility', methods=['POST'])
+def integrated_compatibility():
+    """
+    雙人整合相容性分析 - 靈數學 + 姓名學
+    
+    Request Body:
+    {
+        "person1": {
+            "birth_date": "1979-11-12",
+            "chinese_name": "陳宥竹",
+            "english_name": "CHEN YU CHU"
+        },
+        "person2": {
+            "birth_date": "1985-05-20",
+            "chinese_name": "王小美",
+            "english_name": "WANG XIAO MEI"
+        }
+    }
+    """
+    try:
+        data = request.get_json()
+        
+        person1 = data.get('person1', {})
+        person2 = data.get('person2', {})
+        
+        if not person1.get('birth_date') or not person1.get('chinese_name'):
+            return jsonify({
+                'status': 'error',
+                'message': '請提供甲方的 birth_date 和 chinese_name'
+            }), 400
+        
+        if not person2.get('birth_date') or not person2.get('chinese_name'):
+            return jsonify({
+                'status': 'error',
+                'message': '請提供乙方的 birth_date 和 chinese_name'
+            }), 400
+        
+        from datetime import date
+        
+        # 計算甲方
+        bd1 = date.fromisoformat(person1['birth_date'])
+        profile1 = numerology_calc.calculate_full_profile(bd1, person1.get('english_name', ''))
+        name1 = name_calc.analyze(person1['chinese_name'])
+        
+        # 計算乙方
+        bd2 = date.fromisoformat(person2['birth_date'])
+        profile2 = numerology_calc.calculate_full_profile(bd2, person2.get('english_name', ''))
+        name2 = name_calc.analyze(person2['chinese_name'])
+        
+        # 準備比對資料
+        person1_data = {
+            'name': person1['chinese_name'],
+            'birth_date': person1['birth_date'],
+            'life_path': profile1.life_path,
+            'personality_grid': name1.grid_analyses['人格'].number,
+            'personality_element': name1.grid_analyses['人格'].element,
+            'three_talents': name1.three_talents['combination']
+        }
+        
+        person2_data = {
+            'name': person2['chinese_name'],
+            'birth_date': person2['birth_date'],
+            'life_path': profile2.life_path,
+            'personality_grid': name2.grid_analyses['人格'].number,
+            'personality_element': name2.grid_analyses['人格'].element,
+            'three_talents': name2.three_talents['combination']
+        }
+        
+        # 生成比對分析 Prompt
+        prompts = generate_comparison_prompt(person1_data, person2_data)
+        
+        # 呼叫 Gemini
+        full_prompt = f"{prompts['system_prompt']}\n\n{prompts['user_prompt']}"
+        interpretation = call_gemini(full_prompt)
+        
+        # 靈數相容性
+        numerology_compat = numerology_calc.calculate_compatibility(
+            profile1.life_path, profile2.life_path
+        )
+        
+        # 姓名五行相容性
+        e1 = name1.grid_analyses['人格'].element
+        e2 = name2.grid_analyses['人格'].element
+        name_compat = _analyze_element_compatibility(e1, e2)
+        
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'person1': {
+                    **person1_data,
+                    'expression': profile1.expression,
+                    'soul_urge': profile1.soul_urge,
+                    'overall_fortune': name1.overall_fortune
+                },
+                'person2': {
+                    **person2_data,
+                    'expression': profile2.expression,
+                    'soul_urge': profile2.soul_urge,
+                    'overall_fortune': name2.overall_fortune
+                },
+                'compatibility': {
+                    'numerology': numerology_compat,
+                    'name_elements': name_compat
+                },
+                'interpretation': interpretation
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'相容性分析失敗：{str(e)}'
+        }), 500
+
+
+@app.route('/api/integrated/yearly-forecast', methods=['POST'])
+def integrated_yearly_forecast():
+    """
+    年度運勢預測 - 整合靈數流年與姓名運勢
+    
+    Request Body:
+    {
+        "birth_date": "1979-11-12",
+        "chinese_name": "陳宥竹",
+        "year": 2026  # 選填，預設當前年
+    }
+    """
+    try:
+        data = request.get_json()
+        
+        birth_date_str = data.get('birth_date')
+        chinese_name = data.get('chinese_name', '').strip()
+        
+        if not birth_date_str or not chinese_name:
+            return jsonify({
+                'status': 'error',
+                'message': '缺少必要參數'
+            }), 400
+        
+        from datetime import date, datetime
+        birth_date = date.fromisoformat(birth_date_str)
+        target_year = data.get('year', datetime.now().year)
+        
+        # 計算靈數
+        personal_year, is_master, _ = numerology_calc.calculate_personal_year(birth_date, target_year)
+        py_meaning = numerology_calc.get_number_meaning(personal_year, 'personal_year')
+        
+        # 計算各月流月
+        monthly_forecast = []
+        for month in range(1, 13):
+            pm, _, _ = numerology_calc.calculate_personal_month(birth_date, target_year, month)
+            pm_meaning = numerology_calc.get_number_meaning(pm, 'personal_year')
+            monthly_forecast.append({
+                'month': month,
+                'personal_month': pm,
+                'theme': pm_meaning.get('theme', ''),
+                'keywords': pm_meaning.get('keywords', [])[:3]
+            })
+        
+        # 姓名分析
+        name_analysis = name_calc.analyze(chinese_name)
+        
+        # 生成年度預測 Prompt
+        prompt = f"""請為以下命主提供【{target_year}年度完整運勢預測】：
+
+【基本資料】
+姓名：{chinese_name}
+出生日期：{birth_date_str}
+{target_year}年流年數：{personal_year}{"（主數）" if is_master else ""}
+流年主題：{py_meaning.get('theme', '')}
+
+【姓名格局】
+人格數：{name_analysis.grid_analyses['人格'].number}（{name_analysis.grid_analyses['人格'].element}）- {name_analysis.grid_analyses['人格'].fortune}
+三才配置：{name_analysis.three_talents['combination']}（{name_analysis.three_talents['fortune']}）
+
+【各月流月數】
+""" + '\n'.join([f"{m['month']}月：{m['personal_month']}（{m['theme']}）" for m in monthly_forecast]) + """
+
+請提供：
+
+1. **年度總運勢**（300字）
+   結合流年數與姓名格局的整體能量
+
+2. **各領域運勢**（各100字）
+   - 事業運
+   - 感情運
+   - 財運
+   - 健康運
+
+3. **重要月份提醒**
+   標出需特別注意的月份及原因
+
+4. **年度開運建議**
+   5 條具體的開運指南
+
+請用繁體中文回答。"""
+
+        interpretation = call_gemini(prompt)
+        
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'year': target_year,
+                'birth_date': birth_date_str,
+                'chinese_name': chinese_name,
+                'personal_year': {
+                    'number': personal_year,
+                    'is_master': is_master,
+                    'theme': py_meaning.get('theme', ''),
+                    'description': py_meaning.get('description', ''),
+                    'advice': py_meaning.get('advice', '')
+                },
+                'monthly_forecast': monthly_forecast,
+                'name_influence': {
+                    'personality_grid': name_analysis.grid_analyses['人格'].number,
+                    'personality_fortune': name_analysis.grid_analyses['人格'].fortune,
+                    'three_talents': name_analysis.three_talents['combination']
+                },
+                'interpretation': interpretation
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'年度預測失敗：{str(e)}'
+        }), 500
+
+
+# ============================================
+# 戰略側寫與生辰校正 API 端點
+# ============================================
+
+@app.route('/api/strategic/profile', methods=['POST'])
+def strategic_profile():
+    """
+    戰略側寫 - 多系統整合分析（結論優先）
+
+    Request Body:
+    {
+        "birth_date": "1979-11-12",
+        "birth_time": "23:58",              # 選填
+        "chinese_name": "陳宥竹",
+        "english_name": "CHEN YOU ZHU",     # 選填
+        "gender": "男",
+        "analysis_focus": "career",         # general/career/relationship/wealth/health
+        "include_bazi": true,
+        "include_astrology": true,
+        "include_tarot": true,
+        "longitude": 120.54,
+        "latitude": 24.08,
+        "timezone": "Asia/Taipei",
+        "city": "Changhua",
+        "nation": "TW"
+    }
+    """
+    try:
+        data = request.get_json()
+
+        birth_date_str = data.get('birth_date')
+        birth_time_str = data.get('birth_time')
+        chinese_name = data.get('chinese_name', '').strip()
+        english_name = data.get('english_name', '').strip()
+        gender = data.get('gender', '未指定')
+        analysis_focus = data.get('analysis_focus', 'general')
+
+        if not birth_date_str:
+            return jsonify({
+                'status': 'error',
+                'message': '缺少必要參數：birth_date'
+            }), 400
+
+        if not chinese_name:
+            return jsonify({
+                'status': 'error',
+                'message': '缺少必要參數：chinese_name'
+            }), 400
+
+        from datetime import date
+        birth_date = date.fromisoformat(birth_date_str)
+        parsed_time = parse_birth_time_str(birth_time_str)
+
+        include_bazi = data.get('include_bazi', True)
+        include_astrology = data.get('include_astrology', True)
+
+        warnings = []
+        include_tarot = data.get('include_tarot', True)
+
+        warnings = []
+
+        # 1) 靈數與姓名（固定）
+        numerology_profile = numerology_calc.calculate_full_profile(birth_date, english_name)
+        numerology_dict = numerology_calc.to_dict(numerology_profile)
+        name_analysis = name_calc.analyze(chinese_name)
+        name_dict = name_calc.to_dict(name_analysis)
+
+        # 2) 八字
+        bazi_data = None
+        if include_bazi:
+            if not parsed_time:
+                warnings.append('未提供 birth_time，已略過八字計算')
+            else:
+                hour, minute = parsed_time
+                bazi_calc = BaziCalculator()
+                bazi_data = bazi_calc.calculate_bazi(
+                    year=birth_date.year,
+                    month=birth_date.month,
+                    day=birth_date.day,
+                    hour=hour,
+                    minute=minute,
+                    gender=gender,
+                    longitude=float(data.get('longitude', 121.0)),
+                    use_apparent_solar_time=True
+                )
+
+        # 3) 占星
+        astrology_core = None
+        if include_astrology:
+            if not parsed_time:
+                warnings.append('未提供 birth_time，已略過占星計算')
+            else:
+                hour, minute = parsed_time
+                natal = astrology_calc.calculate_natal_chart(
+                    name=chinese_name or "User",
+                    year=birth_date.year,
+                    month=birth_date.month,
+                    day=birth_date.day,
+                    hour=hour,
+                    minute=minute,
+                    city=data.get('city', 'Taipei'),
+                    nation=data.get('nation', 'TW'),
+                    longitude=float(data.get('longitude', 121.0)),
+                    latitude=float(data.get('latitude', 25.0)),
+                    timezone_str=data.get('timezone', 'Asia/Taipei')
+                )
+                astrology_core = build_astrology_core(natal)
+
+        # 4) 塔羅
+        tarot_text = None
+        if include_tarot:
+            seed = int(f"{birth_date.year}{birth_date.month:02d}{birth_date.day:02d}")
+            tarot_reading = tarot_calc.draw_cards(
+                spread_type="three_card",
+                question=f"{chinese_name}的{analysis_focus}戰略定位",
+                allow_reversed=True,
+                seed=seed
+            )
+            tarot_text = tarot_calc.format_reading_for_prompt(tarot_reading, context=analysis_focus)
+
+        # 5) Meta Profile
+        meta_profile = build_meta_profile(bazi_data, numerology_dict, name_dict, astrology_core)
+
+        # 6) 生成戰略側寫
+        prompt = generate_strategic_profile_prompt(
+            meta_profile=meta_profile,
+            numerology=numerology_dict,
+            name_analysis=name_dict,
+            bazi=bazi_data,
+            astrology_core=astrology_core,
+            tarot_reading=tarot_text,
+            analysis_focus=analysis_focus
+        )
+        full_prompt = f"{prompt['system_prompt']}\n\n{prompt['user_prompt']}"
+        strategic_interpretation = call_gemini(full_prompt)
+
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'meta_profile': meta_profile,
+                'analysis_focus': analysis_focus,
+                'numerology': numerology_dict,
+                'name_analysis': name_dict,
+                'bazi': bazi_data,
+                'astrology_core': astrology_core,
+                'tarot': tarot_text,
+                'strategic_interpretation': strategic_interpretation,
+                'warnings': warnings
+            }
+        })
+
+    except ValueError as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'參數錯誤：{str(e)}'
+        }), 400
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'戰略側寫失敗：{str(e)}'
+        }), 500
+
+
+@app.route('/api/strategic/birth-rectify', methods=['POST'])
+def strategic_birth_rectify():
+    """
+    生辰校正 - 以特質/事件反推時辰（Top 3）
+
+    Request Body:
+    {
+        "birth_date": "1979-11-12",
+        "gender": "男",
+        "traits": ["強勢領導", "偏好獨立作業"],
+        "longitude": 120.54
+    }
+    """
+    try:
+        data = request.get_json()
+
+        birth_date_str = data.get('birth_date')
+        gender = data.get('gender', '未指定')
+        traits = data.get('traits', [])
+
+        if not birth_date_str:
+            return jsonify({
+                'status': 'error',
+                'message': '缺少必要參數：birth_date'
+            }), 400
+
+        if not traits:
+            return jsonify({
+                'status': 'error',
+                'message': '缺少必要參數：traits（請提供特質/事件清單）'
+            }), 400
+
+        from datetime import date
+        birth_date = date.fromisoformat(birth_date_str)
+
+        shichen = [
+            ("子時", 23, 30), ("丑時", 1, 30), ("寅時", 3, 30), ("卯時", 5, 30),
+            ("辰時", 7, 30), ("巳時", 9, 30), ("午時", 11, 30), ("未時", 13, 30),
+            ("申時", 15, 30), ("酉時", 17, 30), ("戌時", 19, 30), ("亥時", 21, 30)
+        ]
+
+        bazi_calc = BaziCalculator()
+        candidates = []
+        for name, hour, minute in shichen:
+            bazi = bazi_calc.calculate_bazi(
+                year=birth_date.year,
+                month=birth_date.month,
+                day=birth_date.day,
+                hour=hour,
+                minute=minute,
+                gender=gender,
+                longitude=float(data.get('longitude', 121.0)),
+                use_apparent_solar_time=True
+            )
+            candidates.append({
+                "shichen": name,
+                "time": f"{hour:02d}:{minute:02d}",
+                "bazi_summary": build_bazi_candidate_summary(bazi)
+            })
+
+        prompt = generate_birth_rectifier_prompt(
+            birth_date=birth_date_str,
+            gender=gender,
+            traits=traits,
+            candidates=candidates
+        )
+        full_prompt = f"{prompt['system_prompt']}\n\n{prompt['user_prompt']}"
+        interpretation = call_gemini(full_prompt)
+
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'birth_date': birth_date_str,
+                'traits': traits,
+                'candidates': candidates,
+                'interpretation': interpretation
+            }
+        })
+
+    except ValueError as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'參數錯誤：{str(e)}'
+        }), 400
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'生辰校正失敗：{str(e)}'
+        }), 500
+
+
+@app.route('/api/strategic/relationship', methods=['POST'])
+def strategic_relationship():
+    """
+    關係生態位分析 - 資源流向與角色定義
+
+    Request Body:
+    {
+        "person_a": { "name": "陳宥竹", "birth_date": "1979-11-12", "birth_time": "23:58" },
+        "person_b": { "name": "張小姐", "birth_date": "1985-05-20", "birth_time": "12:00" },
+        "include_bazi": true,
+        "include_astrology": true
+    }
+    """
+    try:
+        data = request.get_json()
+        person_a = data.get('person_a', {})
+        person_b = data.get('person_b', {})
+
+        if not person_a.get('birth_date') or not person_b.get('birth_date'):
+            return jsonify({'status': 'error', 'message': '雙方皆需提供出生日期'}), 400
+
+        include_bazi = data.get('include_bazi', True)
+        include_astrology = data.get('include_astrology', True)
+
+        def get_meta(p):
+            from datetime import date
+            bd = date.fromisoformat(p['birth_date'])
+            pt = parse_birth_time_str(p.get('birth_time'))
+            
+            # 1. Numerology & Name
+            num_prof = numerology_calc.calculate_full_profile(bd, "")
+            num_dict = numerology_calc.to_dict(num_prof)
+            name_an = name_calc.analyze(p.get('name', 'User'))
+            name_dict = name_calc.to_dict(name_an)
+
+            # 2. Bazi
+            bazi_data = None
+            if include_bazi and pt:
+                bazi_data = BaziCalculator().calculate_bazi(
+                    year=bd.year, month=bd.month, day=bd.day, 
+                    hour=pt[0], minute=pt[1], gender=p.get('gender', '未指定'),
+                    use_apparent_solar_time=True
+                )
+            
+            if include_bazi and not pt:
+                warnings.append('未提供 birth_time，已略過八字計算')
+
+            # 3. Astro
+            astro_core = None
+            if include_astrology and pt:
+                natal = AstrologyCalculator().calculate_natal_chart(
+                    name=p.get('name', 'User'),
+                    year=bd.year, month=bd.month, day=bd.day,
+                    hour=pt[0], minute=pt[1],
+                    city="Taipei", nation="TW"
+                )
+                astro_core = build_astrology_core(natal)
+
+            if include_astrology and not pt:
+                warnings.append('未提供 birth_time，已略過占星計算')
+            
+            return build_meta_profile(bazi_data, num_dict, name_dict, astro_core)
+
+        meta_a = get_meta(person_a)
+        meta_b = get_meta(person_b)
+
+        prompt = generate_relationship_ecosystem_prompt(
+            person_a=person_a,
+            person_b=person_b,
+            meta_a=meta_a,
+            meta_b=meta_b
+        )
+        full_prompt = f"{prompt['system_prompt']}\n\n{prompt['user_prompt']}"
+        interpretation = call_gemini(full_prompt)
+
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'person_a_meta': meta_a,
+                'person_b_meta': meta_b,
+                'interpretation': interpretation,
+                'warnings': warnings
+            }
+        })
+
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': f'關係分析失敗：{str(e)}'}), 500
+
+
+@app.route('/api/strategic/decision', methods=['POST'])
+def strategic_decision():
+    """
+    決策模擬沙盒 - 雙路徑模擬
+
+    Request Body:
+    {
+        "user_name": "陳宥竹",
+        "birth_date": "1979-11-12",
+        "question": "公司轉型方向",
+        "option_a": "激進擴張",
+        "option_b": "穩健保守"
+    }
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        user_name = data.get('user_name', 'User')
+        birth_date_str = data.get('birth_date')
+        birth_time_str = data.get('birth_time')
+        question = data.get('question')
+        option_a = data.get('option_a')
+        option_b = data.get('option_b')
+
+        if not all([birth_date_str, question, option_a, option_b]):
+            return jsonify({'status': 'error', 'message': '缺少必要參數'}), 400
+
+        # Get User Meta
+        from datetime import date
+        bd = date.fromisoformat(birth_date_str)
+        parsed_time = parse_birth_time_str(birth_time_str)
+
+        warnings = []
+
+        num_prof = numerology_calc.calculate_full_profile(bd, "")
+        name_analysis = name_calc.analyze(user_name)
+        name_dict = name_calc.to_dict(name_analysis)
+
+        bazi_data = None
+        astro_core = None
+        if parsed_time:
+            hour, minute = parsed_time
+            bazi_data = BaziCalculator().calculate_bazi(
+                year=bd.year,
+                month=bd.month,
+                day=bd.day,
+                hour=hour,
+                minute=minute,
+                gender=data.get('gender', '未指定'),
+                longitude=float(data.get('longitude', 121.0)),
+                use_apparent_solar_time=True
+            )
+            natal = astrology_calc.calculate_natal_chart(
+                name=user_name or "User",
+                year=bd.year,
+                month=bd.month,
+                day=bd.day,
+                hour=hour,
+                minute=minute,
+                city=data.get('city', 'Taipei'),
+                nation=data.get('nation', 'TW'),
+                longitude=float(data.get('longitude', 121.0)),
+                latitude=float(data.get('latitude', 25.0)),
+                timezone_str=data.get('timezone', 'Asia/Taipei')
+            )
+            astro_core = build_astrology_core(natal)
+        else:
+            warnings.append('未提供 birth_time，已略過八字與占星計算')
+
+        meta_profile = build_meta_profile(bazi_data, numerology_calc.to_dict(num_prof), name_dict, astro_core)
+
+        # Draw Tarot for Path A
+        reading_a = tarot_calc.draw_cards(spread_type="three_card", question=f"路徑A：{option_a}", allow_reversed=True)
+        text_a = tarot_calc.format_reading_for_prompt(reading_a)
+
+        # Draw Tarot for Path B
+        reading_b = tarot_calc.draw_cards(spread_type="three_card", question=f"路徑B：{option_b}", allow_reversed=True)
+        text_b = tarot_calc.format_reading_for_prompt(reading_b)
+
+        prompt = generate_decision_sandbox_prompt(
+            user_name=user_name,
+            question=question,
+            option_a=option_a,
+            option_b=option_b,
+            cards_a=text_a,
+            cards_b=text_b,
+            meta_profile=meta_profile
+        )
+        full_prompt = f"{prompt['system_prompt']}\n\n{prompt['user_prompt']}"
+        interpretation = call_gemini(full_prompt)
+
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'option_a': option_a,
+                'option_b': option_b,
+                'cards_a': [c.name for c in reading_a.cards],
+                'cards_b': [c.name for c in reading_b.cards],
+                'interpretation': interpretation,
+                'warnings': warnings
+            }
+        })
+
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': f'決策模擬失敗：{str(e)}'}), 500
+
+
+def _analyze_element_compatibility(element1: str, element2: str) -> Dict:
+    """分析兩個五行的相容性"""
+    relations = {
+        ("木", "木"): ("比和", "相同能量，理解彼此"),
+        ("木", "火"): ("相生", "木生火，互相扶持"),
+        ("木", "土"): ("相剋", "木剋土，需要調和"),
+        ("木", "金"): ("相剋", "金剋木，存在壓力"),
+        ("木", "水"): ("相生", "水生木，獲得滋養"),
+        ("火", "火"): ("比和", "熱情相投"),
+        ("火", "土"): ("相生", "火生土，穩定發展"),
+        ("火", "金"): ("相剋", "火剋金，需要包容"),
+        ("火", "水"): ("相剋", "水剋火，存在挑戰"),
+        ("土", "土"): ("比和", "穩重踏實"),
+        ("土", "金"): ("相生", "土生金，互利共贏"),
+        ("土", "水"): ("相剋", "土剋水，需要溝通"),
+        ("金", "金"): ("比和", "目標一致"),
+        ("金", "水"): ("相生", "金生水，相互成就"),
+        ("水", "水"): ("比和", "心靈相通"),
+    }
+    
+    key = (element1, element2)
+    reverse_key = (element2, element1)
+    
+    if key in relations:
+        relation, desc = relations[key]
+    elif reverse_key in relations:
+        relation, desc = relations[reverse_key]
+    else:
+        relation, desc = "未知", "需要更多分析"
+    
+    return {
+        "element1": element1,
+        "element2": element2,
+        "relation": relation,
+        "description": desc
+    }
+
+
+# ============================================
+# 啟動服務
+# ============================================
+
+if __name__ == '__main__':
+    print('='*60)
+    print('Aetheria 定盤系統 API (v1.9.0)')
+    print('='*60)
+    print('服務位址：http://localhost:5001')
+    print('健康檢查：http://localhost:5001/health')
+    print('\n🆕 新增功能（v1.8.0）- 整合分析：')
+    print('  • 完整命理檔案：POST /api/integrated/profile')
+    print('  • 快速概覽：POST /api/integrated/quick')
+    print('  • 雙人相容性：POST /api/integrated/compatibility')
+    print('  • 年度運勢：POST /api/integrated/yearly-forecast')
+    print('\n🆕 新增功能（v1.9.0）- 戰略側寫：')
+    print('  • 全息側寫：POST /api/strategic/profile')
+    print('  • 生辰校正：POST /api/strategic/birth-rectify')
+    print('  • 關係生態：POST /api/strategic/relationship')
+    print('  • 決策模擬：POST /api/strategic/decision')
+    print('\n姓名學（v1.7.0）：')
+    print('  • 姓名分析：POST /api/name/analyze')
+    print('  • 五格計算：POST /api/name/five-grids')
+    print('  • 命名建議：POST /api/name/suggest')
+    print('  • 數理含義：GET /api/name/number/<num>')
+    print('  • 筆畫查詢：GET /api/name/stroke/<char>')
+    print('\n靈數學（v1.6.0）：')
+    print('  • 靈數學檔案：POST /api/numerology/profile')
+    print('  • 生命靈數：POST /api/numerology/life-path')
+    print('  • 流年運勢：POST /api/numerology/personal-year')
+    print('  • 靈數相容：POST /api/numerology/compatibility')
+    print('  • 數字含義：GET /api/numerology/numbers')
+    print('\n塔羅牌（v1.5.0）：')
+    print('  • 塔羅牌解讀：POST /api/tarot/reading')
+    print('  • 每日一牌：GET /api/tarot/daily')
+    print('  • 牌陣列表：GET /api/tarot/spreads')
+    print('  • 牌卡資訊：GET /api/tarot/card/<id>')
+    print('\n西洋占星術（v1.4.0）：')
+    print('  • 本命盤：POST /api/astrology/natal')
+    print('  • 合盤：POST /api/astrology/synastry')
+    print('  • 流年：POST /api/astrology/transit')
+    print('  • 事業：POST /api/astrology/career')
+    print('='*60)
+    
+    app.run(host='0.0.0.0', port=5001, debug=False)

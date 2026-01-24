@@ -1,0 +1,461 @@
+{
+  "metadata": {
+    "name": "Pythagorean Numerology System",
+    "name_zh": "畢達哥拉斯靈數學",
+    "version": "1.0.0",
+    "description": "基於畢達哥拉斯學派的數字命理系統，計算生命靈數、天賦數、命運數等核心數字",
+    "created_at": "2026-01-24"
+  },
+  
+  "letter_values": {
+    "description": "英文字母對應數字（畢達哥拉斯系統）",
+    "mapping": {
+      "A": 1, "B": 2, "C": 3, "D": 4, "E": 5, "F": 6, "G": 7, "H": 8, "I": 9,
+      "J": 1, "K": 2, "L": 3, "M": 4, "N": 5, "O": 6, "P": 7, "Q": 8, "R": 9,
+      "S": 1, "T": 2, "U": 3, "V": 4, "W": 5, "X": 6, "Y": 7, "Z": 8
+    },
+    "vowels": ["A", "E", "I", "O", "U"],
+    "consonants": ["B", "C", "D", "F", "G", "H", "J", "K", "L", "M", "N", "P", "Q", "R", "S", "T", "V", "W", "X", "Y", "Z"]
+  },
+
+  "master_numbers": {
+    "description": "主數（不再化約的特殊數字）",
+    "numbers": [11, 22, 33],
+    "meanings": {
+      "11": {
+        "name": "靈性啟蒙者",
+        "name_en": "The Spiritual Messenger",
+        "keywords": ["直覺", "靈性", "啟發", "理想主義", "敏感"],
+        "description": "11 是第一個主數，代表靈性覺醒與直覺天賦。擁有此數的人往往具有超凡的洞察力和感知能力。"
+      },
+      "22": {
+        "name": "宏觀建築師",
+        "name_en": "The Master Builder",
+        "keywords": ["實踐", "建設", "遠見", "實現夢想", "領導力"],
+        "description": "22 被稱為「建築師數」，結合了 11 的靈性願景與 4 的務實能力，能將宏大理想轉化為現實。"
+      },
+      "33": {
+        "name": "慈悲大師",
+        "name_en": "The Master Teacher",
+        "keywords": ["奉獻", "療癒", "慈悲", "無私服務", "靈性導師"],
+        "description": "33 是最高的主數，代表無私的奉獻與靈性教導。此數極為罕見，象徵著最高層次的靈性服務。"
+      }
+    }
+  },
+
+  "life_path_numbers": {
+    "description": "生命靈數（Life Path Number）- 由生日日期計算，揭示人生使命與核心特質",
+    "calculation": "將出生年月日的所有數字相加，直到得出 1-9 或主數 11、22、33",
+    "numbers": {
+      "1": {
+        "name": "領導者",
+        "name_en": "The Leader",
+        "element": "火",
+        "planet": "太陽",
+        "keywords": ["獨立", "創新", "領導", "開創", "自信"],
+        "positive_traits": ["有野心", "獨立自主", "創造力強", "勇於開創", "自信果斷"],
+        "negative_traits": ["固執己見", "過於自我", "缺乏耐心", "專橫霸道", "不善合作"],
+        "life_purpose": "學習獨立自主，發揮領導力，開創屬於自己的道路",
+        "career_suggestions": ["企業家", "CEO", "發明家", "獨立工作者", "創業者"],
+        "relationship_style": "需要個人空間和自主權，傾向主導關係",
+        "life_lessons": "學習傾聽他人、培養耐心、在獨立與合作間取得平衡",
+        "compatible_numbers": [3, 5, 6],
+        "challenging_numbers": [8, 9],
+        "description": "生命靈數 1 的人天生就是領導者。你具有開創精神和獨立個性，渴望成為第一，走在最前面。你的人生使命是學習如何獨立自主，同時也要學會與他人合作。"
+      },
+      "2": {
+        "name": "合作者",
+        "name_en": "The Peacemaker",
+        "element": "水",
+        "planet": "月亮",
+        "keywords": ["合作", "和諧", "敏感", "外交", "細膩"],
+        "positive_traits": ["善於合作", "富同理心", "細心體貼", "善於調解", "忠誠可靠"],
+        "negative_traits": ["過於敏感", "優柔寡斷", "依賴性強", "容易受傷", "缺乏自信"],
+        "life_purpose": "學習合作與平衡，成為和諧的締造者",
+        "career_suggestions": ["外交官", "諮詢師", "調解員", "秘書", "團隊合作者"],
+        "relationship_style": "重視和諧與親密，是忠誠的伴侶",
+        "life_lessons": "建立自信、學習獨立決策、在付出與接受間取得平衡",
+        "compatible_numbers": [4, 6, 8],
+        "challenging_numbers": [5, 7],
+        "description": "生命靈數 2 的人是天生的和平使者。你具有敏銳的感知力和強大的同理心，善於理解他人的需求。你的人生使命是學習如何在保持和諧的同時，也能堅持自己的立場。"
+      },
+      "3": {
+        "name": "表達者",
+        "name_en": "The Communicator",
+        "element": "火",
+        "planet": "木星",
+        "keywords": ["創意", "表達", "樂觀", "社交", "藝術"],
+        "positive_traits": ["創意豐富", "表達能力強", "樂觀開朗", "社交能力佳", "富有魅力"],
+        "negative_traits": ["注意力分散", "過於話多", "膚淺", "逃避問題", "情緒化"],
+        "life_purpose": "透過創意表達來啟發和娛樂他人",
+        "career_suggestions": ["藝術家", "作家", "演員", "教師", "公關"],
+        "relationship_style": "浪漫且富有情趣，喜歡用言語和行動表達愛",
+        "life_lessons": "學習專注、深入思考、將創意轉化為實際成果",
+        "compatible_numbers": [1, 5, 9],
+        "challenging_numbers": [4, 7],
+        "description": "生命靈數 3 的人是天生的表達者。你充滿創意和想像力，善於用各種方式表達自己。你的人生使命是學習如何將創意轉化為有意義的作品，並用你的天賦來啟發他人。"
+      },
+      "4": {
+        "name": "建造者",
+        "name_en": "The Builder",
+        "element": "土",
+        "planet": "天王星",
+        "keywords": ["穩定", "務實", "勤奮", "紀律", "組織"],
+        "positive_traits": ["務實可靠", "勤奮努力", "有條理", "忠誠穩定", "專注持久"],
+        "negative_traits": ["固執保守", "缺乏彈性", "過於嚴肅", "害怕改變", "工作狂"],
+        "life_purpose": "建立穩固的基礎，創造持久的價值",
+        "career_suggestions": ["工程師", "會計師", "建築師", "項目經理", "行政人員"],
+        "relationship_style": "忠誠可靠，重視長期承諾和穩定",
+        "life_lessons": "學習接受變化、培養彈性思維、在工作與生活間取得平衡",
+        "compatible_numbers": [2, 6, 8],
+        "challenging_numbers": [3, 5],
+        "description": "生命靈數 4 的人是天生的建造者。你務實、勤奮，善於將想法轉化為具體的成果。你的人生使命是學習如何建立穩固的基礎，同時保持開放的心態接受新事物。"
+      },
+      "5": {
+        "name": "自由者",
+        "name_en": "The Freedom Seeker",
+        "element": "風",
+        "planet": "水星",
+        "keywords": ["自由", "冒險", "變化", "適應", "多才多藝"],
+        "positive_traits": ["適應力強", "多才多藝", "熱愛自由", "充滿活力", "善於變通"],
+        "negative_traits": ["缺乏耐心", "不穩定", "逃避責任", "過度放縱", "難以承諾"],
+        "life_purpose": "體驗人生的多樣性，透過經歷來學習成長",
+        "career_suggestions": ["旅行家", "銷售員", "記者", "演藝人員", "冒險家"],
+        "relationship_style": "需要空間和新鮮感，喜歡刺激和冒險",
+        "life_lessons": "學習承諾、培養專注力、在自由與責任間取得平衡",
+        "compatible_numbers": [1, 3, 7],
+        "challenging_numbers": [4, 8],
+        "description": "生命靈數 5 的人是天生的自由靈魂。你渴望體驗生命的各種可能性，不願被任何框架限制。你的人生使命是學習如何在追求自由的同時，也能承擔必要的責任。"
+      },
+      "6": {
+        "name": "照顧者",
+        "name_en": "The Nurturer",
+        "element": "土",
+        "planet": "金星",
+        "keywords": ["責任", "愛", "家庭", "服務", "和諧"],
+        "positive_traits": ["有責任感", "關懷他人", "重視家庭", "富有愛心", "可靠穩定"],
+        "negative_traits": ["過度操心", "控制欲強", "犧牲自我", "完美主義", "干涉過多"],
+        "life_purpose": "透過愛與服務來創造和諧的環境",
+        "career_suggestions": ["教師", "護士", "社工", "室內設計師", "餐飲業"],
+        "relationship_style": "重視家庭，是忠誠且照顧周到的伴侶",
+        "life_lessons": "學習放手、照顧自己、在給予與接受間取得平衡",
+        "compatible_numbers": [1, 2, 4, 9],
+        "challenging_numbers": [5, 7],
+        "description": "生命靈數 6 的人是天生的照顧者。你具有強烈的責任感和對他人的關愛，總是願意付出。你的人生使命是學習如何在照顧他人的同時，也不忘照顧自己。"
+      },
+      "7": {
+        "name": "探索者",
+        "name_en": "The Seeker",
+        "element": "水",
+        "planet": "海王星",
+        "keywords": ["智慧", "分析", "靈性", "內省", "神秘"],
+        "positive_traits": ["善於分析", "追求真理", "直覺敏銳", "獨立思考", "智慧深邃"],
+        "negative_traits": ["過於孤僻", "批判性強", "懷疑一切", "難以親近", "逃避現實"],
+        "life_purpose": "追求智慧與真理，探索生命的深層意義",
+        "career_suggestions": ["研究員", "科學家", "哲學家", "分析師", "技術專家"],
+        "relationship_style": "需要心靈契合的伴侶，重視精神交流",
+        "life_lessons": "學習信任、敞開心扉、在思考與行動間取得平衡",
+        "compatible_numbers": [3, 5],
+        "challenging_numbers": [2, 6, 8],
+        "description": "生命靈數 7 的人是天生的探索者。你對生命的奧秘充滿好奇，渴望理解事物的本質。你的人生使命是學習如何在追求智慧的同時，也能與他人建立深刻的連結。"
+      },
+      "8": {
+        "name": "成就者",
+        "name_en": "The Achiever",
+        "element": "土",
+        "planet": "土星",
+        "keywords": ["權力", "財富", "成就", "管理", "野心"],
+        "positive_traits": ["有野心", "領導力強", "善於管理", "務實高效", "目標明確"],
+        "negative_traits": ["過於物質", "工作狂", "控制欲強", "忽視情感", "專制獨斷"],
+        "life_purpose": "學習正確運用權力，創造物質與精神的平衡",
+        "career_suggestions": ["企業高管", "金融家", "律師", "房地產商", "政治家"],
+        "relationship_style": "重視伴侶的能力和地位，傾向主導關係",
+        "life_lessons": "學習平衡物質與精神、權力與謙遜",
+        "compatible_numbers": [2, 4, 6],
+        "challenging_numbers": [1, 5, 7],
+        "description": "生命靈數 8 的人是天生的成就者。你具有強大的野心和實現目標的能力，渴望在物質世界取得成功。你的人生使命是學習如何正確運用權力，同時不忘精神層面的成長。"
+      },
+      "9": {
+        "name": "智者",
+        "name_en": "The Humanitarian",
+        "element": "火",
+        "planet": "火星",
+        "keywords": ["慈悲", "智慧", "完成", "無私", "理想"],
+        "positive_traits": ["慈悲為懷", "富有智慧", "無私奉獻", "視野宏觀", "藝術天賦"],
+        "negative_traits": ["過於理想", "難以放下", "情緒波動", "自我犧牲", "脫離現實"],
+        "life_purpose": "以智慧和慈悲服務人類，完成人生的圓滿",
+        "career_suggestions": ["慈善家", "藝術家", "治療師", "心理學家", "社會運動家"],
+        "relationship_style": "需要有共同理想的伴侶，重視精神層面的連結",
+        "life_lessons": "學習放下執著、活在當下、在給予與接受間取得平衡",
+        "compatible_numbers": [1, 3, 6],
+        "challenging_numbers": [4, 8],
+        "description": "生命靈數 9 的人是天生的智者。你具有宏觀的視野和對人類的慈悲心，渴望讓世界變得更美好。你的人生使命是學習如何在追求理想的同時，也能腳踏實地地生活。"
+      },
+      "11": {
+        "name": "靈性啟蒙者",
+        "name_en": "The Spiritual Messenger",
+        "element": "風",
+        "planet": "天王星",
+        "keywords": ["直覺", "靈性", "啟發", "理想主義", "敏感"],
+        "positive_traits": ["直覺敏銳", "靈性覺醒", "富有啟發性", "理想主義", "創意非凡"],
+        "negative_traits": ["過於敏感", "焦慮不安", "脫離現實", "自我懷疑", "緊張"],
+        "life_purpose": "作為靈性的橋樑，傳遞更高的智慧與啟示",
+        "career_suggestions": ["靈性導師", "藝術家", "治療師", "發明家", "心理諮詢師"],
+        "relationship_style": "需要能理解其靈性需求的伴侶",
+        "life_lessons": "學習接地、平衡靈性與物質生活、管理敏感特質",
+        "compatible_numbers": [2, 4, 6],
+        "challenging_numbers": [8],
+        "description": "生命靈數 11 的人是天生的靈性使者。你具有超凡的直覺和洞察力，能夠感知到常人看不見的事物。你的人生使命是學習如何將靈性啟示轉化為對他人有益的指引。"
+      },
+      "22": {
+        "name": "宏觀建築師",
+        "name_en": "The Master Builder",
+        "element": "土",
+        "planet": "冥王星",
+        "keywords": ["實踐", "建設", "遠見", "實現夢想", "領導力"],
+        "positive_traits": ["遠見卓識", "實踐能力強", "領導魅力", "堅持不懈", "能成大事"],
+        "negative_traits": ["壓力巨大", "完美主義", "工作狂", "自我要求過高", "忽視自我"],
+        "life_purpose": "將宏大的願景轉化為造福人類的具體成就",
+        "career_suggestions": ["建築師", "企業家", "政治領袖", "社會改革者", "大型專案負責人"],
+        "relationship_style": "需要能支持其宏大願景的伴侶",
+        "life_lessons": "學習自我照顧、接受不完美、平衡理想與現實",
+        "compatible_numbers": [4, 6, 8],
+        "challenging_numbers": [5],
+        "description": "生命靈數 22 的人是宏觀建築師。你擁有將夢想轉化為現實的非凡能力，能夠完成常人難以想像的宏大計畫。你的人生使命是學習如何運用這份天賦來造福更多的人。"
+      },
+      "33": {
+        "name": "慈悲大師",
+        "name_en": "The Master Teacher",
+        "element": "水",
+        "planet": "海王星",
+        "keywords": ["奉獻", "療癒", "慈悲", "無私服務", "靈性導師"],
+        "positive_traits": ["無私奉獻", "療癒能力", "慈悲為懷", "靈性導師", "感染力強"],
+        "negative_traits": ["自我犧牲過度", "承擔過多", "情感負擔重", "忽視自己需求"],
+        "life_purpose": "以無條件的愛和慈悲來療癒和教導他人",
+        "career_suggestions": ["靈性導師", "治療師", "慈善家", "教育家", "宗教領袖"],
+        "relationship_style": "以無條件的愛對待伴侶，但需學習接受愛",
+        "life_lessons": "學習自愛、設立界限、平衡給予與接受",
+        "compatible_numbers": [6, 9],
+        "challenging_numbers": [1, 8],
+        "description": "生命靈數 33 的人是慈悲大師。你擁有療癒他人和傳遞無條件愛的天賦。這是最罕見的主數，象徵著最高層次的靈性服務。你的人生使命是學習如何在給予的同時，也能照顧好自己。"
+      }
+    }
+  },
+
+  "expression_number": {
+    "description": "天賦數/表達數（Expression Number）- 由全名計算，揭示天賦才能與潛力",
+    "calculation": "將姓名中所有字母對應的數字相加，直到得出 1-9 或主數",
+    "interpretation_template": "天賦數 {number} 表示你天生具有 {keywords} 的才能。在職業和自我表達方面，你傾向於 {positive_traits}。"
+  },
+
+  "soul_urge_number": {
+    "description": "靈魂渴望數/心靈數（Soul Urge Number）- 由姓名中元音計算，揭示內心深處的渴望",
+    "calculation": "將姓名中所有元音（A, E, I, O, U）對應的數字相加",
+    "interpretation_template": "靈魂渴望數 {number} 揭示你內心深處渴望 {keywords}。你真正追求的是 {life_purpose}。"
+  },
+
+  "personality_number": {
+    "description": "人格數/外在數（Personality Number）- 由姓名中輔音計算，揭示外在形象",
+    "calculation": "將姓名中所有輔音對應的數字相加",
+    "interpretation_template": "人格數 {number} 顯示你給他人的第一印象是 {positive_traits}。你的外在形象展現 {keywords}。"
+  },
+
+  "birthday_number": {
+    "description": "生日數（Birthday Number）- 出生日的數字，揭示特殊才能",
+    "calculation": "取出生日期的日數，化約至 1-9 或保留 11、22",
+    "numbers": {
+      "1": "獨立、創新的才能，適合領導角色",
+      "2": "合作、外交的才能，善於調解",
+      "3": "創意、表達的才能，適合藝術領域",
+      "4": "組織、建設的才能，適合管理工作",
+      "5": "適應、溝通的才能，適合多變環境",
+      "6": "照顧、服務的才能，適合助人工作",
+      "7": "分析、研究的才能，適合學術領域",
+      "8": "管理、財務的才能，適合商業領域",
+      "9": "藝術、人道的才能，適合服務人類",
+      "11": "直覺、啟發的才能，適合靈性工作",
+      "22": "建設、實踐的才能，適合大型計畫"
+    }
+  },
+
+  "personal_year": {
+    "description": "流年數（Personal Year）- 揭示當年的主題與能量",
+    "calculation": "將出生月日與當前年份相加",
+    "cycle": "九年一個循環",
+    "numbers": {
+      "1": {
+        "theme": "新開始",
+        "keywords": ["種子", "開創", "獨立", "新計畫"],
+        "description": "這是九年循環的開始，適合啟動新計畫、建立新關係、開創新事業。你的想法和行動在這一年將為未來九年奠定基礎。",
+        "advice": "勇敢追求你的目標，不要被過去所束縛。現在是採取行動的最佳時機。"
+      },
+      "2": {
+        "theme": "耐心等待",
+        "keywords": ["合作", "關係", "耐心", "細節"],
+        "description": "去年種下的種子需要時間生長。這是建立關係、培養耐心、關注細節的一年。",
+        "advice": "不要急於求成，專注於合作關係和細節工作。你的耐心將在未來得到回報。"
+      },
+      "3": {
+        "theme": "表達創意",
+        "keywords": ["創意", "社交", "表達", "享樂"],
+        "description": "這是充滿創意和社交活動的一年。你的自我表達將達到高峰，適合藝術創作和擴展社交圈。",
+        "advice": "盡情表達自己，享受生活的樂趣。但也要注意不要過於分散精力。"
+      },
+      "4": {
+        "theme": "穩固基礎",
+        "keywords": ["建設", "工作", "紀律", "基礎"],
+        "description": "這是努力工作、建立穩固基礎的一年。可能會有較多的責任和挑戰，但你的付出將為未來打下堅實基礎。",
+        "advice": "專注於實際的工作，建立穩固的基礎。這是投資未來的關鍵時刻。"
+      },
+      "5": {
+        "theme": "變化冒險",
+        "keywords": ["變化", "自由", "冒險", "多樣"],
+        "description": "這是充滿變化和機會的一年。你可能會經歷搬遷、換工作或開始新的冒險。保持開放的心態。",
+        "advice": "擁抱變化，勇於嘗試新事物。但也要注意不要過於衝動或逃避責任。"
+      },
+      "6": {
+        "theme": "家庭責任",
+        "keywords": ["家庭", "責任", "愛", "服務"],
+        "description": "這是關注家庭和承擔責任的一年。你可能會有更多家庭責任，或在關係中經歷重要的發展。",
+        "advice": "用心照顧家人和親密關係。這是建立更深層連結的好時機。"
+      },
+      "7": {
+        "theme": "內省反思",
+        "keywords": ["內省", "學習", "靈性", "獨處"],
+        "description": "這是內省和靈性成長的一年。你可能會對生命的意義有更深的思考，適合學習和自我探索。",
+        "advice": "給自己安靜思考的時間，探索內心世界。這是精神成長的重要時期。"
+      },
+      "8": {
+        "theme": "豐收成就",
+        "keywords": ["成就", "財富", "權力", "收穫"],
+        "description": "這是收穫和成就的一年。你過去的努力將開始產生回報，財務和事業可能會有重大進展。",
+        "advice": "抓住機會，大膽追求你的目標。這是實現物質成功的關鍵年份。"
+      },
+      "9": {
+        "theme": "完成放下",
+        "keywords": ["完成", "放下", "轉化", "慈悲"],
+        "description": "這是九年循環的結束，適合完成未完成的事務、放下不再需要的事物、為新的循環做準備。",
+        "advice": "放下過去，原諒自己和他人。為即將到來的新循環清理空間。"
+      },
+      "11": {
+        "theme": "靈性覺醒",
+        "keywords": ["靈性", "直覺", "啟示", "敏感"],
+        "description": "這是靈性覺醒的特殊年份。你的直覺將特別敏銳，可能會收到重要的內在指引。",
+        "advice": "信任你的直覺，關注內在的聲音。這是靈性成長的重要時期。"
+      },
+      "22": {
+        "theme": "宏大建設",
+        "keywords": ["建設", "實踐", "宏觀", "成就"],
+        "description": "這是將宏大願景轉化為現實的特殊年份。你有機會完成重大的計畫或事業。",
+        "advice": "勇於追求你的宏大願景，但也要腳踏實地一步步來。"
+      }
+    }
+  },
+
+  "personal_month": {
+    "description": "流月數（Personal Month）- 揭示當月的主題與能量",
+    "calculation": "流年數 + 當前月份，化約至 1-9 或主數"
+  },
+
+  "personal_day": {
+    "description": "流日數（Personal Day）- 揭示當日的主題與能量",
+    "calculation": "流月數 + 當前日期，化約至 1-9 或主數"
+  },
+
+  "karmic_debt_numbers": {
+    "description": "業力債數（Karmic Debt Numbers）- 需要特別注意的數字",
+    "numbers": {
+      "13": {
+        "debt": "懶惰/走捷徑",
+        "lesson": "學習通過努力工作來實現目標",
+        "description": "13/4 的業力債表示過去世可能有逃避工作或走捷徑的傾向。這一世需要學習腳踏實地、勤奮努力。"
+      },
+      "14": {
+        "debt": "濫用自由",
+        "lesson": "學習適度與自律",
+        "description": "14/5 的業力債表示過去世可能有過度放縱或濫用自由的傾向。這一世需要學習自律和適度。"
+      },
+      "16": {
+        "debt": "自我中心",
+        "lesson": "學習謙遜與連結",
+        "description": "16/7 的業力債表示過去世可能有過度自我中心或驕傲的傾向。這一世需要學習謙遜和與他人建立真誠的連結。"
+      },
+      "19": {
+        "debt": "濫用權力",
+        "lesson": "學習獨立同時關懷他人",
+        "description": "19/1 的業力債表示過去世可能有濫用權力或過度自私的傾向。這一世需要學習在獨立的同時也關懷他人。"
+      }
+    }
+  },
+
+  "pinnacle_cycles": {
+    "description": "人生高峰期（Pinnacle Cycles）- 人生四個主要階段",
+    "cycles": [
+      {
+        "name": "第一高峰期",
+        "calculation": "出生月 + 出生日",
+        "duration": "從出生到 36 減去生命靈數",
+        "description": "早年的成長與學習階段"
+      },
+      {
+        "name": "第二高峰期",
+        "calculation": "出生日 + 出生年",
+        "duration": "第一高峰期結束後 9 年",
+        "description": "建立事業與家庭的階段"
+      },
+      {
+        "name": "第三高峰期",
+        "calculation": "第一高峰期 + 第二高峰期",
+        "duration": "第二高峰期結束後 9 年",
+        "description": "收穫與傳承的階段"
+      },
+      {
+        "name": "第四高峰期",
+        "calculation": "出生月 + 出生年",
+        "duration": "第三高峰期結束後至終生",
+        "description": "智慧與完成的階段"
+      }
+    ]
+  },
+
+  "challenge_numbers": {
+    "description": "挑戰數（Challenge Numbers）- 人生需要克服的挑戰",
+    "challenges": [
+      {
+        "name": "第一挑戰",
+        "calculation": "|出生月 - 出生日|",
+        "description": "早年的主要挑戰"
+      },
+      {
+        "name": "第二挑戰",
+        "calculation": "|出生日 - 出生年|",
+        "description": "中年的主要挑戰"
+      },
+      {
+        "name": "第三挑戰",
+        "calculation": "|第一挑戰 - 第二挑戰|",
+        "description": "人生的核心挑戰"
+      },
+      {
+        "name": "第四挑戰",
+        "calculation": "|出生月 - 出生年|",
+        "description": "晚年的主要挑戰"
+      }
+    ]
+  },
+
+  "number_compatibility": {
+    "description": "數字相容性分析",
+    "compatibility_matrix": {
+      "1": {"best": [3, 5], "good": [1, 2, 6, 9], "challenging": [4, 7, 8]},
+      "2": {"best": [4, 6, 8], "good": [1, 2, 3, 9], "challenging": [5, 7]},
+      "3": {"best": [1, 5, 9], "good": [2, 3, 6], "challenging": [4, 7, 8]},
+      "4": {"best": [2, 6, 8], "good": [4, 7], "challenging": [1, 3, 5, 9]},
+      "5": {"best": [1, 3, 7], "good": [5, 9], "challenging": [2, 4, 6, 8]},
+      "6": {"best": [2, 4, 9], "good": [1, 3, 6, 8], "challenging": [5, 7]},
+      "7": {"best": [3, 5], "good": [4, 7, 9], "challenging": [1, 2, 6, 8]},
+      "8": {"best": [2, 4, 6], "good": [8], "challenging": [1, 3, 5, 7, 9]},
+      "9": {"best": [1, 3, 6], "good": [2, 5, 7, 9], "challenging": [4, 8]}
+    }
+  }
+}

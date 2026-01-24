@@ -1,0 +1,1699 @@
+{
+  "metadata": {
+    "version": "1.0.0",
+    "system": "Rider-Waite-Smith",
+    "total_cards": 78,
+    "created": "2026-01-24",
+    "description": "完整塔羅牌資料庫，包含 22 張大阿爾克那與 56 張小阿爾克那"
+  },
+  "major_arcana": [
+    {
+      "id": 0,
+      "name": "愚者",
+      "name_en": "The Fool",
+      "number": "0",
+      "element": "風",
+      "planet": "天王星",
+      "keywords": ["新開始", "冒險", "自由", "純真", "信仰飛躍"],
+      "upright": {
+        "general": "新的旅程、冒險精神、天真無邪、自發性、信任宇宙",
+        "love": "新戀情萌芽、單純的愛、不計後果的追求、開放心態",
+        "career": "新工作機會、創業、勇於嘗試、打破常規",
+        "finance": "財務新起點、理想主義、需注意衝動消費",
+        "health": "樂觀心態、新的健康計劃、需注意粗心意外"
+      },
+      "reversed": {
+        "general": "魯莽、愚昧、缺乏計劃、恐懼改變、停滯不前",
+        "love": "輕率承諾、不成熟的感情、害怕承諾",
+        "career": "衝動決策、缺乏準備、錯失良機",
+        "finance": "財務草率、投資失誤、揮霍",
+        "health": "忽視健康警訊、意外傷害風險"
+      },
+      "symbolism": "懸崖邊的年輕人、白玫瑰、小狗、包袱、山脈",
+      "archetype": "天真者、冒險家"
+    },
+    {
+      "id": 1,
+      "name": "魔術師",
+      "name_en": "The Magician",
+      "number": "I",
+      "element": "風",
+      "planet": "水星",
+      "keywords": ["創造力", "意志力", "技能", "資源整合", "行動力"],
+      "upright": {
+        "general": "掌握資源、創造力展現、意志力實現、溝通能力強",
+        "love": "主動追求、魅力四射、溝通順暢、創造浪漫",
+        "career": "技能展現、領導力、談判成功、新專案啟動",
+        "finance": "善用資源、投資眼光、開源節流",
+        "health": "積極治療、心身合一、能量充沛"
+      },
+      "reversed": {
+        "general": "操縱、欺騙、才能浪費、缺乏方向",
+        "love": "花言巧語、不真誠、操控關係",
+        "career": "懷才不遇、詐騙風險、計劃失敗",
+        "finance": "財務詐騙、投資失利、資源浪費",
+        "health": "治療不當、過度依賴藥物"
+      },
+      "symbolism": "無限符號、四元素（權杖杯劍錢）、紅袍白袍、玫瑰百合",
+      "archetype": "創造者、溝通者"
+    },
+    {
+      "id": 2,
+      "name": "女祭司",
+      "name_en": "The High Priestess",
+      "number": "II",
+      "element": "水",
+      "planet": "月亮",
+      "keywords": ["直覺", "神秘", "潛意識", "內在智慧", "被動"],
+      "upright": {
+        "general": "相信直覺、內在智慧、神秘揭示、靜待時機",
+        "love": "柏拉圖式愛情、神秘吸引、等待真愛、傾聽內心",
+        "career": "直覺決策、學術研究、隱藏機會、深思熟慮",
+        "finance": "財務直覺、隱藏資產、謹慎理財",
+        "health": "傾聽身體訊號、荷爾蒙相關、心理健康"
+      },
+      "reversed": {
+        "general": "忽視直覺、秘密曝光、表面功夫、資訊封閉",
+        "love": "秘密戀情、不信任、情緒壓抑",
+        "career": "資訊不足、決策失誤、職場八卦",
+        "finance": "財務秘密、隱藏債務",
+        "health": "忽視症狀、婦科問題"
+      },
+      "symbolism": "黑白柱子（B/J）、月亮冠冕、Torah 卷軸、石榴與棕櫚簾幕",
+      "archetype": "神秘者、直覺者"
+    },
+    {
+      "id": 3,
+      "name": "皇后",
+      "name_en": "The Empress",
+      "number": "III",
+      "element": "土",
+      "planet": "金星",
+      "keywords": ["豐饒", "母性", "創造", "美麗", "滋養"],
+      "upright": {
+        "general": "豐收時期、創造力爆發、母性關懷、享受生活",
+        "love": "浪漫關係、孕育新生、深情款款、感官愉悅",
+        "career": "創意產業、藝術成就、團隊培育、豐厚回報",
+        "finance": "財富增長、投資收穫、物質享受",
+        "health": "生育力旺盛、身體滋養、美容保養"
+      },
+      "reversed": {
+        "general": "創意枯竭、過度依賴、忽視自我、不孕",
+        "love": "感情冷淡、過度黏膩、母愛過度",
+        "career": "創意瓶頸、過度勞累、缺乏成長",
+        "finance": "揮霍無度、財務依賴",
+        "health": "生育問題、營養失衡、過度放縱"
+      },
+      "symbolism": "麥穗王冠、金星符號盾牌、瀑布、豐饒森林、紅天鵝絨墊",
+      "archetype": "母親、創造者"
+    },
+    {
+      "id": 4,
+      "name": "皇帝",
+      "name_en": "The Emperor",
+      "number": "IV",
+      "element": "火",
+      "zodiac": "牡羊座",
+      "keywords": ["權威", "結構", "穩定", "父性", "領導"],
+      "upright": {
+        "general": "建立秩序、權威領導、理性決策、保護責任",
+        "love": "穩定關係、保護伴侶、傳統婚姻、男性主導",
+        "career": "升遷在望、管理職位、建立制度、事業穩固",
+        "finance": "財務穩健、長期規劃、資產管理",
+        "health": "紀律養生、結構化治療、骨骼問題"
+      },
+      "reversed": {
+        "general": "專制獨裁、過度控制、缺乏彈性、權威喪失",
+        "love": "控制狂、感情僵化、父權壓迫",
+        "career": "權力鬥爭、管理不善、反抗權威",
+        "finance": "財務控制過度、投資保守錯失",
+        "health": "過度壓力、心血管問題"
+      },
+      "symbolism": "公羊王座、權杖圓球、盔甲、紅袍、荒山背景",
+      "archetype": "父親、統治者"
+    },
+    {
+      "id": 5,
+      "name": "教皇",
+      "name_en": "The Hierophant",
+      "number": "V",
+      "element": "土",
+      "zodiac": "金牛座",
+      "keywords": ["傳統", "信仰", "教導", "儀式", "體制"],
+      "upright": {
+        "general": "遵循傳統、精神導師、學習教導、體制內發展",
+        "love": "傳統婚姻、宗教儀式、長輩祝福、承諾",
+        "career": "正規教育、導師指引、大企業、傳統行業",
+        "finance": "保守理財、傳統投資、信託基金",
+        "health": "傳統醫學、專家建議、身心靈平衡"
+      },
+      "reversed": {
+        "general": "打破傳統、挑戰權威、非主流信仰、自我探索",
+        "love": "非傳統關係、反叛期、信仰不合",
+        "career": "離開體制、自由職業、挑戰規範",
+        "finance": "另類投資、反傳統理財",
+        "health": "替代療法、質疑醫療"
+      },
+      "symbolism": "三層冠冕、交叉鑰匙、灰色柱子、兩位僧侶、紅袍白袍",
+      "archetype": "導師、傳統者"
+    },
+    {
+      "id": 6,
+      "name": "戀人",
+      "name_en": "The Lovers",
+      "number": "VI",
+      "element": "風",
+      "zodiac": "雙子座",
+      "keywords": ["愛情", "選擇", "價值觀", "結合", "和諧"],
+      "upright": {
+        "general": "愛情降臨、重要選擇、價值觀確立、靈魂伴侶",
+        "love": "真愛到來、深刻連結、伴侶和諧、浪漫高峰",
+        "career": "合作夥伴、熱愛工作、職涯選擇",
+        "finance": "共同理財、投資選擇、財務合作",
+        "health": "身心和諧、伴侶健康影響"
+      },
+      "reversed": {
+        "general": "選擇困難、價值觀衝突、不忠、失衡",
+        "love": "分手危機、第三者、溝通障礙、感情糾葛",
+        "career": "合作破裂、職業迷茫、選擇失誤",
+        "finance": "財務分歧、投資失誤",
+        "health": "伴侶關係壓力、心理失衡"
+      },
+      "symbolism": "天使拉斐爾、伊甸園、亞當夏娃、生命樹知識樹、蛇",
+      "archetype": "愛人、選擇者"
+    },
+    {
+      "id": 7,
+      "name": "戰車",
+      "name_en": "The Chariot",
+      "number": "VII",
+      "element": "水",
+      "zodiac": "巨蟹座",
+      "keywords": ["勝利", "意志力", "決心", "控制", "前進"],
+      "upright": {
+        "general": "勝利在望、意志堅定、克服障礙、快速行動",
+        "love": "追求成功、保護關係、感情前進、克服困難",
+        "career": "事業成功、競爭獲勝、快速升遷、目標達成",
+        "finance": "財務目標實現、積極理財、投資成功",
+        "health": "積極治療、意志力康復、運動健身"
+      },
+      "reversed": {
+        "general": "失控、方向迷失、野心受挫、缺乏動力",
+        "love": "感情失控、強迫關係、方向不明",
+        "career": "事業受阻、競爭失敗、失去動力",
+        "finance": "財務失控、投資失誤、目標落空",
+        "health": "控制力差、治療不順、壓力過大"
+      },
+      "symbolism": "星光華蓋、黑白獅身人面獸、盔甲戰士、城市背景、月亮符號",
+      "archetype": "征服者、勝利者"
+    },
+    {
+      "id": 8,
+      "name": "力量",
+      "name_en": "Strength",
+      "number": "VIII",
+      "element": "火",
+      "zodiac": "獅子座",
+      "keywords": ["內在力量", "勇氣", "耐心", "柔軟", "馴服"],
+      "upright": {
+        "general": "內在力量、以柔克剛、勇氣耐心、馴服本能",
+        "love": "溫柔力量、感情穩固、包容理解、熱情控制",
+        "career": "領導魅力、團隊影響力、耐心堅持",
+        "finance": "財務自律、長期投資、穩健增長",
+        "health": "心理韌性、慢性病控制、身心平衡"
+      },
+      "reversed": {
+        "general": "自我懷疑、內心軟弱、失去控制、濫用力量",
+        "love": "感情脆弱、控制過度、情緒失控",
+        "career": "缺乏信心、領導力不足、壓力崩潰",
+        "finance": "財務焦慮、衝動消費",
+        "health": "免疫力差、心理問題、缺乏毅力"
+      },
+      "symbolism": "無限符號、白衣女子、溫順獅子、花環、山脈背景",
+      "archetype": "馴服者、內在勇士"
+    },
+    {
+      "id": 9,
+      "name": "隱士",
+      "name_en": "The Hermit",
+      "number": "IX",
+      "element": "土",
+      "zodiac": "處女座",
+      "keywords": ["內省", "孤獨", "智慧", "指引", "探索"],
+      "upright": {
+        "general": "獨處反思、內在探索、精神導師、尋求真理",
+        "love": "單身時期、反思感情、精神連結、需要空間",
+        "career": "獨立工作、研究學習、專業深耕",
+        "finance": "謹慎理財、獨立決策、長期規劃",
+        "health": "身心休息、獨處療癒、反思生活方式"
+      },
+      "reversed": {
+        "general": "孤僻、拒絕幫助、迷失方向、過度內向",
+        "love": "害怕親密、過度封閉、拒絕社交",
+        "career": "與世隔絕、錯失機會、過度保守",
+        "finance": "財務孤立、缺乏資訊",
+        "health": "社交孤立、憂鬱傾向、拒絕治療"
+      },
+      "symbolism": "燈籠、長袍老者、六芒星、高山之巔、手杖",
+      "archetype": "智者、求道者"
+    },
+    {
+      "id": 10,
+      "name": "命運之輪",
+      "name_en": "Wheel of Fortune",
+      "number": "X",
+      "element": "火",
+      "planet": "木星",
+      "keywords": ["命運", "轉變", "週期", "機會", "業力"],
+      "upright": {
+        "general": "命運轉變、好運降臨、人生轉折、把握機會",
+        "love": "緣分到來、感情轉機、命中注定",
+        "career": "事業轉機、意外機會、升遷時機",
+        "finance": "財運提升、意外之財、投資轉機",
+        "health": "健康轉好、治療轉機、新的開始"
+      },
+      "reversed": {
+        "general": "厄運、變化阻礙、錯失良機、業力反噬",
+        "love": "感情低潮、緣分錯過、關係不穩",
+        "career": "事業低谷、機會流失、變動不利",
+        "finance": "財運下滑、投資失利",
+        "health": "健康反覆、舊疾復發"
+      },
+      "symbolism": "命運之輪、四角生物（人獅鷹牛）、蛇與阿努比斯、希伯來字母",
+      "archetype": "命運、變化"
+    },
+    {
+      "id": 11,
+      "name": "正義",
+      "name_en": "Justice",
+      "number": "XI",
+      "element": "風",
+      "zodiac": "天秤座",
+      "keywords": ["公正", "因果", "真相", "平衡", "決斷"],
+      "upright": {
+        "general": "公正裁決、因果報應、真相大白、理性判斷",
+        "love": "公平對待、理性看待感情、法律婚姻",
+        "career": "公正評價、法律事務、合約簽訂",
+        "finance": "公平交易、稅務清算、法律財務",
+        "health": "身體平衡、找到病因、公正診斷"
+      },
+      "reversed": {
+        "general": "不公正、逃避責任、偏見、法律問題",
+        "love": "不公平對待、欺騙、法律糾紛",
+        "career": "不公待遇、法律糾紛、合約問題",
+        "finance": "財務不公、官司纏身",
+        "health": "診斷錯誤、治療不公"
+      },
+      "symbolism": "天秤、寶劍、紫袍、灰色柱子、方形王冠",
+      "archetype": "裁判者、公正者"
+    },
+    {
+      "id": 12,
+      "name": "倒吊人",
+      "name_en": "The Hanged Man",
+      "number": "XII",
+      "element": "水",
+      "planet": "海王星",
+      "keywords": ["暫停", "犧牲", "新視角", "放下", "等待"],
+      "upright": {
+        "general": "暫停反思、換個角度、犧牲奉獻、耐心等待",
+        "love": "感情暫停、重新審視、為愛犧牲",
+        "career": "事業暫緩、換位思考、自我投資",
+        "finance": "財務暫停、放下執著、長線投資",
+        "health": "休養生息、新療法、心態轉變"
+      },
+      "reversed": {
+        "general": "拖延、無謂犧牲、固執己見、浪費時間",
+        "love": "感情僵持、無謂付出、拒絕改變",
+        "career": "拖延不前、機會流失、無效努力",
+        "finance": "財務僵局、錯誤堅持",
+        "health": "治療拖延、固執己見"
+      },
+      "symbolism": "倒吊男子、T形樹、光環、紅褲藍衣、平靜表情",
+      "archetype": "犧牲者、覺醒者"
+    },
+    {
+      "id": 13,
+      "name": "死神",
+      "name_en": "Death",
+      "number": "XIII",
+      "element": "水",
+      "zodiac": "天蠍座",
+      "keywords": ["結束", "轉化", "重生", "放下", "改變"],
+      "upright": {
+        "general": "重大結束、脫胎換骨、放下過去、新生開始",
+        "love": "感情結束或重生、關係轉化、放下執念",
+        "career": "離職轉行、事業重整、舊模式結束",
+        "finance": "財務重整、舊投資結束、新機會",
+        "health": "療程結束、身體轉化、舊習慣終結"
+      },
+      "reversed": {
+        "general": "抗拒改變、停滯不前、恐懼放下、遲遲不變",
+        "love": "無法放下、感情僵化、拖泥帶水",
+        "career": "害怕轉變、停滯不前、拖延結束",
+        "finance": "抗拒調整、舊模式困擾",
+        "health": "抗拒治療、壞習慣難改"
+      },
+      "symbolism": "骷髏騎士、白馬、黑旗白玫瑰、日出、各階層人物",
+      "archetype": "轉化者、終結者"
+    },
+    {
+      "id": 14,
+      "name": "節制",
+      "name_en": "Temperance",
+      "number": "XIV",
+      "element": "火",
+      "zodiac": "射手座",
+      "keywords": ["平衡", "調和", "耐心", "療癒", "中庸"],
+      "upright": {
+        "general": "平衡和諧、耐心等待、療癒整合、適度節制",
+        "love": "關係平衡、互相包容、長久經營",
+        "career": "工作生活平衡、團隊協調、穩步前進",
+        "finance": "收支平衡、理性消費、穩健理財",
+        "health": "身心平衡、療癒康復、生活調整"
+      },
+      "reversed": {
+        "general": "失衡、過度、缺乏耐心、不和諧",
+        "love": "關係失衡、過度付出或索取",
+        "career": "工作失衡、團隊不和、急躁",
+        "finance": "財務失衡、過度消費或節省",
+        "health": "生活失衡、作息混亂"
+      },
+      "symbolism": "天使、兩個杯子、水流、三角形太陽、彩虹",
+      "archetype": "療癒者、調和者"
+    },
+    {
+      "id": 15,
+      "name": "惡魔",
+      "name_en": "The Devil",
+      "number": "XV",
+      "element": "土",
+      "zodiac": "摩羯座",
+      "keywords": ["束縛", "慾望", "執著", "陰暗面", "物質"],
+      "upright": {
+        "general": "物質執著、慾望束縛、陰暗面、上癮依賴",
+        "love": "不健康依附、激情迷戀、控制關係",
+        "career": "工作狂、職場束縛、不正當手段",
+        "finance": "物質主義、財務困縛、貪婪",
+        "health": "成癮問題、壞習慣、身心束縛"
+      },
+      "reversed": {
+        "general": "掙脫束縛、覺醒、放下執著、面對陰暗",
+        "love": "掙脫不良關係、打破依附",
+        "career": "離開有毒環境、重獲自由",
+        "finance": "打破財務困境、放下貪念",
+        "health": "戒除成癮、打破壞習慣"
+      },
+      "symbolism": "惡魔巴風特、鎖鏈男女、倒五芒星、黑暗背景",
+      "archetype": "束縛者、誘惑者"
+    },
+    {
+      "id": 16,
+      "name": "塔",
+      "name_en": "The Tower",
+      "number": "XVI",
+      "element": "火",
+      "planet": "火星",
+      "keywords": ["崩塌", "劇變", "覺醒", "解放", "真相"],
+      "upright": {
+        "general": "突然崩塌、劇烈變動、舊結構瓦解、真相揭露",
+        "love": "感情劇變、關係破裂、真相曝光",
+        "career": "事業劇變、公司問題、被迫離開",
+        "finance": "財務危機、投資崩盤、突發損失",
+        "health": "健康警訊、突發狀況、緊急事件"
+      },
+      "reversed": {
+        "general": "逃避劇變、延遲崩塌、恐懼改變、內在覺醒",
+        "love": "勉強維持、延遲分手、內心掙扎",
+        "career": "苟延殘喘、延遲崩潰",
+        "finance": "延緩危機、財務警訊",
+        "health": "忽視警訊、延遲治療"
+      },
+      "symbolism": "雷擊高塔、墜落人物、火焰、皇冠落下、黑暗天空",
+      "archetype": "破壞者、覺醒者"
+    },
+    {
+      "id": 17,
+      "name": "星星",
+      "name_en": "The Star",
+      "number": "XVII",
+      "element": "風",
+      "zodiac": "水瓶座",
+      "keywords": ["希望", "療癒", "靈感", "信心", "祝福"],
+      "upright": {
+        "general": "希望重生、靈感湧現、心靈療癒、宇宙祝福",
+        "love": "感情希望、真愛期待、心靈伴侶",
+        "career": "事業希望、創意靈感、理想實現",
+        "finance": "財務希望、長遠規劃、樂觀展望",
+        "health": "療癒康復、希望重燃、精神健康"
+      },
+      "reversed": {
+        "general": "失去希望、信心動搖、靈感枯竭、失望沮喪",
+        "love": "感情失望、希望幻滅",
+        "career": "事業失望、靈感缺失",
+        "finance": "財務失望、計劃落空",
+        "health": "康復緩慢、失去信心"
+      },
+      "symbolism": "裸女、八顆星星、兩個壺、大地與水、山脈與鳥",
+      "archetype": "希望者、療癒者"
+    },
+    {
+      "id": 18,
+      "name": "月亮",
+      "name_en": "The Moon",
+      "number": "XVIII",
+      "element": "水",
+      "zodiac": "雙魚座",
+      "keywords": ["幻覺", "恐懼", "潛意識", "不確定", "直覺"],
+      "upright": {
+        "general": "潛意識浮現、面對恐懼、情緒波動、迷惑不清",
+        "love": "感情迷惘、隱藏情緒、不安全感",
+        "career": "職場迷茫、隱藏問題、資訊不明",
+        "finance": "財務不明、隱藏風險、判斷困難",
+        "health": "情緒問題、睡眠障礙、心理健康"
+      },
+      "reversed": {
+        "general": "恐懼釋放、真相浮現、迷惑消散、直覺清晰",
+        "love": "感情真相、釋放恐懼、清晰溝通",
+        "career": "職場真相、問題明朗",
+        "finance": "財務清晰、風險識別",
+        "health": "情緒改善、問題發現"
+      },
+      "symbolism": "滿月、狼與狗、龍蝦、兩座塔、蜿蜒小路",
+      "archetype": "夢境者、恐懼面對者"
+    },
+    {
+      "id": 19,
+      "name": "太陽",
+      "name_en": "The Sun",
+      "number": "XIX",
+      "element": "火",
+      "planet": "太陽",
+      "keywords": ["成功", "喜悅", "活力", "樂觀", "光明"],
+      "upright": {
+        "general": "成功喜悅、光明正大、活力充沛、樂觀自信",
+        "love": "感情幸福、喜事連連、熱情洋溢",
+        "career": "事業成功、公開認可、能量充沛",
+        "finance": "財務豐盛、成功投資、正面發展",
+        "health": "健康活力、精力旺盛、陽光心態"
+      },
+      "reversed": {
+        "general": "暫時受挫、過度樂觀、能量降低、延遲成功",
+        "love": "感情小波折、過度期待",
+        "career": "成功延遲、精力不足",
+        "finance": "財務暫時停滯",
+        "health": "能量不足、需要休息"
+      },
+      "symbolism": "太陽、快樂孩童、白馬、向日葵、石牆",
+      "archetype": "成功者、喜悅者"
+    },
+    {
+      "id": 20,
+      "name": "審判",
+      "name_en": "Judgement",
+      "number": "XX",
+      "element": "火",
+      "planet": "冥王星",
+      "keywords": ["覺醒", "重生", "召喚", "評價", "超越"],
+      "upright": {
+        "general": "靈性覺醒、人生評估、重大決定、天命召喚",
+        "love": "感情覺醒、關係重評、二次機會",
+        "career": "職涯評估、重大轉變、使命召喚",
+        "finance": "財務重評、重大決定",
+        "health": "健康覺醒、生活重評、重大改變"
+      },
+      "reversed": {
+        "general": "自我懷疑、逃避反省、錯過召喚、判斷失誤",
+        "love": "感情逃避、不願面對",
+        "career": "逃避評估、錯失轉機",
+        "finance": "財務逃避、拒絕重評",
+        "health": "健康逃避、不願改變"
+      },
+      "symbolism": "天使加百列、號角、復活者、棺材、山脈",
+      "archetype": "覺醒者、重生者"
+    },
+    {
+      "id": 21,
+      "name": "世界",
+      "name_en": "The World",
+      "number": "XXI",
+      "element": "土",
+      "planet": "土星",
+      "keywords": ["完成", "圓滿", "整合", "成就", "旅程終點"],
+      "upright": {
+        "general": "圓滿完成、目標達成、整合成就、新旅程開始",
+        "love": "感情圓滿、關係完整、美滿結局",
+        "career": "事業成就、目標完成、階段圓滿",
+        "finance": "財務目標達成、豐盛回報",
+        "health": "健康完整、療程完成、身心整合"
+      },
+      "reversed": {
+        "general": "尚未完成、缺乏閉合、延遲滿足、目標未達",
+        "love": "感情未圓、缺少閉合感",
+        "career": "事業未完、目標延遲",
+        "finance": "財務目標未達",
+        "health": "療程未完、健康待整合"
+      },
+      "symbolism": "月桂花環、裸女舞者、四角生物、紫布、權杖",
+      "archetype": "完成者、整合者"
+    }
+  ],
+  "minor_arcana": {
+    "wands": {
+      "element": "火",
+      "suit_meaning": "行動、創造、熱情、意志、靈感、事業",
+      "cards": [
+        {
+          "id": 22,
+          "name": "權杖王牌",
+          "name_en": "Ace of Wands",
+          "number": "A",
+          "keywords": ["新開始", "創意", "潛力", "靈感", "動力"],
+          "upright": {
+            "general": "創意爆發、新計劃啟動、潛力無限、熱情點燃",
+            "love": "新戀情火花、激情重燃",
+            "career": "新事業機會、創業靈感、突破",
+            "finance": "新財源、投資機會"
+          },
+          "reversed": {
+            "general": "靈感枯竭、計劃延遲、缺乏動力",
+            "love": "激情消退、關係無趣",
+            "career": "創業受阻、靈感缺失",
+            "finance": "機會錯失、投資延遲"
+          }
+        },
+        {
+          "id": 23,
+          "name": "權杖二",
+          "name_en": "Two of Wands",
+          "number": "2",
+          "keywords": ["計劃", "決策", "遠見", "等待", "準備"],
+          "upright": {
+            "general": "規劃未來、擴展視野、等待時機",
+            "love": "感情規劃、長遠考慮",
+            "career": "事業規劃、擴展計劃",
+            "finance": "投資規劃、財務遠見"
+          },
+          "reversed": {
+            "general": "計劃受阻、短視、恐懼未知",
+            "love": "感情猶豫、缺乏方向",
+            "career": "計劃失敗、視野狹窄",
+            "finance": "投資猶豫、規劃不周"
+          }
+        },
+        {
+          "id": 24,
+          "name": "權杖三",
+          "name_en": "Three of Wands",
+          "number": "3",
+          "keywords": ["擴展", "遠見", "等待收穫", "機會"],
+          "upright": {
+            "general": "等待回報、視野擴展、海外機會",
+            "love": "感情發展、遠距離關係",
+            "career": "事業擴展、海外發展",
+            "finance": "投資等待回報、國際理財"
+          },
+          "reversed": {
+            "general": "回報延遲、擴展受阻",
+            "love": "遠距離困難、發展受阻",
+            "career": "擴展失敗、機會受阻",
+            "finance": "投資回報差、計劃失敗"
+          }
+        },
+        {
+          "id": 25,
+          "name": "權杖四",
+          "name_en": "Four of Wands",
+          "number": "4",
+          "keywords": ["慶祝", "穩定", "里程碑", "和諧", "家庭"],
+          "upright": {
+            "general": "慶祝成就、家庭和諧、階段完成",
+            "love": "婚禮喜慶、感情穩定、訂婚",
+            "career": "事業里程碑、團隊慶功",
+            "finance": "財務穩定、成就慶祝"
+          },
+          "reversed": {
+            "general": "慶祝延遲、不穩定、家庭不和",
+            "love": "婚事受阻、感情波動",
+            "career": "成就未達、團隊不和",
+            "finance": "財務不穩、計劃未完"
+          }
+        },
+        {
+          "id": 26,
+          "name": "權杖五",
+          "name_en": "Five of Wands",
+          "number": "5",
+          "keywords": ["競爭", "衝突", "挑戰", "奮鬥", "多元意見"],
+          "upright": {
+            "general": "競爭環境、意見分歧、挑戰重重",
+            "love": "感情爭吵、競爭對手",
+            "career": "職場競爭、團隊衝突",
+            "finance": "財務競爭、投資角力"
+          },
+          "reversed": {
+            "general": "避免衝突、競爭結束、協調",
+            "love": "爭吵平息、競爭消退",
+            "career": "競爭減緩、衝突解決",
+            "finance": "競爭結束、協調成功"
+          }
+        },
+        {
+          "id": 27,
+          "name": "權杖六",
+          "name_en": "Six of Wands",
+          "number": "6",
+          "keywords": ["勝利", "認可", "成功", "自信", "領導"],
+          "upright": {
+            "general": "公開成功、獲得認可、自信領導",
+            "love": "感情勝利、受到肯定",
+            "career": "事業成功、升遷表揚",
+            "finance": "投資成功、財務認可"
+          },
+          "reversed": {
+            "general": "失敗、缺乏認可、自信不足",
+            "love": "感情失利、不被認可",
+            "career": "事業失敗、缺乏肯定",
+            "finance": "投資失利、信心不足"
+          }
+        },
+        {
+          "id": 28,
+          "name": "權杖七",
+          "name_en": "Seven of Wands",
+          "number": "7",
+          "keywords": ["防禦", "堅持", "挑戰", "立場", "勇氣"],
+          "upright": {
+            "general": "堅守立場、面對挑戰、防禦成功",
+            "love": "捍衛感情、堅持立場",
+            "career": "職場防禦、堅持原則",
+            "finance": "財務防守、保護資產"
+          },
+          "reversed": {
+            "general": "放棄抵抗、壓力過大、立場動搖",
+            "love": "感情放棄、壓力過大",
+            "career": "放棄堅持、被迫妥協",
+            "finance": "財務失守、放棄抵抗"
+          }
+        },
+        {
+          "id": 29,
+          "name": "權杖八",
+          "name_en": "Eight of Wands",
+          "number": "8",
+          "keywords": ["快速", "行動", "訊息", "旅行", "進展"],
+          "upright": {
+            "general": "快速進展、訊息到來、旅行出行",
+            "love": "感情快速發展、熱情訊息",
+            "career": "事業快速進展、消息到來",
+            "finance": "財務快速變動、投資進展"
+          },
+          "reversed": {
+            "general": "延遲、阻礙、訊息不通",
+            "love": "感情進展慢、溝通延遲",
+            "career": "進度延遲、訊息受阻",
+            "finance": "財務延遲、投資停滯"
+          }
+        },
+        {
+          "id": 30,
+          "name": "權杖九",
+          "name_en": "Nine of Wands",
+          "number": "9",
+          "keywords": ["堅韌", "毅力", "防備", "疲憊", "最後考驗"],
+          "upright": {
+            "general": "堅持到底、最後考驗、保持警覺",
+            "love": "感情考驗、堅持不放棄",
+            "career": "事業最後關頭、堅韌不拔",
+            "finance": "財務堅持、最後挑戰"
+          },
+          "reversed": {
+            "general": "精疲力竭、放棄、過度防備",
+            "love": "感情疲憊、過度防備",
+            "career": "工作疲憊、放棄抵抗",
+            "finance": "財務疲憊、精力耗盡"
+          }
+        },
+        {
+          "id": 31,
+          "name": "權杖十",
+          "name_en": "Ten of Wands",
+          "number": "10",
+          "keywords": ["負擔", "責任", "壓力", "堅持", "過度"],
+          "upright": {
+            "general": "負擔過重、責任壓力、堅持承擔",
+            "love": "感情負擔、責任過重",
+            "career": "工作壓力大、責任過多",
+            "finance": "財務負擔、債務壓力"
+          },
+          "reversed": {
+            "general": "放下負擔、委派責任、釋放壓力",
+            "love": "感情減負、責任分擔",
+            "career": "工作減壓、委託他人",
+            "finance": "財務減負、釋放壓力"
+          }
+        },
+        {
+          "id": 32,
+          "name": "權杖侍者",
+          "name_en": "Page of Wands",
+          "number": "侍者",
+          "keywords": ["探索", "熱情", "冒險", "訊息", "學習"],
+          "upright": {
+            "general": "探索精神、好消息、新興趣、冒險開始",
+            "love": "新戀情訊息、感情冒險",
+            "career": "新機會消息、學習新技能",
+            "finance": "財務好消息、新投資機會"
+          },
+          "reversed": {
+            "general": "缺乏方向、壞消息、魯莽",
+            "love": "感情壞消息、衝動行事",
+            "career": "機會受阻、學習困難",
+            "finance": "財務壞消息、投資草率"
+          }
+        },
+        {
+          "id": 33,
+          "name": "權杖騎士",
+          "name_en": "Knight of Wands",
+          "number": "騎士",
+          "keywords": ["行動", "冒險", "熱情", "衝動", "能量"],
+          "upright": {
+            "general": "積極行動、冒險精神、能量充沛",
+            "love": "熱烈追求、激情戀愛",
+            "career": "積極進取、大膽行動",
+            "finance": "投資衝勁、大膽理財"
+          },
+          "reversed": {
+            "general": "魯莽行事、缺乏耐心、過度衝動",
+            "love": "感情衝動、三分鐘熱度",
+            "career": "行動草率、缺乏計劃",
+            "finance": "投資衝動、財務草率"
+          }
+        },
+        {
+          "id": 34,
+          "name": "權杖王后",
+          "name_en": "Queen of Wands",
+          "number": "王后",
+          "keywords": ["自信", "熱情", "魅力", "獨立", "創造"],
+          "upright": {
+            "general": "自信魅力、熱情洋溢、獨立自主",
+            "love": "感情自信、熱情伴侶",
+            "career": "事業魅力、領導風範",
+            "finance": "財務自信、獨立理財"
+          },
+          "reversed": {
+            "general": "自私、嫉妒、控制、情緒化",
+            "love": "感情嫉妒、控制慾強",
+            "career": "職場嫉妒、控制過度",
+            "finance": "財務自私、情緒消費"
+          }
+        },
+        {
+          "id": 35,
+          "name": "權杖國王",
+          "name_en": "King of Wands",
+          "number": "國王",
+          "keywords": ["領導", "遠見", "企業家", "魅力", "創業"],
+          "upright": {
+            "general": "領導才能、企業精神、遠見卓識",
+            "love": "感情主導、魅力伴侶",
+            "career": "事業領袖、創業成功",
+            "finance": "財務領導、投資遠見"
+          },
+          "reversed": {
+            "general": "獨裁、衝動、傲慢、缺乏遠見",
+            "love": "感情獨斷、傲慢控制",
+            "career": "領導失敗、決策衝動",
+            "finance": "財務獨斷、投資草率"
+          }
+        }
+      ]
+    },
+    "cups": {
+      "element": "水",
+      "suit_meaning": "情感、愛情、直覺、關係、想像、潛意識",
+      "cards": [
+        {
+          "id": 36,
+          "name": "聖杯王牌",
+          "name_en": "Ace of Cups",
+          "number": "A",
+          "keywords": ["新感情", "愛", "直覺", "創意", "靈性"],
+          "upright": {
+            "general": "新感情開始、愛的萌芽、直覺開啟",
+            "love": "新戀情、愛情降臨、深刻情感",
+            "career": "創意靈感、情感滿足",
+            "finance": "財務直覺、情感投資"
+          },
+          "reversed": {
+            "general": "情感壓抑、愛的阻礙、直覺忽視",
+            "love": "感情受阻、情感封閉",
+            "career": "創意枯竭、情感疲憊",
+            "finance": "情緒消費、直覺失誤"
+          }
+        },
+        {
+          "id": 37,
+          "name": "聖杯二",
+          "name_en": "Two of Cups",
+          "number": "2",
+          "keywords": ["連結", "夥伴", "愛情", "和諧", "平等"],
+          "upright": {
+            "general": "靈魂伴侶、深刻連結、合作夥伴",
+            "love": "愛情深化、互相吸引、訂婚",
+            "career": "合作夥伴、關係和諧",
+            "finance": "財務合作、共同投資"
+          },
+          "reversed": {
+            "general": "關係失衡、分離、不和",
+            "love": "感情不合、關係破裂",
+            "career": "合作失敗、夥伴衝突",
+            "finance": "財務分歧、合作問題"
+          }
+        },
+        {
+          "id": 38,
+          "name": "聖杯三",
+          "name_en": "Three of Cups",
+          "number": "3",
+          "keywords": ["慶祝", "友誼", "社交", "創意", "團體"],
+          "upright": {
+            "general": "慶祝歡聚、友誼深厚、社交活動",
+            "love": "感情慶祝、朋友支持",
+            "career": "團隊慶功、社交成功",
+            "finance": "財務慶祝、朋友聚會"
+          },
+          "reversed": {
+            "general": "過度放縱、流言蜚語、孤立",
+            "love": "第三者、過度社交",
+            "career": "團隊問題、辦公室政治",
+            "finance": "過度消費、社交花費"
+          }
+        },
+        {
+          "id": 39,
+          "name": "聖杯四",
+          "name_en": "Four of Cups",
+          "number": "4",
+          "keywords": ["冥想", "不滿", "忽視機會", "內省"],
+          "upright": {
+            "general": "對現狀不滿、沉思內省、忽視機會",
+            "love": "感情倦怠、情感冷淡",
+            "career": "工作不滿、忽視機會",
+            "finance": "財務不滿、錯過機會"
+          },
+          "reversed": {
+            "general": "覺醒、把握機會、走出低潮",
+            "love": "感情覺醒、重新開始",
+            "career": "把握機會、重新投入",
+            "finance": "財務覺醒、機會來臨"
+          }
+        },
+        {
+          "id": 40,
+          "name": "聖杯五",
+          "name_en": "Five of Cups",
+          "number": "5",
+          "keywords": ["失落", "悲傷", "遺憾", "放下", "希望"],
+          "upright": {
+            "general": "情感失落、為失去悲傷、專注遺憾",
+            "love": "感情失落、分手悲傷",
+            "career": "事業失落、機會錯失",
+            "finance": "財務損失、投資失利"
+          },
+          "reversed": {
+            "general": "走出悲傷、放下過去、看見希望",
+            "love": "感情療癒、放下過去",
+            "career": "事業恢復、重新開始",
+            "finance": "財務恢復、重建信心"
+          }
+        },
+        {
+          "id": 41,
+          "name": "聖杯六",
+          "name_en": "Six of Cups",
+          "number": "6",
+          "keywords": ["懷舊", "童年", "純真", "重逢", "給予"],
+          "upright": {
+            "general": "童年回憶、純真時光、故人重逢",
+            "love": "初戀回憶、舊愛重逢",
+            "career": "舊同事、過去人脈",
+            "finance": "過去投資、舊財源"
+          },
+          "reversed": {
+            "general": "活在過去、拒絕成長、過度懷舊",
+            "love": "無法放下過去、感情幼稚",
+            "career": "過去困擾、無法前進",
+            "finance": "舊債務、過去問題"
+          }
+        },
+        {
+          "id": 42,
+          "name": "聖杯七",
+          "name_en": "Seven of Cups",
+          "number": "7",
+          "keywords": ["幻想", "選擇", "白日夢", "誘惑", "機會"],
+          "upright": {
+            "general": "多種選擇、幻想誘惑、夢想眾多",
+            "love": "感情幻想、多重選擇",
+            "career": "職業選擇多、夢想眾多",
+            "finance": "投資選擇多、財務幻想"
+          },
+          "reversed": {
+            "general": "做出選擇、面對現實、清醒決定",
+            "love": "感情決定、幻想破滅",
+            "career": "職業決定、清醒選擇",
+            "finance": "投資決定、財務清醒"
+          }
+        },
+        {
+          "id": 43,
+          "name": "聖杯八",
+          "name_en": "Eight of Cups",
+          "number": "8",
+          "keywords": ["離開", "放棄", "追尋", "失望", "更高追求"],
+          "upright": {
+            "general": "離開舒適圈、追尋更高、放棄現狀",
+            "love": "離開不滿感情、追尋真愛",
+            "career": "離職轉行、追尋理想",
+            "finance": "放棄舊投資、追尋更好"
+          },
+          "reversed": {
+            "general": "害怕離開、繼續停留、逃避現實",
+            "love": "無法離開、感情停滯",
+            "career": "無法離職、職業停滯",
+            "finance": "財務困局、無法改變"
+          }
+        },
+        {
+          "id": 44,
+          "name": "聖杯九",
+          "name_en": "Nine of Cups",
+          "number": "9",
+          "keywords": ["滿足", "願望實現", "幸福", "感恩", "夢想成真"],
+          "upright": {
+            "general": "願望實現、情感滿足、夢想成真",
+            "love": "感情滿足、幸福美滿",
+            "career": "事業滿足、成就達成",
+            "finance": "財務滿足、願望實現"
+          },
+          "reversed": {
+            "general": "不滿足、貪婪、願望未達",
+            "love": "感情不滿、慾望過多",
+            "career": "事業不滿、目標未達",
+            "finance": "財務不滿、貪得無厭"
+          }
+        },
+        {
+          "id": 45,
+          "name": "聖杯十",
+          "name_en": "Ten of Cups",
+          "number": "10",
+          "keywords": ["家庭幸福", "和諧", "圓滿", "情感完整"],
+          "upright": {
+            "general": "家庭幸福、情感圓滿、和諧美滿",
+            "love": "感情圓滿、婚姻幸福",
+            "career": "團隊和諧、工作滿意",
+            "finance": "財務穩定、家庭富足"
+          },
+          "reversed": {
+            "general": "家庭不和、關係破裂、幸福不完整",
+            "love": "感情破裂、家庭問題",
+            "career": "團隊不和、工作不滿",
+            "finance": "財務家庭問題"
+          }
+        },
+        {
+          "id": 46,
+          "name": "聖杯侍者",
+          "name_en": "Page of Cups",
+          "number": "侍者",
+          "keywords": ["情感訊息", "直覺", "創意", "夢想", "年輕愛情"],
+          "upright": {
+            "general": "情感訊息、直覺啟發、創意萌芽",
+            "love": "愛情訊息、浪漫開始",
+            "career": "創意靈感、直覺指引",
+            "finance": "財務直覺、情感投資"
+          },
+          "reversed": {
+            "general": "情緒不穩、壞消息、幼稚",
+            "love": "感情壞消息、情緒化",
+            "career": "創意受阻、直覺失誤",
+            "finance": "財務壞消息、衝動消費"
+          }
+        },
+        {
+          "id": 47,
+          "name": "聖杯騎士",
+          "name_en": "Knight of Cups",
+          "number": "騎士",
+          "keywords": ["浪漫", "追求", "藝術", "理想主義", "情感表達"],
+          "upright": {
+            "general": "浪漫追求、情感表達、藝術氣質",
+            "love": "浪漫追求、愛情表白",
+            "career": "創意工作、藝術追求",
+            "finance": "情感投資、理想主義"
+          },
+          "reversed": {
+            "general": "不切實際、情緒化、花言巧語",
+            "love": "感情不實、花心",
+            "career": "創意不實、情緒工作",
+            "finance": "財務不切實際"
+          }
+        },
+        {
+          "id": 48,
+          "name": "聖杯王后",
+          "name_en": "Queen of Cups",
+          "number": "王后",
+          "keywords": ["直覺", "關懷", "情感智慧", "同理心", "療癒"],
+          "upright": {
+            "general": "情感智慧、直覺敏銳、關懷他人",
+            "love": "感情成熟、深情伴侶",
+            "career": "直覺決策、團隊關懷",
+            "finance": "財務直覺、情感理財"
+          },
+          "reversed": {
+            "general": "情緒依賴、情感不穩、過度敏感",
+            "love": "感情依賴、情緒化",
+            "career": "情緒工作、直覺失誤",
+            "finance": "情緒消費、財務不穩"
+          }
+        },
+        {
+          "id": 49,
+          "name": "聖杯國王",
+          "name_en": "King of Cups",
+          "number": "國王",
+          "keywords": ["情感成熟", "平衡", "智慧", "藝術", "外交"],
+          "upright": {
+            "general": "情感成熟、平衡穩定、智慧處事",
+            "love": "感情穩定、成熟伴侶",
+            "career": "情商領導、藝術成就",
+            "finance": "財務平衡、情感投資"
+          },
+          "reversed": {
+            "general": "情感壓抑、情緒操控、不平衡",
+            "love": "感情壓抑、情緒操控",
+            "career": "情緒失控、領導問題",
+            "finance": "財務情緒化"
+          }
+        }
+      ]
+    },
+    "swords": {
+      "element": "風",
+      "suit_meaning": "思維、溝通、衝突、真相、決定、智識",
+      "cards": [
+        {
+          "id": 50,
+          "name": "寶劍王牌",
+          "name_en": "Ace of Swords",
+          "number": "A",
+          "keywords": ["真相", "清晰", "突破", "新想法", "決心"],
+          "upright": {
+            "general": "思維清晰、真相揭示、重大突破",
+            "love": "感情真相、清晰溝通",
+            "career": "新想法、突破困境",
+            "finance": "財務清晰、投資決心"
+          },
+          "reversed": {
+            "general": "思緒混亂、欺騙、決策錯誤",
+            "love": "感情混亂、溝通失敗",
+            "career": "想法受阻、決策失誤",
+            "finance": "財務混亂、判斷錯誤"
+          }
+        },
+        {
+          "id": 51,
+          "name": "寶劍二",
+          "name_en": "Two of Swords",
+          "number": "2",
+          "keywords": ["僵局", "決定困難", "平衡", "逃避"],
+          "upright": {
+            "general": "決策僵局、逃避選擇、保持平衡",
+            "love": "感情僵局、不願面對",
+            "career": "職業僵局、決定困難",
+            "finance": "財務僵局、猶豫不決"
+          },
+          "reversed": {
+            "general": "做出決定、面對真相、僵局打破",
+            "love": "感情決定、面對問題",
+            "career": "職業決定、僵局打破",
+            "finance": "財務決定、問題解決"
+          }
+        },
+        {
+          "id": 52,
+          "name": "寶劍三",
+          "name_en": "Three of Swords",
+          "number": "3",
+          "keywords": ["心碎", "悲傷", "背叛", "分離", "痛苦"],
+          "upright": {
+            "general": "心碎痛苦、悲傷分離、背叛傷害",
+            "love": "感情心碎、分手痛苦",
+            "career": "事業挫敗、背叛傷害",
+            "finance": "財務損失、投資痛苦"
+          },
+          "reversed": {
+            "general": "傷痛療癒、放下悲傷、原諒過去",
+            "love": "感情療癒、放下傷痛",
+            "career": "事業恢復、原諒過去",
+            "finance": "財務恢復、傷痛減輕"
+          }
+        },
+        {
+          "id": 53,
+          "name": "寶劍四",
+          "name_en": "Four of Swords",
+          "number": "4",
+          "keywords": ["休息", "恢復", "冥想", "撤退", "療癒"],
+          "upright": {
+            "general": "休息恢復、冥想沉澱、暫時撤退",
+            "love": "感情休息、冷靜思考",
+            "career": "工作休息、充電恢復",
+            "finance": "財務休息、暫停投資"
+          },
+          "reversed": {
+            "general": "倦怠、過度休息、準備行動",
+            "love": "感情恢復、準備開始",
+            "career": "工作恢復、結束休息",
+            "finance": "財務重啟、恢復投資"
+          }
+        },
+        {
+          "id": 54,
+          "name": "寶劍五",
+          "name_en": "Five of Swords",
+          "number": "5",
+          "keywords": ["衝突", "失敗", "不擇手段", "挫敗", "投降"],
+          "upright": {
+            "general": "衝突失敗、不正當勝利、慘烈競爭",
+            "love": "感情衝突、爭吵失敗",
+            "career": "職場衝突、不擇手段",
+            "finance": "財務衝突、損失慘重"
+          },
+          "reversed": {
+            "general": "衝突結束、接受失敗、學習教訓",
+            "love": "感情和解、接受結果",
+            "career": "職場和解、學習教訓",
+            "finance": "財務和解、接受損失"
+          }
+        },
+        {
+          "id": 55,
+          "name": "寶劍六",
+          "name_en": "Six of Swords",
+          "number": "6",
+          "keywords": ["轉變", "離開", "療癒旅程", "過渡"],
+          "upright": {
+            "general": "離開困境、過渡期、療癒旅程",
+            "love": "離開不良感情、感情過渡",
+            "career": "離開困境、職業轉變",
+            "finance": "財務過渡、離開困局"
+          },
+          "reversed": {
+            "general": "無法離開、過渡困難、逃避問題",
+            "love": "無法離開感情、過渡困難",
+            "career": "無法離職、困境持續",
+            "finance": "財務困境持續"
+          }
+        },
+        {
+          "id": 56,
+          "name": "寶劍七",
+          "name_en": "Seven of Swords",
+          "number": "7",
+          "keywords": ["欺騙", "策略", "獨行", "不誠實", "智取"],
+          "upright": {
+            "general": "欺騙詭計、策略行動、獨自行動",
+            "love": "感情欺騙、不忠誠",
+            "career": "職場詭計、獨自行動",
+            "finance": "財務欺騙、不誠實交易"
+          },
+          "reversed": {
+            "general": "欺騙曝光、誠實面對、計劃失敗",
+            "love": "感情真相、欺騙曝光",
+            "career": "職場真相、計劃失敗",
+            "finance": "財務真相、欺騙發現"
+          }
+        },
+        {
+          "id": 57,
+          "name": "寶劍八",
+          "name_en": "Eight of Swords",
+          "number": "8",
+          "keywords": ["困住", "限制", "受害者心態", "自我設限"],
+          "upright": {
+            "general": "自我設限、感覺困住、無力感",
+            "love": "感情受困、無法掙脫",
+            "career": "工作受困、自我限制",
+            "finance": "財務受困、無力改變"
+          },
+          "reversed": {
+            "general": "掙脫束縛、自我解放、發現出路",
+            "love": "感情解放、掙脫困境",
+            "career": "工作解放、發現出路",
+            "finance": "財務解放、突破限制"
+          }
+        },
+        {
+          "id": 58,
+          "name": "寶劍九",
+          "name_en": "Nine of Swords",
+          "number": "9",
+          "keywords": ["焦慮", "惡夢", "恐懼", "內疚", "絕望"],
+          "upright": {
+            "general": "深夜焦慮、恐懼擔憂、惡夢困擾",
+            "love": "感情焦慮、擔心害怕",
+            "career": "工作焦慮、壓力過大",
+            "finance": "財務焦慮、擔憂不安"
+          },
+          "reversed": {
+            "general": "焦慮減輕、面對恐懼、走出黑暗",
+            "love": "感情焦慮緩解、面對恐懼",
+            "career": "工作焦慮減輕、壓力緩解",
+            "finance": "財務焦慮減輕"
+          }
+        },
+        {
+          "id": 59,
+          "name": "寶劍十",
+          "name_en": "Ten of Swords",
+          "number": "10",
+          "keywords": ["結束", "背叛", "谷底", "放下", "新開始"],
+          "upright": {
+            "general": "痛苦結束、觸底反彈、背叛終結",
+            "love": "感情終結、痛苦結束",
+            "career": "事業谷底、結束開始",
+            "finance": "財務谷底、最壞已過"
+          },
+          "reversed": {
+            "general": "開始恢復、拒絕放手、反覆掙扎",
+            "love": "感情恢復、不願放手",
+            "career": "事業恢復、掙扎中",
+            "finance": "財務恢復、最壞過去"
+          }
+        },
+        {
+          "id": 60,
+          "name": "寶劍侍者",
+          "name_en": "Page of Swords",
+          "number": "侍者",
+          "keywords": ["好奇", "觀察", "訊息", "警覺", "學習"],
+          "upright": {
+            "general": "思維敏捷、好奇探索、訊息傳遞",
+            "love": "感情訊息、好奇了解",
+            "career": "新想法、學習進取",
+            "finance": "財務訊息、投資學習"
+          },
+          "reversed": {
+            "general": "八卦流言、散布謠言、過度好奇",
+            "love": "感情八卦、流言困擾",
+            "career": "職場八卦、謠言傷害",
+            "finance": "財務謠言、錯誤資訊"
+          }
+        },
+        {
+          "id": 61,
+          "name": "寶劍騎士",
+          "name_en": "Knight of Swords",
+          "number": "騎士",
+          "keywords": ["行動迅速", "衝動", "野心", "直接", "戰鬥"],
+          "upright": {
+            "general": "快速行動、直接果斷、野心勃勃",
+            "love": "感情直接、快速追求",
+            "career": "事業進取、果斷行動",
+            "finance": "投資果斷、快速決策"
+          },
+          "reversed": {
+            "general": "魯莽衝動、草率決定、過度激進",
+            "love": "感情魯莽、衝動行事",
+            "career": "工作魯莽、決策草率",
+            "finance": "投資衝動、財務草率"
+          }
+        },
+        {
+          "id": 62,
+          "name": "寶劍王后",
+          "name_en": "Queen of Swords",
+          "number": "王后",
+          "keywords": ["獨立", "清晰", "理性", "界限", "智慧"],
+          "upright": {
+            "general": "獨立自主、理性清晰、智慧判斷",
+            "love": "感情獨立、清晰界限",
+            "career": "事業獨立、理性決策",
+            "finance": "財務獨立、清晰判斷"
+          },
+          "reversed": {
+            "general": "冷酷無情、過度批判、情感封閉",
+            "love": "感情冷淡、過度批判",
+            "career": "工作冷酷、過度苛求",
+            "finance": "財務冷酷、缺乏彈性"
+          }
+        },
+        {
+          "id": 63,
+          "name": "寶劍國王",
+          "name_en": "King of Swords",
+          "number": "國王",
+          "keywords": ["權威", "真相", "紀律", "智識", "公正"],
+          "upright": {
+            "general": "權威智慧、真相判斷、紀律嚴明",
+            "love": "感情理性、清晰溝通",
+            "career": "事業權威、領導智慧",
+            "finance": "財務紀律、理性投資"
+          },
+          "reversed": {
+            "general": "濫用權力、殘忍獨裁、不公正",
+            "love": "感情操控、言語傷害",
+            "career": "職場獨裁、濫用權力",
+            "finance": "財務專制、不公正"
+          }
+        }
+      ]
+    },
+    "pentacles": {
+      "element": "土",
+      "suit_meaning": "物質、金錢、工作、健康、實際、踏實",
+      "cards": [
+        {
+          "id": 64,
+          "name": "錢幣王牌",
+          "name_en": "Ace of Pentacles",
+          "number": "A",
+          "keywords": ["新機會", "財富", "物質", "開始", "潛力"],
+          "upright": {
+            "general": "財務機會、物質開始、新的投資",
+            "love": "穩定感情開始、物質基礎",
+            "career": "新工作機會、事業開始",
+            "finance": "財務機會、投資開始"
+          },
+          "reversed": {
+            "general": "機會錯失、財務延遲、規劃不周",
+            "love": "感情不穩定、物質問題",
+            "career": "機會錯失、事業延遲",
+            "finance": "財務機會錯失、投資延遲"
+          }
+        },
+        {
+          "id": 65,
+          "name": "錢幣二",
+          "name_en": "Two of Pentacles",
+          "number": "2",
+          "keywords": ["平衡", "多重任務", "適應", "變化", "優先順序"],
+          "upright": {
+            "general": "多重平衡、適應變化、靈活處理",
+            "love": "感情平衡、工作與愛",
+            "career": "多重任務、工作平衡",
+            "finance": "財務平衡、收支調整"
+          },
+          "reversed": {
+            "general": "失去平衡、無法兼顧、過度忙碌",
+            "love": "感情失衡、無法兼顧",
+            "career": "工作失衡、任務過多",
+            "finance": "財務失衡、收支不平"
+          }
+        },
+        {
+          "id": 66,
+          "name": "錢幣三",
+          "name_en": "Three of Pentacles",
+          "number": "3",
+          "keywords": ["團隊", "合作", "技能", "學習", "品質"],
+          "upright": {
+            "general": "團隊合作、技能展現、專業肯定",
+            "love": "感情合作、共同建設",
+            "career": "團隊合作、專業成長",
+            "finance": "財務合作、專業投資"
+          },
+          "reversed": {
+            "general": "合作失敗、技能不足、團隊問題",
+            "love": "感情合作問題、共同目標分歧",
+            "career": "團隊衝突、技能不足",
+            "finance": "財務合作失敗"
+          }
+        },
+        {
+          "id": 67,
+          "name": "錢幣四",
+          "name_en": "Four of Pentacles",
+          "number": "4",
+          "keywords": ["保守", "守財", "控制", "穩定", "固執"],
+          "upright": {
+            "general": "財務保守、守住資產、穩定安全",
+            "love": "感情保守、控制關係",
+            "career": "工作穩定、保守策略",
+            "finance": "守財穩健、避免風險"
+          },
+          "reversed": {
+            "general": "過度節儉、貪婪、無法放手",
+            "love": "感情控制、過度保護",
+            "career": "工作固執、不願改變",
+            "finance": "過度守財、貪婪吝嗇"
+          }
+        },
+        {
+          "id": 68,
+          "name": "錢幣五",
+          "name_en": "Five of Pentacles",
+          "number": "5",
+          "keywords": ["困難", "貧窮", "孤立", "健康問題", "危機"],
+          "upright": {
+            "general": "財務困難、物質匱乏、孤立無援",
+            "love": "感情困難、缺乏支持",
+            "career": "事業困難、失業危機",
+            "finance": "財務困難、經濟危機"
+          },
+          "reversed": {
+            "general": "走出困境、找到幫助、康復",
+            "love": "感情改善、獲得支持",
+            "career": "事業恢復、找到工作",
+            "finance": "財務改善、危機度過"
+          }
+        },
+        {
+          "id": 69,
+          "name": "錢幣六",
+          "name_en": "Six of Pentacles",
+          "number": "6",
+          "keywords": ["慷慨", "給予", "接受", "平衡", "慈善"],
+          "upright": {
+            "general": "慷慨給予、接受幫助、財務平衡",
+            "love": "感情給予、互相扶持",
+            "career": "職場慷慨、獲得幫助",
+            "finance": "財務慷慨、慈善投資"
+          },
+          "reversed": {
+            "general": "不公平給予、債務、自私",
+            "love": "感情不公平、付出不均",
+            "career": "職場不公、付出不獲回報",
+            "finance": "財務不公、債務問題"
+          }
+        },
+        {
+          "id": 70,
+          "name": "錢幣七",
+          "name_en": "Seven of Pentacles",
+          "number": "7",
+          "keywords": ["評估", "等待收穫", "耐心", "長期投資"],
+          "upright": {
+            "general": "等待收穫、評估進度、長期耕耘",
+            "love": "感情評估、耐心等待",
+            "career": "事業評估、等待成果",
+            "finance": "投資等待、長期規劃"
+          },
+          "reversed": {
+            "general": "投資失敗、缺乏耐心、努力白費",
+            "love": "感情投入白費、缺乏耐心",
+            "career": "事業投入無效、成果延遲",
+            "finance": "投資失敗、回報不佳"
+          }
+        },
+        {
+          "id": 71,
+          "name": "錢幣八",
+          "name_en": "Eight of Pentacles",
+          "number": "8",
+          "keywords": ["精進", "學習", "專注", "工匠精神", "努力"],
+          "upright": {
+            "general": "技能精進、專注學習、勤奮工作",
+            "love": "感情經營、用心投入",
+            "career": "事業精進、專業學習",
+            "finance": "財務精進、穩健累積"
+          },
+          "reversed": {
+            "general": "缺乏專注、技能不足、工作倦怠",
+            "love": "感情不用心、缺乏投入",
+            "career": "工作倦怠、技能停滯",
+            "finance": "財務缺乏紀律"
+          }
+        },
+        {
+          "id": 72,
+          "name": "錢幣九",
+          "name_en": "Nine of Pentacles",
+          "number": "9",
+          "keywords": ["獨立", "富足", "自給自足", "成就", "享受"],
+          "upright": {
+            "general": "財務獨立、享受成果、自給自足",
+            "love": "感情獨立、自我滿足",
+            "career": "事業成就、獨立自主",
+            "finance": "財務富足、投資成果"
+          },
+          "reversed": {
+            "general": "過度依賴、揮霍、不安全感",
+            "love": "感情依賴、物質化",
+            "career": "事業依賴、缺乏獨立",
+            "finance": "財務揮霍、不安全感"
+          }
+        },
+        {
+          "id": 73,
+          "name": "錢幣十",
+          "name_en": "Ten of Pentacles",
+          "number": "10",
+          "keywords": ["家族財富", "傳承", "穩定", "長久", "遺產"],
+          "upright": {
+            "general": "家族財富、長久穩定、財富傳承",
+            "love": "感情穩固、家族祝福",
+            "career": "事業傳承、長久穩定",
+            "finance": "財富傳承、家族資產"
+          },
+          "reversed": {
+            "general": "家族問題、財務糾紛、傳承困難",
+            "love": "感情家族問題、遺產糾紛",
+            "career": "事業傳承問題",
+            "finance": "財務家族糾紛"
+          }
+        },
+        {
+          "id": 74,
+          "name": "錢幣侍者",
+          "name_en": "Page of Pentacles",
+          "number": "侍者",
+          "keywords": ["學習", "機會", "腳踏實地", "新技能", "目標"],
+          "upright": {
+            "general": "學習新技能、腳踏實地、財務機會",
+            "love": "感情學習、穩定開始",
+            "career": "事業學習、新機會",
+            "finance": "財務學習、投資機會"
+          },
+          "reversed": {
+            "general": "缺乏專注、機會錯失、懶惰",
+            "love": "感情不成熟、缺乏投入",
+            "career": "事業不專注、機會錯失",
+            "finance": "財務缺乏規劃"
+          }
+        },
+        {
+          "id": 75,
+          "name": "錢幣騎士",
+          "name_en": "Knight of Pentacles",
+          "number": "騎士",
+          "keywords": ["穩健", "可靠", "勤勉", "耐心", "踏實"],
+          "upright": {
+            "general": "穩健前進、可靠負責、勤勉努力",
+            "love": "感情穩定、可靠伴侶",
+            "career": "事業穩健、腳踏實地",
+            "finance": "財務穩健、穩定投資"
+          },
+          "reversed": {
+            "general": "過度保守、無聊、固執己見",
+            "love": "感情保守、缺乏激情",
+            "career": "工作無聊、過度保守",
+            "finance": "財務過度保守"
+          }
+        },
+        {
+          "id": 76,
+          "name": "錢幣王后",
+          "name_en": "Queen of Pentacles",
+          "number": "王后",
+          "keywords": ["滋養", "實際", "富足", "家庭", "安全感"],
+          "upright": {
+            "general": "滋養關懷、實際能力、富足安全",
+            "love": "感情滋養、家庭和諧",
+            "career": "事業穩固、實際成就",
+            "finance": "財務富足、理財能力"
+          },
+          "reversed": {
+            "general": "物質主義、過度付出、不平衡",
+            "love": "感情物質化、過度犧牲",
+            "career": "工作生活失衡",
+            "finance": "財務物質主義"
+          }
+        },
+        {
+          "id": 77,
+          "name": "錢幣國王",
+          "name_en": "King of Pentacles",
+          "number": "國王",
+          "keywords": ["財富", "成功", "安全", "領導", "實際"],
+          "upright": {
+            "general": "財務成功、領導能力、實際成就",
+            "love": "感情穩定、物質基礎",
+            "career": "事業成功、領導地位",
+            "finance": "財務成功、投資大亨"
+          },
+          "reversed": {
+            "general": "物質主義、貪婪、風險投資",
+            "love": "感情物質化、金錢至上",
+            "career": "事業貪婪、不當手段",
+            "finance": "財務風險、貪婪損失"
+          }
+        }
+      ]
+    }
+  },
+  "spreads": {
+    "single": {
+      "name": "單張牌",
+      "name_en": "Single Card",
+      "positions": ["當前指引"],
+      "description": "快速獲得簡單明確的指引，適合日常問題或每日抽牌"
+    },
+    "three_card": {
+      "name": "三張牌",
+      "name_en": "Three Card Spread",
+      "positions": ["過去", "現在", "未來"],
+      "description": "了解事情的發展脈絡，從過去到未來的演變",
+      "variations": [
+        {"name": "情況-行動-結果", "positions": ["情況", "行動", "結果"]},
+        {"name": "身-心-靈", "positions": ["身體", "心理", "靈性"]},
+        {"name": "你-對方-關係", "positions": ["你的狀態", "對方狀態", "關係狀態"]}
+      ]
+    },
+    "celtic_cross": {
+      "name": "賽爾特十字",
+      "name_en": "Celtic Cross",
+      "positions": [
+        "現況（問題核心）",
+        "橫向影響（挑戰或助力）",
+        "意識層面（你知道的）",
+        "潛意識（你不知道的）",
+        "過去基礎",
+        "近期未來",
+        "自我認知",
+        "外在環境",
+        "希望或恐懼",
+        "最終結果"
+      ],
+      "description": "最經典的完整牌陣，深入分析問題的各個面向，適合重大決策"
+    },
+    "relationship": {
+      "name": "關係牌陣",
+      "name_en": "Relationship Spread",
+      "positions": ["你的感受", "對方感受", "關係基礎", "挑戰", "建議", "未來走向"],
+      "description": "專門分析兩人關係的牌陣"
+    },
+    "decision": {
+      "name": "決策牌陣",
+      "name_en": "Decision Spread",
+      "positions": ["選擇A結果", "選擇A優點", "選擇A缺點", "選擇B結果", "選擇B優點", "選擇B缺點", "整體建議"],
+      "description": "幫助在兩個選項之間做出決定"
+    }
+  }
+}

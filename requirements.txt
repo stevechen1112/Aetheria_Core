@@ -16,6 +16,14 @@ requests>=2.31.0
 # 八字命理计算（寿星天文历）
 sxtwl>=2.0.7
 
+# 簡繁轉換（確保輸出為台灣繁體）
+opencc-python-reimplemented>=0.1.7
+
+# 測試框架
+pytest>=7.4.0
+pytest-cov>=4.1.0
+pytest-flask>=1.2.0
+
 # 可選：資料處理
 pandas>=2.0.0
 

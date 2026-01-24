@@ -5,7 +5,7 @@
     "birth_time": "23:58",
     "birth_location": "台灣彰化市",
     "gender": "男",
-    "created_at": "2026-01-24T01:52:12.834384"
+    "created_at": "2026-01-24T17:00:38.271793"
   },
   "test_user_002": {
     "user_id": "test_user_002",
@@ -14,5 +14,50 @@
     "birth_location": "台湾台北市",
     "gender": "女",
     "created_at": "2026-01-24T09:26:13.310338"
+  },
+  "zhang_naiwen": {
+    "user_id": "zhang_naiwen",
+    "name": "張乃文",
+    "gender": "女",
+    "birth_year": 1979,
+    "birth_month": 10,
+    "birth_day": 23,
+    "birth_time": "06:00",
+    "birth_location": "台北市",
+    "longitude": 121.5654,
+    "latitude": 25.033,
+    "rectification_notes": {
+      "confirmed_hour": "丁卯時 (05:00-07:00)",
+      "reasoning": "2017卯酉沖(桃花外遇離異) + 2025木生火(雙貴人化解官司虛驚)",
+      "key_events": [
+        "2017離異：前夫外遇，應證卯酉桃花正沖",
+        "2025事業：在職碩士畢業+升高階主管，應證卯巳相生貴人運",
+        "2025官司：紫微預測有誤，實則無事，應證非寅時(無寅巳相刑)"
+      ],
+      "habits": "飲酒(八字缺水)",
+      "children": "一女一子，卯木食神得位，子女優秀",
+      "final_confirmation": "User verified Option A: 2025 Nobleman Help (Safe), 2017 Clash (Conflict), Good with Children."
+    },
+    "created_at": "2026-01-25T01:10:36.912957"
+  },
+  "chen_youzhu": {
+    "user_id": "chen_youzhu",
+    "name": "陳宥竹",
+    "gender": "男",
+    "birth_year": 1979,
+    "birth_month": 11,
+    "birth_day": 12,
+    "birth_time": "23:58",
+    "birth_location": "彰化市",
+    "longitude": 120.54,
+    "latitude": 24.08,
+    "rectification_notes": {
+      "final_verdict": "B盤 (甲申日/早子時)",
+      "confirmed_traits": "母親強勢/支柱, 金錢務實, 太太賢內助, 180cm, 生女",
+      "bazi_structure": "年(己未) 月(乙亥) 日(甲申) 時(甲子)",
+      "ziwei_structure": "命宮(戌)太陰 遷移(辰)太陽",
+      "user_feedback": "B盤很準 (金錢務實/家族體制型/賢內助)"
+    },
+    "created_at": "2026-01-25T01:38:12.814310"
   }
 }
