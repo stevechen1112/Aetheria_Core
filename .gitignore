@@ -1,0 +1,30 @@
+# Aetheria 專案 Git 忽略規則
+
+# 環境變數檔案（包含敏感資訊）
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# 測試與快取
+.pytest_cache/
+.coverage
+*.log
+feedback_log.jsonl
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 作業系統
+.DS_Store
+Thumbs.db

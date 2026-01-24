@@ -1,0 +1,18 @@
+{
+  "test_user_001": {
+    "user_id": "test_user_001",
+    "birth_date": "農曆68年9月23日",
+    "birth_time": "23:58",
+    "birth_location": "台灣彰化市",
+    "gender": "男",
+    "created_at": "2026-01-24T01:52:12.834384"
+  },
+  "test_user_002": {
+    "user_id": "test_user_002",
+    "birth_date": "农历70年5月15日",
+    "birth_time": "14:30",
+    "birth_location": "台湾台北市",
+    "gender": "女",
+    "created_at": "2026-01-24T09:26:13.310338"
+  }
+}

@@ -1,0 +1,161 @@
+{
+  "test_info": {
+    "birth_info": {
+      "date": "農曆68年9月23日",
+      "time": "23:58",
+      "location": "台灣彰化市",
+      "gender": "男"
+    },
+    "model": "gemini-3-pro-preview",
+    "temperature": 0.4,
+    "iterations": 10,
+    "timestamp": "20260124_005756"
+  },
+  "ground_truth": {
+    "命宮": {
+      "宮位": "戌",
+      "主星": [
+        "太陰"
+      ],
+      "keywords": [
+        "太陰",
+        "戌宮",
+        "戌"
+      ]
+    },
+    "格局": {
+      "名稱": [
+        "日月並明",
+        "機月同梁"
+      ],
+      "keywords": [
+        "日月並明",
+        "機月同梁",
+        "日月",
+        "機梁"
+      ]
+    },
+    "官祿宮": {
+      "宮位": "寅",
+      "主星": [
+        "天梁"
+      ],
+      "四化": "化科",
+      "keywords": [
+        "天梁",
+        "化科",
+        "寅宮",
+        "官祿"
+      ]
+    },
+    "財帛宮": {
+      "宮位": "午",
+      "主星": [
+        "天機"
+      ],
+      "keywords": [
+        "天機",
+        "午宮",
+        "財帛"
+      ]
+    },
+    "夫妻宮": {
+      "宮位": "申",
+      "主星": [
+        "武曲",
+        "天相"
+      ],
+      "四化": "化祿",
+      "keywords": [
+        "武曲",
+        "化祿",
+        "天相",
+        "申宮",
+        "夫妻"
+      ]
+    },
+    "性格特質": {
+      "keywords": [
+        "斯文",
+        "細膩",
+        "溫和",
+        "有條理",
+        "書卷",
+        "文昌",
+        "太陰"
+      ]
+    },
+    "錯誤指標": {
+      "命宮絕不是": [
+        "破軍",
+        "申宮",
+        "殺破狼"
+      ],
+      "格局絕不是": [
+        "殺破狼"
+      ],
+      "性格絕不是": [
+        "破壞",
+        "衝動",
+        "變色龍",
+        "不安"
+      ]
+    }
+  },
+  "results": [
+    {
+      "iteration": 1,
+      "success": false,
+      "error": "'dangerous_content'"
+    },
+    {
+      "iteration": 2,
+      "success": false,
+      "error": "'dangerous_content'"
+    },
+    {
+      "iteration": 3,
+      "success": false,
+      "error": "'dangerous_content'"
+    },
+    {
+      "iteration": 4,
+      "success": false,
+      "error": "'dangerous_content'"
+    },
+    {
+      "iteration": 5,
+      "success": false,
+      "error": "'dangerous_content'"
+    },
+    {
+      "iteration": 6,
+      "success": false,
+      "error": "'dangerous_content'"
+    },
+    {
+      "iteration": 7,
+      "success": false,
+      "error": "'dangerous_content'"
+    },
+    {
+      "iteration": 8,
+      "success": false,
+      "error": "'dangerous_content'"
+    },
+    {
+      "iteration": 9,
+      "success": false,
+      "error": "'dangerous_content'"
+    },
+    {
+      "iteration": 10,
+      "success": false,
+      "error": "'dangerous_content'"
+    }
+  ],
+  "statistics": {
+    "avg_accuracy": 0,
+    "consistency_level": "未知"
+  }
+}
