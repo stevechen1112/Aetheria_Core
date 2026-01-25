@@ -910,6 +910,15 @@ function App() {
   const renderAuthModal = () => {
     if (!showAuthModal) return null
 
+    const handleSubmit = (e) => {
+      e.preventDefault()
+      if (authMode === 'login') {
+        handleLogin()
+      } else {
+        handleRegister()
+      }
+    }
+
     return (
       <div className="modal-backdrop" onClick={() => setShowAuthModal(false)}>
         <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -918,78 +927,87 @@ function App() {
               {authMode === 'login' ? '登入 Aetheria' : '註冊 Aetheria'}
             </div>
           </div>
-          <div className="modal-body">
-            {authMode === 'register' && (
+          <form onSubmit={handleSubmit}>
+            <div className="modal-body">
+              {authMode === 'register' && (
+                <div className="form-group">
+                  <label className="form-label">顯示名稱</label>
+                  <input 
+                    type="text"
+                    className="form-input"
+                    value={authForm.display_name}
+                    onChange={(e) => setAuthForm({...authForm, display_name: e.target.value})}
+                    placeholder="您想被稱呼的名字"
+                    autoComplete="name"
+                  />
+                </div>
+              )}
               <div className="form-group">
-                <label className="form-label">顯示名稱</label>
+                <label className="form-label">Email</label>
                 <input 
-                  type="text"
+                  type="email"
                   className="form-input"
-                  value={authForm.display_name}
-                  onChange={(e) => setAuthForm({...authForm, display_name: e.target.value})}
-                  placeholder="您想被稱呼的名字"
+                  value={authForm.email}
+                  onChange={(e) => setAuthForm({...authForm, email: e.target.value})}
+                  placeholder="your@email.com"
+                  autoComplete="email"
+                  required
                 />
               </div>
-            )}
-            <div className="form-group">
-              <label className="form-label">Email</label>
-              <input 
-                type="email"
-                className="form-input"
-                value={authForm.email}
-                onChange={(e) => setAuthForm({...authForm, email: e.target.value})}
-                placeholder="your@email.com"
-              />
+              <div className="form-group">
+                <label className="form-label">密碼</label>
+                <input 
+                  type="password"
+                  className="form-input"
+                  value={authForm.password}
+                  onChange={(e) => setAuthForm({...authForm, password: e.target.value})}
+                  placeholder="至少 8 碼"
+                  autoComplete={authMode === 'login' ? 'current-password' : 'new-password'}
+                  required
+                  minLength={8}
+                />
+              </div>
+              <div style={{fontSize: '13px', color: 'var(--color-text-muted)', marginTop: 'var(--spacing-md)'}}>
+                {authMode === 'login' ? (
+                  <>
+                    還沒有帳號？
+                    <span 
+                      style={{color: 'var(--color-primary)', cursor: 'pointer', marginLeft: 'var(--spacing-xs)'}}
+                      onClick={() => setAuthMode('register')}
+                    >
+                      立即註冊
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    已有帳號？
+                    <span 
+                      style={{color: 'var(--color-primary)', cursor: 'pointer', marginLeft: 'var(--spacing-xs)'}}
+                      onClick={() => setAuthMode('login')}
+                    >
+                      直接登入
+                    </span>
+                  </>
+                )}
+              </div>
             </div>
-            <div className="form-group">
-              <label className="form-label">密碼</label>
-              <input 
-                type="password"
-                className="form-input"
-                value={authForm.password}
-                onChange={(e) => setAuthForm({...authForm, password: e.target.value})}
-                placeholder="至少 8 碼"
-              />
+            <div className="modal-footer">
+              <button 
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => setShowAuthModal(false)}
+              >
+                取消
+              </button>
+              <button 
+                type="submit"
+                className="btn btn-primary"
+                disabled={loading || !authForm.email || !authForm.password || (authMode === 'register' && authForm.password.length < 8)}
+              >
+                {loading ? '處理中...' : (authMode === 'login' ? '登入' : '註冊')}
+              </button>
             </div>
-            <div style={{fontSize: '13px', color: 'var(--color-text-muted)', marginTop: 'var(--spacing-md)'}}>
-              {authMode === 'login' ? (
-                <>
-                  還沒有帳號？
-                  <span 
-                    style={{color: 'var(--color-primary)', cursor: 'pointer', marginLeft: 'var(--spacing-xs)'}}
-                    onClick={() => setAuthMode('register')}
-                  >
-                    立即註冊
-                  </span>
-                </>
-              ) : (
-                <>
-                  已有帳號？
-                  <span 
-                    style={{color: 'var(--color-primary)', cursor: 'pointer', marginLeft: 'var(--spacing-xs)'}}
-                    onClick={() => setAuthMode('login')}
-                  >
-                    直接登入
-                  </span>
-                </>
-              )}
-            </div>
-          </div>
-          <div className="modal-footer">
-            <button 
-              className="btn btn-ghost"
-              onClick={() => setShowAuthModal(false)}
-            >
-              取消
-            </button>
-            <button 
-              className="btn btn-primary"
-              onClick={authMode === 'login' ? handleLogin : handleRegister}
-              disabled={loading || !authForm.email || !authForm.password}
-            >
-              {loading ? '處理中...' : (authMode === 'login' ? '登入' : '註冊')}
-            </button>
-          </div>
+          </form>
         </div>
       </div>
     )
