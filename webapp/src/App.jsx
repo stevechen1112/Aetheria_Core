@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from 'react'
 import './App.v2.css'
+import VoiceChat from './VoiceChat'
 
 /* ==========================================
    Aetheria Core - v2.0 完全重新設計
@@ -39,6 +40,9 @@ function App() {
   const [overviewLoading, setOverviewLoading] = useState(false)
   const [systemData, setSystemData] = useState(null)
   const [systemLoading, setSystemLoading] = useState(false)
+  
+  // Voice Chat
+  const [showVoiceChat, setShowVoiceChat] = useState(false)
   
   // Wizard for chart creation
   const [wizardStep, setWizardStep] = useState(1)
@@ -1417,6 +1421,18 @@ function App() {
           </div>
         </div>
 
+        <div className="nav-section">
+          <div className="nav-label">AI 諮詢</div>
+          <div 
+            className="nav-item ai-consult"
+            onClick={() => setShowVoiceChat(true)}
+          >
+            <div className="nav-icon">🔮</div>
+            <div>命理顧問</div>
+            <div className="nav-badge" style={{background: 'var(--color-accent)'}}>AI</div>
+          </div>
+        </div>
+
         {/* 戰略側寫已隱藏 - AI 諮詢可完全取代 */}
         {/* <div className="nav-section">
           <div className="nav-label">進階功能</div>
@@ -1618,6 +1634,15 @@ function App() {
 
       {renderAuthModal()}
       {renderToast()}
+      
+      {/* AI 命理顧問 */}
+      {showVoiceChat && (
+        <VoiceChat 
+          apiBase={apiBase}
+          token={token}
+          onClose={() => setShowVoiceChat(false)}
+        />
+      )}
     </div>
   )
 }

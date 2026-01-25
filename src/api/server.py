@@ -1768,7 +1768,7 @@ def chat_consult():
     """AI 命理顧問對話（有所本）。
 
     Request:
-      {"message": "...", "session_id": "..." (optional)}
+      {"message": "...", "session_id": "..." (optional), "voice_mode": true/false (optional)}
 
     Response:
       {"status":"success","session_id":"...","reply":"...","citations":[],"used_systems":[],"confidence":0.0,"next_steps":[]}
@@ -1777,6 +1777,7 @@ def chat_consult():
     data = request.json or {}
     message = (data.get('message') or data.get('question') or '').strip()
     session_id = (data.get('session_id') or '').strip() or None
+    voice_mode = data.get('voice_mode', False)  # 新增：語音模式標記
 
     if not message:
         raise MissingParameterException('message')
@@ -1807,6 +1808,30 @@ def chat_consult():
     # 控制 token：最多 30 條（減少以加速回覆）
     facts = facts[:30]
     fact_map = {f.get('id'): f for f in facts if isinstance(f, dict) and f.get('id')}
+    
+    # 語音模式下：加載命盤結構作為額外上下文
+    chart_context = ""
+    if voice_mode:
+        chart_data = db.get_chart_lock(user_id)
+        if chart_data:
+            chart_struct = chart_data.get('chart_structure', {})
+            user_data = db.get_user(user_id)
+            user_name = user_data.get('name', '客戶') if user_data else '客戶'
+            birth_info = ""
+            if user_data:
+                birth_info = f"{user_data.get('birth_year')}年{user_data.get('birth_month')}月{user_data.get('birth_day')}日 {user_data.get('birth_hour')}時"
+            
+            # 提取命盤核心信息
+            ming_gong = chart_struct.get('命宮', {})
+            chart_context = (
+                f"\n\n【客戶命盤信息】\n"
+                f"姓名：{user_name}\n"
+                f"生辰：{birth_info}\n"
+                f"命宮：{ming_gong.get('main_stars', [])} {ming_gong.get('secondary_stars', [])}\n"
+                f"命主：{chart_struct.get('命主', '未知')}\n"
+                f"身主：{chart_struct.get('身主', '未知')}\n"
+                f"(這些是命盤的基礎信息，你可以用來讓回答更個人化、更精準)\n"
+            )
 
     # History（只取最近 6 條以加速）
     history_msgs = db.get_chat_messages(session_id, limit=6)
@@ -1822,23 +1847,42 @@ def chat_consult():
             history_text_lines.append(f"命理老師：{content}")
     history_text = "\n".join(history_text_lines[-10:])
 
-    consult_system = (
-        "你是一位資深命理老師，正在跟客戶面對面諮詢。\n\n"
-        "【對話風格】\n"
-        "- 像朋友聊天一樣自然，不要寫文章\n"
-        "- 直接給結論，細節讓客戶追問\n"
-        "- 回覆控制在 100-200 字以內\n"
-        "- 用口語化表達，可以用「嗯」「喔」「欸」等語助詞\n"
-        "- 純文字回覆，不要使用任何 Markdown 格式（不要用 **、*、# 等符號）\n\n"
-        "【有所本原則】\n"
-        "- 只根據 facts 判斷，不可腦補\n"
-        "- 引用依據會自動附在回覆下方，不需要在文字中特別說明來源\n\n"
-        "【語言】繁體中文（台灣用語）\n"
-        "【輸出】只輸出 JSON，不要其他文字"
-    )
+    # 語音模式 vs 文字模式：不同的 prompt 風格
+    if voice_mode:
+        consult_system = (
+            "你是一位資深命理老師，正在跟客戶進行語音對話諮詢。\n\n"
+            "【語音對話風格】\n"
+            "- 像老朋友聊天一樣親切自然，帶有一點江湖味道\n"
+            "- 可以用「嗯」「喔」「欸」等語氣詞，更有感覺\n"
+            "- 偶爾停頓思考，用「讓我看看你的命盤...」營造氛圍\n"
+            "- 回覆 160-300 字，像說話一樣一句一句的，可以多講幾句\n"
+            "- 可以用命理術語（像「命主」「紫微」），但要自然帶出\n"
+            "- 純文字回覆，不要使用任何 Markdown 格式（不要用 **、*、# 等符號）\n\n"
+            "【有所本原則】\n"
+            "- 只根據 facts 和命盤信息判斷，不可腦補\n"
+            "- 引用依據會自動附在回覆下方，不需要在文字中特別說明來源\n"
+            "- 可以直接稱呼客戶的名字，更親切\n\n"
+            "【語言】繁體中文（台灣用語）\n"
+            "【輸出】只輸出 JSON，不要其他文字"
+        )
+    else:
+        consult_system = (
+            "你是一位資深命理老師，正在跟客戶面對面諮詢。\n\n"
+            "【對話風格】\n"
+            "- 像朋友聊天一樣自然，不要寫文章\n"
+            "- 給出結論並適度展開說明\n"
+            "- 回覆控制在 200-400 字以內\n"
+            "- 用口語化表達，可以用「嗯」「喔」「欸」等語助詞\n"
+            "- 純文字回覆，不要使用任何 Markdown 格式（不要用 **、*、# 等符號）\n\n"
+            "【有所本原則】\n"
+            "- 只根據 facts 判斷，不可腦補\n"
+            "- 引用依據會自動附在回覆下方，不需要在文字中特別說明來源\n\n"
+            "【語言】繁體中文（台灣用語）\n"
+            "【輸出】只輸出 JSON，不要其他文字"
+        )
 
     prompt = (
-        f"facts（可引用的命盤資料）：\n{json.dumps(facts, ensure_ascii=False)}\n\n"
+        f"facts（可引用的命盤資料）：\n{json.dumps(facts, ensure_ascii=False)}{chart_context}\n\n"
         f"對話歷史：\n{history_text or '（無）'}\n\n"
         f"客戶問：{message}\n\n"
         "用 JSON 回覆，格式：\n"
