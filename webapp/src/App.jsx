@@ -300,11 +300,23 @@ function App() {
         birth_location: chartForm.birth_location,
         gender: chartForm.gender
       })
-      setChartSummary(data.chart_structure)
+      
+      // API 回傳 structure 或 chart_structure
+      const structure = data.structure || data.chart_structure
+      
+      if (!structure) {
+        showToast('命盤結構解析失敗，請檢查輸入資料', 'error')
+        console.error('API 回傳資料:', data)
+        setWizardStep(3)
+        return
+      }
+      
+      setChartSummary(structure)
       setWizardStep(5)
       showToast('命盤建立成功！', 'success')
     } catch (error) {
-      // Error already shown
+      console.error('命盤建立失敗:', error)
+      setWizardStep(3)
     } finally {
       setLoading(false)
     }
@@ -734,37 +746,51 @@ function App() {
         )}
 
         {/* Step 5: Preview */}
-        {wizardStep === 5 && chartSummary && (
+        {wizardStep === 5 && (
           <div className="card">
             <div className="card-header">
               <div className="card-title">步驟 5：命盤總攬</div>
-              <div className="card-subtitle">您的專屬命盤已生成，請確認資訊無誤</div>
+              <div className="card-subtitle">{chartSummary ? '您的專屬命盤已生成，請確認資訊無誤' : '命盤生成中...'}</div>
             </div>
             <div className="card-body">
-              <div style={{display: 'grid', gap: 'var(--spacing-lg)'}}>
-                {/* 紫微斗數 */}
-                <div style={{padding: 'var(--spacing-md)', background: 'var(--color-bg-secondary)', borderRadius: 'var(--radius-md)'}}>
-                  <div style={{fontSize: '16px', fontWeight: 600, marginBottom: 'var(--spacing-sm)', color: 'var(--color-primary)'}}>🔮 紫微斗數</div>
-                  <div style={{display: 'grid', gap: 'var(--spacing-xs)'}}>
-                    <div><strong>命宮：</strong>{chartSummary.命宮?.宮位} - {chartSummary.命宮?.主星?.join('、')}</div>
-                    {chartSummary.核心格局 && <div><strong>格局：</strong>{chartSummary.核心格局.join('、')}</div>}
-                    {chartSummary.五行局 && <div><strong>五行局：</strong>{chartSummary.五行局}</div>}
+              {!chartSummary ? (
+                <div style={{textAlign: 'center', padding: 'var(--spacing-2xl)'}}>
+                  <div className="spinner" style={{margin: '0 auto var(--spacing-lg)'}}></div>
+                  <div>正在處理命盤資料...</div>
+                </div>
+              ) : (
+                <div style={{display: 'grid', gap: 'var(--spacing-lg)'}}>
+                  {/* 紫微斗數 */}
+                  {chartSummary.命宮 ? (
+                    <div style={{padding: 'var(--spacing-md)', background: 'var(--color-bg-secondary)', borderRadius: 'var(--radius-md)'}}>
+                      <div style={{fontSize: '16px', fontWeight: 600, marginBottom: 'var(--spacing-sm)', color: 'var(--color-primary)'}}>🔮 紫微斗數</div>
+                      <div style={{display: 'grid', gap: 'var(--spacing-xs)'}}>
+                        <div><strong>命宮：</strong>{chartSummary.命宮?.宮位 || '未知'} - {chartSummary.命宮?.主星?.join('、') || '未知'}</div>
+                        {chartSummary.核心格局 && <div><strong>格局：</strong>{chartSummary.核心格局.join('、')}</div>}
+                        {chartSummary.五行局 && <div><strong>五行局：</strong>{chartSummary.五行局}</div>}
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{padding: 'var(--spacing-md)', background: 'var(--color-bg-secondary)', borderRadius: 'var(--radius-md)'}}>
+                      <div style={{fontSize: '16px', fontWeight: 600, marginBottom: 'var(--spacing-sm)', color: 'var(--color-primary)'}}>🔮 命盤資料</div>
+                      <div>命盤結構已生成，詳細資訊請鎖定後查看</div>
+                    </div>
+                  )}
+                  
+                  {/* 八字命理 */}
+                  {chartSummary.八字 && (
+                    <div style={{padding: 'var(--spacing-md)', background: 'var(--color-bg-secondary)', borderRadius: 'var(--radius-md)'}}>
+                      <div style={{fontSize: '16px', fontWeight: 600, marginBottom: 'var(--spacing-sm)', color: 'var(--color-primary)'}}>☯️ 八字命理</div>
+                      <div><strong>四柱：</strong>{chartSummary.八字.年柱} {chartSummary.八字.月柱} {chartSummary.八字.日柱} {chartSummary.八字.時柱}</div>
+                    </div>
+                  )}
+                  
+                  {/* 其他系統提示 */}
+                  <div style={{padding: 'var(--spacing-md)', background: 'var(--color-info)', opacity: 0.1, borderRadius: 'var(--radius-md)', color: 'var(--color-text)'}}>
+                    <div>✨ 鎖定後可使用：西洋占星、靈數學、姓名學、塔羅牌等完整分析</div>
                   </div>
                 </div>
-                
-                {/* 八字命理 */}
-                {chartSummary.八字 && (
-                  <div style={{padding: 'var(--spacing-md)', background: 'var(--color-bg-secondary)', borderRadius: 'var(--radius-md)'}}>
-                    <div style={{fontSize: '16px', fontWeight: 600, marginBottom: 'var(--spacing-sm)', color: 'var(--color-primary)'}}>☯️ 八字命理</div>
-                    <div><strong>四柱：</strong>{chartSummary.八字.年柱} {chartSummary.八字.月柱} {chartSummary.八字.日柱} {chartSummary.八字.時柱}</div>
-                  </div>
-                )}
-                
-                {/* 其他系統提示 */}
-                <div style={{padding: 'var(--spacing-md)', background: 'var(--color-info)', opacity: 0.1, borderRadius: 'var(--radius-md)', color: 'var(--color-text)'}}>
-                  <div>✨ 鎖定後可使用：西洋占星、靈數學、姓名學、塔羅牌等完整分析</div>
-                </div>
-              </div>
+              )}
             </div>
             <div className="card-footer">
               <button 
