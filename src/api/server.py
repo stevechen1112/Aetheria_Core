@@ -445,7 +445,11 @@ def get_auth_token_from_request(data: Optional[Dict] = None) -> Optional[str]:
 
 def require_auth_user_id() -> str:
     """驗證 session 並回傳 user_id"""
-    token = get_auth_token_from_request(request.json or {})
+    # 優先從 header 讀取，其次從 body
+    data = {}
+    if request.method != 'GET':
+        data = request.json or {}
+    token = get_auth_token_from_request(data)
     if not token:
         raise MissingParameterException('token')
     session = db.get_session(token)
