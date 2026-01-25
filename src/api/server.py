@@ -13,7 +13,7 @@ import hmac
 import hashlib
 import secrets
 from datetime import datetime, date, timedelta
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, Any, List
 from pathlib import Path
 
 # 確保專案根目錄在 Python 路徑中
@@ -83,6 +83,7 @@ from src.utils.errors import (
     AetheriaException,
     MissingParameterException,
     UserNotFoundException,
+    ChartNotFoundException,
     ChartNotLockedException,
     AIAPIException,
     register_error_handlers
@@ -490,8 +491,11 @@ def require_auth_user_id() -> str:
     """驗證 session 並回傳 user_id"""
     # 優先從 header 讀取，其次從 body
     data = {}
-    if request.method != 'GET':
-        data = request.json or {}
+    if request.method not in ('GET', 'DELETE'):
+        try:
+            data = request.json or {}
+        except Exception:
+            data = {}
     token = get_auth_token_from_request(data)
     if not token:
         raise MissingParameterException('token')
@@ -599,6 +603,12 @@ def call_gemini(prompt: str, system_instruction: str = SYSTEM_INSTRUCTION) -> st
     
     try:
         response_text = gemini_client.generate(full_prompt)
+        
+        # 檢查回應是否有效
+        if response_text is None:
+            logger.error("Gemini API 返回 None")
+            raise AIAPIException("Gemini API 返回空值")
+        
         duration_ms = (time.time() - start_time) * 1000
         logger.info(f"Gemini API 呼叫成功", duration_ms=duration_ms)
         return to_zh_tw(response_text)
@@ -700,6 +710,289 @@ def build_bazi_candidate_summary(bazi: Dict) -> Dict:
         "use_god": use_god,
         "hour_pillar": hour_pillar
     }
+
+
+def _truncate_text(text: Optional[str], max_len: int = 140) -> str:
+    if not text:
+        return ""
+    s = str(text).strip()
+    if len(s) <= max_len:
+        return s
+    return s[: max_len - 1] + "…"
+
+
+def _safe_get(d: Optional[Dict], *keys, default=None):
+    cur = d
+    for k in keys:
+        if not isinstance(cur, dict) or k not in cur:
+            return default
+        cur = cur.get(k)
+    return cur
+
+
+def build_fortune_facts_from_reports(reports: Dict[str, Dict]) -> Dict[str, Any]:
+    """從 system_reports 建立對話用 facts（可引用、可追溯）。
+
+    回傳：
+      {
+        "facts": [{"id","system","title","content","path"}],
+        "meta": {...},
+        "available_systems": [...]
+      }
+    """
+    facts = []
+    available_systems = []
+
+    def add_fact(fact_id: str, system: str, title: str, content: str, path: str):
+        content_s = _truncate_text(content, 220)
+        if not content_s:
+            return
+        facts.append({
+            "id": fact_id,
+            "system": system,
+            "title": title,
+            "content": content_s,
+            "path": path
+        })
+
+    # Ziwei
+    ziwei = (reports.get('ziwei') or {}).get('report') or {}
+    if ziwei:
+        available_systems.append('ziwei')
+        structure = ziwei.get('chart_structure') or {}
+        if isinstance(structure, dict) and structure:
+            add_fact('ziwei:五行局', 'ziwei', '五行局', structure.get('五行局') or structure.get('局') or '', 'ziwei.chart_structure.五行局')
+            if isinstance(structure.get('格局'), list) and structure.get('格局'):
+                add_fact('ziwei:格局', 'ziwei', '格局', '、'.join(structure.get('格局')), 'ziwei.chart_structure.格局')
+            ming = structure.get('命宮')
+            if isinstance(ming, dict):
+                content = f"地支：{ming.get('地支') or ''}；主星：{'、'.join(ming.get('主星') or [])}；輔星：{'、'.join(ming.get('輔星') or [])}"
+                add_fact('ziwei:命宮', 'ziwei', '命宮', content, 'ziwei.chart_structure.命宮')
+
+            twelve = structure.get('十二宮') if isinstance(structure.get('十二宮'), dict) else {}
+            key_palaces = ['官祿宮', '財帛宮', '夫妻宮', '福德宮', '疾厄宮', '遷移宮']
+            for palace in key_palaces:
+                p = twelve.get(palace)
+                if isinstance(p, dict):
+                    branch = p.get('地支') or p.get('宮位') or ''
+                    main = p.get('主星') or []
+                    aux = p.get('輔星') or []
+                    content = f"地支：{branch}；主星：{'、'.join(main)}；輔星：{'、'.join(aux)}"
+                    add_fact(f'ziwei:{palace}', 'ziwei', palace, content, f'ziwei.chart_structure.十二宮.{palace}')
+
+    # Bazi
+    bazi = (reports.get('bazi') or {}).get('report') or {}
+    bazi_chart = bazi.get('bazi_chart') if isinstance(bazi, dict) else None
+    if isinstance(bazi_chart, dict) and bazi_chart:
+        available_systems.append('bazi')
+        day_master = _safe_get(bazi_chart, '日主', '天干')
+        day_wuxing = _safe_get(bazi_chart, '日主', '五行')
+        if day_master or day_wuxing:
+            add_fact('bazi:日主', 'bazi', '日主', f"{day_master or ''}（{day_wuxing or ''}）", 'bazi.bazi_chart.日主')
+        strength = _safe_get(bazi_chart, '強弱', '结论') or _safe_get(bazi_chart, '强弱', '结论')
+        if strength:
+            add_fact('bazi:強弱', 'bazi', '強弱', str(strength), 'bazi.bazi_chart.強弱.结论')
+        yongshen = _safe_get(bazi_chart, '用神', '用神')
+        if yongshen:
+            add_fact('bazi:用神', 'bazi', '用神', '、'.join(yongshen) if isinstance(yongshen, list) else str(yongshen), 'bazi.bazi_chart.用神.用神')
+        pillars = _safe_get(bazi_chart, '四柱') or {}
+        if isinstance(pillars, dict) and pillars:
+            def pillar_text(p):
+                if not isinstance(p, dict):
+                    return ''
+                return f"{p.get('天干','')}{p.get('地支','')}"
+            content = " ".join([
+                f"年{pillar_text(pillars.get('年柱'))}",
+                f"月{pillar_text(pillars.get('月柱'))}",
+                f"日{pillar_text(pillars.get('日柱'))}",
+                f"時{pillar_text(pillars.get('時柱') or pillars.get('时柱'))}",
+            ]).strip()
+            add_fact('bazi:四柱', 'bazi', '四柱', content, 'bazi.bazi_chart.四柱')
+
+    # Numerology
+    numerology = (reports.get('numerology') or {}).get('report') or {}
+    num_profile = numerology.get('profile') if isinstance(numerology, dict) else None
+    if isinstance(num_profile, dict) and num_profile:
+        available_systems.append('numerology')
+        core = num_profile.get('core_numbers') or {}
+        lp = (core.get('life_path') or {}) if isinstance(core.get('life_path'), dict) else {}
+        if lp.get('number') is not None:
+            add_fact('numerology:生命靈數', 'numerology', '生命靈數', f"{lp.get('number')}{'（主數）' if lp.get('is_master') else ''}", 'numerology.profile.core_numbers.life_path')
+        expr = (core.get('expression') or {}) if isinstance(core.get('expression'), dict) else {}
+        if expr.get('number') is not None:
+            add_fact('numerology:天賦數', 'numerology', '天賦數', f"{expr.get('number')}{'（主數）' if expr.get('is_master') else ''}", 'numerology.profile.core_numbers.expression')
+        su = (core.get('soul_urge') or {}) if isinstance(core.get('soul_urge'), dict) else {}
+        if su.get('number') is not None:
+            add_fact('numerology:靈魂渴望數', 'numerology', '靈魂渴望數', f"{su.get('number')}{'（主數）' if su.get('is_master') else ''}", 'numerology.profile.core_numbers.soul_urge')
+        cycles = num_profile.get('cycles') or {}
+        py = (cycles.get('personal_year') or {}) if isinstance(cycles.get('personal_year'), dict) else {}
+        if py.get('number') is not None:
+            add_fact('numerology:流年', 'numerology', '個人流年', f"{py.get('number')}", 'numerology.profile.cycles.personal_year')
+
+    # Name
+    name = (reports.get('name') or {}).get('report') or {}
+    five_grids = name.get('five_grids') if isinstance(name, dict) else None
+    if isinstance(five_grids, dict) and five_grids:
+        available_systems.append('name')
+        overall = five_grids.get('overall_fortune')
+        if overall:
+            add_fact('name:總評', 'name', '姓名學總評', str(overall), 'name.five_grids.overall_fortune')
+        grids = five_grids.get('five_grids') or {}
+        if isinstance(grids, dict) and grids:
+            content = f"天格{grids.get('天格')} 人格{grids.get('人格')} 地格{grids.get('地格')} 外格{grids.get('外格')} 總格{grids.get('總格')}"
+            add_fact('name:五格', 'name', '五格數理', content, 'name.five_grids.five_grids')
+        three = five_grids.get('three_talents') or {}
+        if isinstance(three, dict) and three.get('combination'):
+            add_fact('name:三才', 'name', '三才配置', f"{three.get('combination')}（{three.get('fortune') or ''}）", 'name.five_grids.three_talents')
+
+    # Astrology
+    astrology = (reports.get('astrology') or {}).get('report') or {}
+    natal = astrology.get('natal_chart') if isinstance(astrology, dict) else None
+    if isinstance(natal, dict) and natal:
+        available_systems.append('astrology')
+        planets = natal.get('planets') or {}
+        sun = planets.get('sun') or {}
+        moon = planets.get('moon') or {}
+        asc = planets.get('ascendant') or {}
+        if isinstance(sun, dict) and sun.get('sign_zh'):
+            add_fact('astrology:太陽', 'astrology', '太陽星座', f"{sun.get('sign_zh')}（第{sun.get('house')}宮）", 'astrology.natal_chart.planets.sun')
+        if isinstance(moon, dict) and moon.get('sign_zh'):
+            add_fact('astrology:月亮', 'astrology', '月亮星座', f"{moon.get('sign_zh')}（第{moon.get('house')}宮）", 'astrology.natal_chart.planets.moon')
+        if isinstance(asc, dict) and asc.get('sign_zh'):
+            add_fact('astrology:上升', 'astrology', '上升星座', f"{asc.get('sign_zh')}（{asc.get('degree'):.1f}°）", 'astrology.natal_chart.planets.ascendant')
+        if natal.get('chart_ruler'):
+            add_fact('astrology:命主星', 'astrology', '命主星（Chart Ruler）', str(natal.get('chart_ruler')), 'astrology.natal_chart.chart_ruler')
+        if natal.get('dominant_element'):
+            add_fact('astrology:主元素', 'astrology', '主導元素', str(natal.get('dominant_element')), 'astrology.natal_chart.dominant_element')
+
+    # Meta profile（供模型抓跨系統一致性，但仍需 cite facts）
+    meta_profile = build_meta_profile(
+        bazi_chart if isinstance(bazi_chart, dict) else None,
+        num_profile if isinstance(num_profile, dict) else None,
+        five_grids if isinstance(five_grids, dict) else None,
+        build_astrology_core(natal) if isinstance(natal, dict) else None
+    )
+
+    # 去重（同 id 只保留第一筆）
+    dedup = {}
+    for f in facts:
+        if f['id'] not in dedup:
+            dedup[f['id']] = f
+
+    return {
+        'facts': list(dedup.values()),
+        'meta': meta_profile,
+        'available_systems': list(dict.fromkeys(available_systems))
+    }
+
+
+def compute_reports_signature(reports: Dict[str, Dict]) -> str:
+    """以各系統 updated_at 組合成快取簽章，便於判斷 fortune_profile 是否過期。"""
+    parts = []
+    for system_type in sorted(reports.keys()):
+        updated_at = (reports.get(system_type) or {}).get('updated_at') or ''
+        parts.append(f"{system_type}:{updated_at}")
+    return "|".join(parts)
+
+
+def parse_json_object(text: str) -> Optional[Dict]:
+    """從模型輸出中抓第一個 JSON object。"""
+    if not text:
+        return None
+    s = text.strip()
+    # 去掉 ```json ... ``` 包裹
+    s = re.sub(r"^```json\s*", "", s, flags=re.IGNORECASE)
+    s = re.sub(r"```\s*$", "", s)
+    # 直接嘗試
+    try:
+        obj = json.loads(s)
+        return obj if isinstance(obj, dict) else None
+    except Exception:
+        pass
+    # 退而求其次：抓第一段 {...}
+    match = re.search(r"\{[\s\S]*\}", s)
+    if not match:
+        return None
+    try:
+        obj = json.loads(match.group(0))
+        return obj if isinstance(obj, dict) else None
+    except Exception:
+        return None
+
+
+def humanize_citation_path(path: str) -> str:
+    """將技術性 path 轉為人類可讀格式
+    
+    範例：
+      bazi.bazi_chart.日主 → 八字 > 四柱 > 日主
+      ziwei.chart_structure.命宮 → 紫微斗數 > 命盤結構 > 命宮
+    """
+    if not path:
+        return ''
+    
+    # 系統名稱映射
+    system_map = {
+        'ziwei': '紫微斗數',
+        'bazi': '八字',
+        'astrology': '西洋占星',
+        'numerology': '靈數學',
+        'name': '姓名學',
+        'tarot': '塔羅'
+    }
+    
+    # 中間層級映射
+    level_map = {
+        'chart_structure': '命盤結構',
+        'bazi_chart': '四柱',
+        'natal_chart': '本命盤',
+        'planets': '行星',
+        'profile': '命數檔案',
+        'core_numbers': '核心數字',
+        'five_grids': '五格',
+        'cycles': '流年週期',
+        '十二宮': '十二宮',
+        # 行星名稱（西洋占星）
+        'sun': '太陽',
+        'moon': '月亮',
+        'mercury': '水星',
+        'venus': '金星',
+        'mars': '火星',
+        'jupiter': '木星',
+        'saturn': '土星',
+        'uranus': '天王星',
+        'neptune': '海王星',
+        'pluto': '冥王星',
+        'ascendant': '上升點',
+        'midheaven': '中天',
+        # 靈數學
+        'life_path': '生命靈數',
+        'expression': '表達數',
+        'soul_urge': '靈魂數',
+        'birthday': '生日數',
+        'personality': '人格數',
+        # 姓名學
+        'tian_ge': '天格',
+        'ren_ge': '人格',
+        'di_ge': '地格',
+        'wai_ge': '外格',
+        'zong_ge': '總格'
+    }
+    
+    parts = path.split('.')
+    readable_parts = []
+    
+    for part in parts:
+        # 系統名稱
+        if part in system_map:
+            readable_parts.append(system_map[part])
+        # 中間層級
+        elif part in level_map:
+            readable_parts.append(level_map[part])
+        # 其他保留原樣（通常是中文key）
+        else:
+            readable_parts.append(part)
+    
+    return ' > '.join(readable_parts)
 
 # ============================================
 # API 路由
@@ -943,6 +1236,602 @@ def initial_analysis():
     except Exception as e:
         logger.error(f'命盤分析失敗: {str(e)}', user_id=user_id)
         return jsonify({'status': 'error', 'error': str(e)}), 500
+
+
+@app.route('/api/profile/save-and-analyze', methods=['POST'])
+def save_profile_and_analyze():
+    """
+    儲存個人資料並批次生成所有可用系統的報告
+    
+    這是新的「儲存資料」流程，一次性生成所有報告
+    
+    Request:
+    {
+        "user_id": "user_123",
+        "chinese_name": "張小明",
+        "gender": "男",
+        "birth_date": "1990-01-15",      // 國曆
+        "birth_time": "14:30",           // 選填
+        "birth_location": "台灣台北市"    // 選填
+    }
+    
+    Response:
+    {
+        "status": "success",
+        "profile_saved": true,
+        "reports_generated": {
+            "name": true,
+            "numerology": true,
+            "bazi": true,
+            "ziwei": true,
+            "astrology": true
+        },
+        "available_systems": ["tarot", "name", "numerology", "bazi", "ziwei", "astrology"],
+        "generation_progress": {...}
+    }
+    """
+    import time
+    start_time = time.time()
+    
+    data = request.json
+    if not data:
+        return jsonify({'status': 'error', 'error': '缺少請求資料'}), 400
+    
+    user_id = data.get('user_id')
+    
+    if not user_id:
+        raise MissingParameterException('user_id')
+    
+    logger.log_api_request('/api/profile/save-and-analyze', 'POST', user_id=user_id)
+    
+    # 收集資料
+    chinese_name = data.get('chinese_name', '')
+    gender = data.get('gender', '男')
+    birth_date = data.get('birth_date', '')  # 格式: YYYY-MM-DD
+    birth_time = data.get('birth_time', '')  # 格式: HH:MM
+    birth_location = data.get('birth_location', '')
+    
+    # 決定可用的系統
+    available_systems = ['tarot']  # 塔羅永遠可用
+    if chinese_name:
+        available_systems.append('name')
+    if birth_date:
+        available_systems.append('numerology')
+    if birth_date and birth_time:
+        available_systems.extend(['bazi', 'ziwei'])
+    if birth_date and birth_time and birth_location:
+        available_systems.append('astrology')
+    
+    # 儲存用戶資料
+    user_data = {
+        'user_id': user_id,
+        'name': chinese_name,
+        'gender': gender,
+        'birth_date': birth_date,
+        'birth_time': birth_time,
+        'birth_location': birth_location,
+        'created_at': datetime.now().isoformat()
+    }
+    save_user(user_id, user_data)
+    
+    # 批次生成報告
+    reports_generated = {}
+    generation_errors = {}
+    
+    # 解析出生日期時間
+    birth_year, birth_month, birth_day = None, None, None
+    birth_hour, birth_minute = 0, 0
+    if birth_date:
+        try:
+            from datetime import date as date_type
+            bd = date_type.fromisoformat(birth_date)
+            birth_year, birth_month, birth_day = bd.year, bd.month, bd.day
+        except:
+            pass
+    if birth_time:
+        try:
+            parts = birth_time.split(':')
+            birth_hour = int(parts[0])
+            birth_minute = int(parts[1]) if len(parts) > 1 else 0
+        except:
+            pass
+    
+    try:
+        # 1. 姓名學
+        if 'name' in available_systems and chinese_name:
+            try:
+                logger.info(f'生成姓名學報告...', user_id=user_id)
+                # 使用 NameCalculator 進行分析
+                name_analysis_obj = name_calc.analyze(chinese_name)
+                name_result = name_calc.to_dict(name_analysis_obj)
+                # 生成 Prompt
+                prompts = generate_name_prompt(name_analysis_obj, 'basic')
+                full_prompt = f"{prompts['system_prompt']}\n\n{prompts['user_prompt']}"
+                name_interpretation = call_gemini(full_prompt)
+                db.save_system_report(user_id, 'name', {
+                    'chinese_name': chinese_name,
+                    'gender': gender,
+                    'five_grids': name_result,
+                    'analysis': name_interpretation
+                })
+                reports_generated['name'] = True
+            except Exception as e:
+                logger.error(f'姓名學報告生成失敗: {e}', user_id=user_id)
+                generation_errors['name'] = str(e)
+                reports_generated['name'] = False
+        
+        # 2. 靈數學
+        if 'numerology' in available_systems and birth_date and birth_year:
+            try:
+                logger.info(f'生成靈數學報告...', user_id=user_id)
+                from datetime import date as date_type
+                bd = date_type(birth_year, birth_month, birth_day)
+                # 計算靈數檔案
+                profile = numerology_calc.calculate_full_profile(bd, chinese_name or '')
+                # 生成 Prompt
+                prompts = generate_numerology_prompt(profile, numerology_calc, 'full', 'general')
+                full_prompt = f"{prompts['system_prompt']}\n\n{prompts['user_prompt']}"
+                numerology_interpretation = call_gemini(full_prompt)
+                # 組合結果
+                numerology_result = numerology_calc.to_dict(profile)
+                db.save_system_report(user_id, 'numerology', {
+                    'birth_date': birth_date,
+                    'name': chinese_name,
+                    'profile': numerology_result,
+                    'analysis': numerology_interpretation
+                })
+                reports_generated['numerology'] = True
+            except Exception as e:
+                logger.error(f'靈數學報告生成失敗: {e}', user_id=user_id)
+                generation_errors['numerology'] = str(e)
+                reports_generated['numerology'] = False
+        
+        # 3. 八字命理
+        if 'bazi' in available_systems and birth_date and birth_time and birth_year:
+            try:
+                logger.info(f'生成八字報告...', user_id=user_id)
+                # 使用 BaziCalculator 計算八字
+                bazi_calc = BaziCalculator()
+                gender_normalized = normalize_gender(gender)
+                bazi_result = bazi_calc.calculate_bazi(
+                    year=birth_year,
+                    month=birth_month,
+                    day=birth_day,
+                    hour=birth_hour,
+                    minute=birth_minute,
+                    gender=gender_normalized
+                )
+                # 生成分析 Prompt
+                bazi_prompt = format_bazi_analysis_prompt(
+                    bazi_result=bazi_result,
+                    gender=gender_normalized,
+                    birth_year=birth_year,
+                    birth_month=birth_month,
+                    birth_day=birth_day,
+                    birth_hour=birth_hour
+                )
+                bazi_analysis = call_gemini(bazi_prompt)
+                db.save_system_report(user_id, 'bazi', {
+                    'birth_date': birth_date,
+                    'birth_time': birth_time,
+                    'gender': gender,
+                    'bazi_chart': bazi_result,
+                    'analysis': bazi_analysis
+                })
+                reports_generated['bazi'] = True
+            except Exception as e:
+                logger.error(f'八字報告生成失敗: {e}', user_id=user_id)
+                generation_errors['bazi'] = str(e)
+                reports_generated['bazi'] = False
+        
+        # 4. 紫微斗數（使用 initial_analysis 邏輯）
+        if 'ziwei' in available_systems and birth_date and birth_time:
+            try:
+                logger.info(f'生成紫微斗數報告...', user_id=user_id)
+                ziwei_prompt = INITIAL_ANALYSIS_PROMPT.format(
+                    birth_date=birth_date,
+                    birth_time=birth_time,
+                    birth_location=birth_location or '台灣',
+                    gender=gender
+                )
+                ziwei_analysis = call_gemini(ziwei_prompt)
+                
+                # 檢查 API 返回是否有效
+                if not ziwei_analysis:
+                    raise ValueError("Gemini API 未返回有效內容")
+                
+                structure = extractor.extract_full_structure(ziwei_analysis)
+                
+                db.save_system_report(user_id, 'ziwei', {
+                    'birth_date': birth_date,
+                    'birth_time': birth_time,
+                    'birth_location': birth_location,
+                    'gender': gender,
+                    'chart_structure': structure,
+                    'analysis': ziwei_analysis
+                })
+                reports_generated['ziwei'] = True
+                
+                # 同時更新 chart_locks（保持相容性）
+                chart_lock = {
+                    'user_id': user_id,
+                    'chart_structure': structure,
+                    'original_analysis': ziwei_analysis,
+                    'confirmation_status': 'confirmed',
+                    'confirmed_at': datetime.now().isoformat(),
+                    'is_active': True
+                }
+                save_chart_lock(user_id, chart_lock)
+                
+            except Exception as e:
+                logger.error(f'紫微斗數報告生成失敗: {e}', user_id=user_id)
+                generation_errors['ziwei'] = str(e)
+                reports_generated['ziwei'] = False
+        
+        # 5. 西洋占星
+        if 'astrology' in available_systems and birth_date and birth_time and birth_location and birth_year:
+            try:
+                logger.info(f'生成占星報告...', user_id=user_id)
+                
+                # 台灣城市座標對照表
+                taiwan_cities = {
+                    '台北': (25.0330, 121.5654), '台北市': (25.0330, 121.5654),
+                    '新北': (25.0169, 121.4628), '新北市': (25.0169, 121.4628),
+                    '桃園': (24.9936, 121.3010), '桃園市': (24.9936, 121.3010),
+                    '台中': (24.1477, 120.6736), '台中市': (24.1477, 120.6736),
+                    '台南': (22.9998, 120.2270), '台南市': (22.9998, 120.2270),
+                    '高雄': (22.6273, 120.3014), '高雄市': (22.6273, 120.3014),
+                    '基隆': (25.1276, 121.7392), '基隆市': (25.1276, 121.7392),
+                    '新竹': (24.8138, 120.9675), '新竹市': (24.8138, 120.9675),
+                    '嘉義': (23.4801, 120.4491), '嘉義市': (23.4801, 120.4491),
+                    '彰化': (24.0518, 120.5161), '彰化市': (24.0518, 120.5161), '彰化縣': (24.0518, 120.5161),
+                    '南投': (23.9609, 120.9719), '南投市': (23.9609, 120.9719), '南投縣': (23.9609, 120.9719),
+                    '雲林': (23.7092, 120.4313), '雲林縣': (23.7092, 120.4313),
+                    '苗栗': (24.5602, 120.8214), '苗栗市': (24.5602, 120.8214), '苗栗縣': (24.5602, 120.8214),
+                    '屏東': (22.6727, 120.4871), '屏東市': (22.6727, 120.4871), '屏東縣': (22.6727, 120.4871),
+                    '宜蘭': (24.7570, 121.7533), '宜蘭市': (24.7570, 121.7533), '宜蘭縣': (24.7570, 121.7533),
+                    '花蓮': (23.9910, 121.6114), '花蓮市': (23.9910, 121.6114), '花蓮縣': (23.9910, 121.6114),
+                    '台東': (22.7583, 121.1444), '台東市': (22.7583, 121.1444), '台東縣': (22.7583, 121.1444),
+                    '澎湖': (23.5711, 119.5793), '澎湖縣': (23.5711, 119.5793),
+                    '金門': (24.4493, 118.3767), '金門縣': (24.4493, 118.3767),
+                    '連江': (26.1505, 119.9499), '連江縣': (26.1505, 119.9499), '馬祖': (26.1505, 119.9499),
+                }
+                
+                # 解析地點，提取經緯度
+                lat, lng = None, None
+                city_name = birth_location.replace('台灣', '').replace('臺灣', '').strip()
+                
+                for city_key, (city_lat, city_lng) in taiwan_cities.items():
+                    if city_key in city_name:
+                        lat, lng = city_lat, city_lng
+                        break
+                
+                # 預設使用台北座標
+                if lat is None:
+                    lat, lng = 25.0330, 121.5654
+                    logger.info(f'無法識別地點 "{birth_location}"，使用台北座標', user_id=user_id)
+                
+                # 計算本命盤（使用經緯度）
+                natal_chart = astrology_calc.calculate_natal_chart(
+                    name=chinese_name or '用戶',
+                    year=birth_year,
+                    month=birth_month,
+                    day=birth_day,
+                    hour=birth_hour,
+                    minute=birth_minute,
+                    city="Taiwan",
+                    longitude=lng,
+                    latitude=lat,
+                    timezone_str="Asia/Taipei"
+                )
+                # 格式化為文本
+                chart_text = astrology_calc.format_for_gemini(natal_chart)
+                # 生成分析
+                astrology_prompt = get_natal_chart_analysis_prompt(chart_text)
+                system_instruction = "你是專精西洋占星術的命理分析師，遵循「有所本」原則，所有解釋必須引用占星學經典理論。輸出必須使用繁體中文（台灣用語）。"
+                full_prompt = f"{system_instruction}\n\n{astrology_prompt}"
+                astrology_analysis = call_gemini(full_prompt, "")
+                db.save_system_report(user_id, 'astrology', {
+                    'birth_date': birth_date,
+                    'birth_time': birth_time,
+                    'birth_location': birth_location,
+                    'coordinates': {'latitude': lat, 'longitude': lng},
+                    'natal_chart': natal_chart,
+                    'analysis': astrology_analysis
+                })
+                reports_generated['astrology'] = True
+            except Exception as e:
+                logger.error(f'占星報告生成失敗: {e}', user_id=user_id)
+                generation_errors['astrology'] = str(e)
+                reports_generated['astrology'] = False
+        
+        duration_ms = (time.time() - start_time) * 1000
+        logger.log_api_response('/api/profile/save-and-analyze', 200, duration_ms)
+        
+        return jsonify({
+            'status': 'success',
+            'profile_saved': True,
+            'reports_generated': reports_generated,
+            'generation_errors': generation_errors if generation_errors else None,
+            'available_systems': available_systems,
+            'total_time_seconds': round(duration_ms / 1000, 1)
+        })
+        
+    except Exception as e:
+        logger.error(f'批次生成報告失敗: {str(e)}', user_id=user_id)
+        return jsonify({
+            'status': 'partial',
+            'profile_saved': True,
+            'reports_generated': reports_generated,
+            'generation_errors': generation_errors,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/reports/get', methods=['GET'])
+def get_system_reports():
+    """
+    取得用戶的系統報告
+    
+    Query: ?user_id=user_123&system=ziwei  (system 選填，不填則返回全部)
+    """
+    user_id = request.args.get('user_id')
+    system_type = request.args.get('system')
+    
+    if not user_id:
+        raise MissingParameterException('user_id')
+    
+    if system_type:
+        report = db.get_system_report(user_id, system_type)
+        if not report:
+            return jsonify({'found': False, 'message': f'找不到 {system_type} 報告'})
+        return jsonify({'found': True, 'system': system_type, **report})
+    else:
+        reports = db.get_all_system_reports(user_id)
+        return jsonify({
+            'found': len(reports) > 0,
+            'reports': reports,
+            'available_systems': list(reports.keys())
+        })
+
+
+@app.route('/api/chat/sessions', methods=['GET'])
+def get_chat_sessions():
+    """取得用戶的對話列表"""
+    user_id = require_auth_user_id()
+    sessions = db.get_user_chat_sessions(user_id, limit=50)
+    return jsonify({
+        'status': 'success',
+        'sessions': sessions
+    })
+
+
+@app.route('/api/chat/messages', methods=['GET'])
+def get_chat_messages_api():
+    """取得特定對話的訊息歷史
+    
+    Query: ?session_id=xxx&limit=50
+    """
+    user_id = require_auth_user_id()
+    session_id = request.args.get('session_id', '').strip()
+    limit = min(int(request.args.get('limit', 50)), 100)
+    
+    if not session_id:
+        raise MissingParameterException('session_id')
+    
+    # 驗證 session 擁有者
+    sess = db.get_chat_session(session_id)
+    if not sess or sess.get('user_id') != user_id:
+        return jsonify({'status': 'error', 'message': '無效的 session_id'}), 400
+    
+    messages = db.get_chat_messages(session_id, limit=limit)
+    # 格式化訊息，確保前端可用
+    formatted = []
+    for m in messages:
+        payload = m.get('payload') or {}
+        formatted.append({
+            'role': m.get('role'),
+            'content': m.get('content'),
+            'citations': payload.get('citations', []),
+            'used_systems': payload.get('used_systems', []),
+            'confidence': payload.get('confidence', 0.0),
+            'next_steps': payload.get('next_steps', []),
+            'created_at': m.get('created_at')
+        })
+    
+    return jsonify({
+        'status': 'success',
+        'session_id': session_id,
+        'messages': formatted
+    })
+
+
+@app.route('/api/chat/sessions/<session_id>', methods=['DELETE'])
+def delete_chat_session_api(session_id: str):
+    """刪除對話"""
+    user_id = require_auth_user_id()
+    
+    if not session_id:
+        raise MissingParameterException('session_id')
+    
+    success = db.delete_chat_session(session_id, user_id)
+    if not success:
+        return jsonify({'status': 'error', 'message': '刪除失敗或無權限'}), 400
+    
+    return jsonify({'status': 'success', 'message': '對話已刪除'})
+
+
+@app.route('/api/chat/consult', methods=['POST'])
+def chat_consult():
+    """AI 命理顧問對話（有所本）。
+
+    Request:
+      {"message": "...", "session_id": "..." (optional)}
+
+    Response:
+      {"status":"success","session_id":"...","reply":"...","citations":[],"used_systems":[],"confidence":0.0,"next_steps":[]}
+    """
+    user_id = require_auth_user_id()
+    data = request.json or {}
+    message = (data.get('message') or data.get('question') or '').strip()
+    session_id = (data.get('session_id') or '').strip() or None
+
+    if not message:
+        raise MissingParameterException('message')
+
+    # Session handling
+    if session_id:
+        sess = db.get_chat_session(session_id)
+        if not sess or sess.get('user_id') != user_id:
+            return jsonify({'status': 'error', 'message': '無效的 session_id'}), 400
+    else:
+        session_id = uuid.uuid4().hex
+        title = _truncate_text(message, 32)
+        db.create_chat_session(user_id, session_id, title=title)
+
+    # Load reports & fortune_profile cache
+    reports = db.get_all_system_reports(user_id)
+    signature = compute_reports_signature(reports)
+    cached = db.get_fortune_profile(user_id)
+    if cached and cached.get('source_signature') == signature and isinstance(cached.get('profile'), dict):
+        fortune_profile = cached.get('profile')
+    else:
+        fortune_profile = build_fortune_facts_from_reports(reports)
+        db.upsert_fortune_profile(user_id, signature, fortune_profile)
+
+    facts = fortune_profile.get('facts') if isinstance(fortune_profile, dict) else []
+    if not isinstance(facts, list):
+        facts = []
+    # 控制 token：最多 30 條（減少以加速回覆）
+    facts = facts[:30]
+    fact_map = {f.get('id'): f for f in facts if isinstance(f, dict) and f.get('id')}
+
+    # History（只取最近 6 條以加速）
+    history_msgs = db.get_chat_messages(session_id, limit=6)
+    history_text_lines = []
+    for m in history_msgs:
+        role = m.get('role')
+        content = m.get('content')
+        if not content:
+            continue
+        if role == 'user':
+            history_text_lines.append(f"使用者：{content}")
+        elif role == 'assistant':
+            history_text_lines.append(f"命理老師：{content}")
+    history_text = "\n".join(history_text_lines[-10:])
+
+    consult_system = (
+        "你是一位資深命理老師，正在跟客戶面對面諮詢。\n\n"
+        "【對話風格】\n"
+        "- 像朋友聊天一樣自然，不要寫文章\n"
+        "- 直接給結論，細節讓客戶追問\n"
+        "- 回覆控制在 100-200 字以內\n"
+        "- 用口語化表達，可以用「嗯」「喔」「欸」等語助詞\n"
+        "- 純文字回覆，不要使用任何 Markdown 格式（不要用 **、*、# 等符號）\n\n"
+        "【有所本原則】\n"
+        "- 只根據 facts 判斷，不可腦補\n"
+        "- 引用依據會自動附在回覆下方，不需要在文字中特別說明來源\n\n"
+        "【語言】繁體中文（台灣用語）\n"
+        "【輸出】只輸出 JSON，不要其他文字"
+    )
+
+    prompt = (
+        f"facts（可引用的命盤資料）：\n{json.dumps(facts, ensure_ascii=False)}\n\n"
+        f"對話歷史：\n{history_text or '（無）'}\n\n"
+        f"客戶問：{message}\n\n"
+        "用 JSON 回覆，格式：\n"
+        "{\n"
+        "  \"reply\": \"簡短口語化的回覆，100-200字\",\n"
+        "  \"used_fact_ids\": [\"用到的fact id\"],\n"
+        "  \"confidence\": 0.0到1.0,\n"
+        "  \"next_steps\": [\"...\"]\n"
+        "}\n"
+    )
+
+    # Persist user message first
+    db.add_chat_message(session_id, 'user', message, payload=None)
+
+    raw = call_gemini(prompt, consult_system)
+    parsed = parse_json_object(raw)
+
+    reply = None
+    used_fact_ids: List[str] = []
+    confidence = 0.35
+    next_steps = []
+
+    if isinstance(parsed, dict):
+        reply = (parsed.get('reply') or '').strip() or None
+        used_fact_ids = parsed.get('used_fact_ids') or []
+        if not isinstance(used_fact_ids, list):
+            used_fact_ids = []
+        used_fact_ids = [str(x) for x in used_fact_ids if str(x)]
+        try:
+            confidence = float(parsed.get('confidence'))
+        except Exception:
+            confidence = 0.35
+        confidence = max(0.0, min(1.0, confidence))
+        next_steps = parsed.get('next_steps') or []
+        if not isinstance(next_steps, list):
+            next_steps = []
+
+    if not reply:
+        # fallback: use raw text
+        reply = (raw or '').strip() or '目前無法生成回覆，請稍後再試。'
+        used_fact_ids = []
+        confidence = 0.2
+
+    citations = []
+    used_systems = []
+    for fid in used_fact_ids:
+        f = fact_map.get(fid)
+        if not f:
+            continue
+        citations.append({
+            'fact_id': fid,
+            'system': f.get('system'),
+            'title': f.get('title'),
+            'excerpt': f.get('content'),
+            'path': f.get('path'),
+            'path_readable': humanize_citation_path(f.get('path') or '')
+        })
+        if f.get('system'):
+            used_systems.append(f.get('system'))
+    used_systems = list(dict.fromkeys(used_systems))
+
+    if not citations:
+        # 強制「有所本」：無引用則降低信心並提示
+        confidence = min(confidence, 0.35)
+        if '資料不足' not in reply and len(facts) == 0:
+            reply = (
+                "目前我這邊沒有可引用的命盤 facts（可能尚未生成六大系統報告）。\n"
+                "建議先到『個人檔案』完成資料並生成報告後，再回來做對話諮詢。\n\n"
+                + reply
+            )
+
+    if not next_steps:
+        next_steps = suggest_next_steps(message)
+
+    payload = {
+        'citations': citations,
+        'used_systems': used_systems,
+        'confidence': confidence,
+        'next_steps': next_steps,
+        'raw_model_output': raw if isinstance(parsed, dict) else None
+    }
+    db.add_chat_message(session_id, 'assistant', reply, payload=payload)
+    db.touch_chat_session(session_id)
+
+    return jsonify({
+        'status': 'success',
+        'session_id': session_id,
+        'reply': reply,
+        'citations': citations,
+        'used_systems': used_systems,
+        'confidence': confidence,
+        'next_steps': next_steps,
+        'available_systems': fortune_profile.get('available_systems') if isinstance(fortune_profile, dict) else []
+    })
+
 
 @app.route('/api/chart/confirm-lock', methods=['POST'])
 def confirm_lock():
@@ -2363,6 +3252,37 @@ def astrology_natal_chart():
         latitude = data.get('latitude')
         timezone_str = data.get('timezone', 'Asia/Taipei')
         user_facts = data.get('user_facts', None)
+
+        # 若未提供經緯度，嘗試解析台灣常見地名
+        if longitude is None or latitude is None:
+            taiwan_cities = {
+                '台北': (25.0330, 121.5654), '台北市': (25.0330, 121.5654),
+                '新北': (25.0169, 121.4628), '新北市': (25.0169, 121.4628),
+                '桃園': (24.9936, 121.3010), '桃園市': (24.9936, 121.3010),
+                '台中': (24.1477, 120.6736), '台中市': (24.1477, 120.6736),
+                '台南': (22.9998, 120.2270), '台南市': (22.9998, 120.2270),
+                '高雄': (22.6273, 120.3014), '高雄市': (22.6273, 120.3014),
+                '基隆': (25.1276, 121.7392), '基隆市': (25.1276, 121.7392),
+                '新竹': (24.8138, 120.9675), '新竹市': (24.8138, 120.9675),
+                '嘉義': (23.4801, 120.4491), '嘉義市': (23.4801, 120.4491),
+                '彰化': (24.0518, 120.5161), '彰化市': (24.0518, 120.5161), '彰化縣': (24.0518, 120.5161),
+                '南投': (23.9609, 120.9719), '南投市': (23.9609, 120.9719), '南投縣': (23.9609, 120.9719),
+                '雲林': (23.7092, 120.4313), '雲林縣': (23.7092, 120.4313),
+                '苗栗': (24.5602, 120.8214), '苗栗市': (24.5602, 120.8214), '苗栗縣': (24.5602, 120.8214),
+                '屏東': (22.6727, 120.4871), '屏東市': (22.6727, 120.4871), '屏東縣': (22.6727, 120.4871),
+                '宜蘭': (24.7570, 121.7533), '宜蘭市': (24.7570, 121.7533), '宜蘭縣': (24.7570, 121.7533),
+                '花蓮': (23.9910, 121.6114), '花蓮市': (23.9910, 121.6114), '花蓮縣': (23.9910, 121.6114),
+                '台東': (22.7583, 121.1444), '台東市': (22.7583, 121.1444), '台東縣': (22.7583, 121.1444),
+                '澎湖': (23.5711, 119.5793), '澎湖縣': (23.5711, 119.5793),
+                '金門': (24.4493, 118.3767), '金門縣': (24.4493, 118.3767),
+                '連江': (26.1505, 119.9499), '連江縣': (26.1505, 119.9499), '馬祖': (26.1505, 119.9499),
+            }
+
+            city_name = (city or '').replace('台灣', '').replace('臺灣', '').strip()
+            for city_key, (city_lat, city_lng) in taiwan_cities.items():
+                if city_key in city_name:
+                    latitude, longitude = city_lat, city_lng
+                    break
         
         # 計算本命盤
         natal_chart = astrology_calc.calculate_natal_chart(

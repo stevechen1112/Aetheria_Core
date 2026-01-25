@@ -139,10 +139,75 @@ class AetheriaDatabase:
                 )
             """)
             
+            # 預計算報告表（新增：儲存各系統的完整分析報告）
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS system_reports (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    system_type TEXT NOT NULL,
+                    report_data TEXT NOT NULL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(user_id, system_type),
+                    FOREIGN KEY (user_id) REFERENCES users(user_id)
+                )
+            """)
+
+            # Fortune Profile（結構化摘要快取，用於「有所本」對話）
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS fortune_profiles (
+                    user_id TEXT PRIMARY KEY,
+                    source_signature TEXT,
+                    profile_data TEXT NOT NULL,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(user_id)
+                )
+            """)
+
+            # Chat Sessions
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS chat_sessions (
+                    session_id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    title TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES members(user_id)
+                )
+            """)
+
+            # Chat Messages
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS chat_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    payload TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (session_id) REFERENCES chat_sessions(session_id)
+                )
+            """)
+            
             # 索引
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_analysis_history_user_id 
                 ON analysis_history(user_id)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_system_reports_user_id
+                ON system_reports(user_id)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_id
+                ON chat_sessions(user_id)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_chat_messages_session_id
+                ON chat_messages(session_id)
             """)
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_analysis_history_created_at 
@@ -151,6 +216,10 @@ class AetheriaDatabase:
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_member_sessions_user_id
                 ON member_sessions(user_id)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_system_reports_user_id
+                ON system_reports(user_id)
             """)
     
     # ==================== 用戶相關 ====================
@@ -545,6 +614,229 @@ class AetheriaDatabase:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM member_sessions WHERE token = ?", (token,))
             return cursor.rowcount > 0
+
+    # ==================== 系統報告相關 ====================
+    
+    def save_system_report(self, user_id: str, system_type: str, report_data: Dict[str, Any]) -> bool:
+        """
+        儲存或更新系統預計算報告
+        
+        Args:
+            user_id: 用戶 ID
+            system_type: 系統類型 (ziwei, bazi, astrology, numerology, name, tarot)
+            report_data: 報告資料
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO system_reports (user_id, system_type, report_data, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(user_id, system_type) DO UPDATE SET
+                    report_data = excluded.report_data,
+                    updated_at = excluded.updated_at
+            """, (
+                user_id,
+                system_type,
+                json.dumps(report_data, ensure_ascii=False),
+                datetime.now().isoformat()
+            ))
+            return True
+    
+    def get_system_report(self, user_id: str, system_type: str) -> Optional[Dict[str, Any]]:
+        """取得單一系統的報告"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT report_data, created_at, updated_at FROM system_reports WHERE user_id = ? AND system_type = ?",
+                (user_id, system_type)
+            )
+            row = cursor.fetchone()
+            if row:
+                try:
+                    report_data = json.loads(row[0]) if row[0] else {}
+                except json.JSONDecodeError:
+                    report_data = {'raw': row[0], 'parse_error': True}
+                return {
+                    'report': report_data,
+                    'created_at': row[1],
+                    'updated_at': row[2]
+                }
+            return None
+    
+    def get_all_system_reports(self, user_id: str) -> Dict[str, Any]:
+        """取得用戶所有系統的報告"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT system_type, report_data, created_at, updated_at FROM system_reports WHERE user_id = ?",
+                (user_id,)
+            )
+            rows = cursor.fetchall()
+            result = {}
+            for row in rows:
+                try:
+                    report_data = json.loads(row[1]) if row[1] else {}
+                except json.JSONDecodeError:
+                    report_data = {'raw': row[1], 'parse_error': True}
+                result[row[0]] = {
+                    'report': report_data,
+                    'created_at': row[2],
+                    'updated_at': row[3]
+                }
+            return result
+    
+    def delete_system_reports(self, user_id: str) -> bool:
+        """刪除用戶所有系統報告"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM system_reports WHERE user_id = ?", (user_id,))
+            return cursor.rowcount > 0
+
+    # ==================== Fortune Profile（對話用結構化摘要） ====================
+
+    def upsert_fortune_profile(self, user_id: str, source_signature: str, profile_data: Dict[str, Any]) -> bool:
+        """寫入 fortune profile 快取"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT OR REPLACE INTO fortune_profiles (user_id, source_signature, profile_data, updated_at)
+                VALUES (?, ?, ?, ?)
+            """, (
+                user_id,
+                source_signature,
+                json.dumps(profile_data, ensure_ascii=False),
+                datetime.now().isoformat()
+            ))
+            return True
+
+    def get_fortune_profile(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """讀取 fortune profile 快取"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT source_signature, profile_data, updated_at FROM fortune_profiles WHERE user_id = ?",
+                (user_id,)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            try:
+                profile_data = json.loads(row[1]) if row[1] else {}
+            except json.JSONDecodeError:
+                profile_data = {'raw': row[1], 'parse_error': True}
+            return {
+                'source_signature': row[0],
+                'profile': profile_data,
+                'updated_at': row[2]
+            }
+
+    # ==================== Chat（對話） ====================
+
+    def create_chat_session(self, user_id: str, session_id: str, title: Optional[str] = None) -> bool:
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO chat_sessions (session_id, user_id, title, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+            """, (
+                session_id,
+                user_id,
+                title,
+                datetime.now().isoformat(),
+                datetime.now().isoformat()
+            ))
+            return True
+
+    def get_chat_session(self, session_id: str) -> Optional[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM chat_sessions WHERE session_id = ?", (session_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def touch_chat_session(self, session_id: str) -> bool:
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE chat_sessions SET updated_at = ? WHERE session_id = ?",
+                (datetime.now().isoformat(), session_id)
+            )
+            return cursor.rowcount > 0
+
+    def get_user_chat_sessions(self, user_id: str, limit: int = 20) -> List[Dict[str, Any]]:
+        """獲取用戶的對話列表（按更新時間降序）"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT session_id, title, created_at, updated_at FROM chat_sessions WHERE user_id = ? ORDER BY updated_at DESC LIMIT ?",
+                (user_id, limit)
+            )
+            rows = cursor.fetchall()
+            sessions = []
+            for row in rows:
+                sessions.append({
+                    'session_id': row['session_id'],
+                    'title': row['title'],
+                    'created_at': row['created_at'],
+                    'updated_at': row['updated_at']
+                })
+            return sessions
+
+    def add_chat_message(self, session_id: str, role: str, content: str, payload: Optional[Dict[str, Any]] = None) -> int:
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO chat_messages (session_id, role, content, payload, created_at)
+                VALUES (?, ?, ?, ?, ?)
+            """, (
+                session_id,
+                role,
+                content,
+                json.dumps(payload, ensure_ascii=False) if payload is not None else None,
+                datetime.now().isoformat()
+            ))
+            return int(cursor.lastrowid)
+
+    def get_chat_messages(self, session_id: str, limit: int = 20) -> List[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT id, session_id, role, content, payload, created_at FROM chat_messages WHERE session_id = ? ORDER BY id DESC LIMIT ?",
+                (session_id, limit)
+            )
+            rows = cursor.fetchall()
+            messages = []
+            for row in reversed(rows):
+                payload = None
+                if row['payload']:
+                    try:
+                        payload = json.loads(row['payload'])
+                    except json.JSONDecodeError:
+                        payload = {'raw': row['payload'], 'parse_error': True}
+                messages.append({
+                    'id': row['id'],
+                    'session_id': row['session_id'],
+                    'role': row['role'],
+                    'content': row['content'],
+                    'payload': payload,
+                    'created_at': row['created_at']
+                })
+            return messages
+
+    def delete_chat_session(self, session_id: str, user_id: str) -> bool:
+        """刪除對話（需驗證擁有者）"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            # 先驗證擁有者
+            cursor.execute("SELECT user_id FROM chat_sessions WHERE session_id = ?", (session_id,))
+            row = cursor.fetchone()
+            if not row or row['user_id'] != user_id:
+                return False
+            # 刪除訊息
+            cursor.execute("DELETE FROM chat_messages WHERE session_id = ?", (session_id,))
+            # 刪除 session
+            cursor.execute("DELETE FROM chat_sessions WHERE session_id = ?", (session_id,))
+            return True
 
     def close(self):
         """釋放資源（保留介面相容）"""
