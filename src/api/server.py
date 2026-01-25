@@ -1092,11 +1092,36 @@ def logout_member():
 
 @app.route('/api/profile', methods=['GET'])
 def get_profile():
-    """取得會員資料"""
+    """取得會員資料與生辰資料"""
     user_id = require_auth_user_id()
     member = db.get_member_by_user_id(user_id) or {}
     prefs = db.get_member_preferences(user_id) or {}
     consents = db.get_member_consents(user_id) or {}
+    
+    # 取得生辰資料
+    user_data = db.get_user(user_id)
+    birth_info = None
+    if user_data and user_data.get('user_id'):  # 确保有实际数据
+        birth_date = None
+        if user_data.get('birth_year') and user_data.get('birth_month') and user_data.get('birth_day'):
+            birth_date = f"{user_data.get('birth_year')}-{str(user_data.get('birth_month')).zfill(2)}-{str(user_data.get('birth_day')).zfill(2)}"
+        
+        birth_time = None
+        if user_data.get('birth_hour') is not None:
+            hour = str(user_data.get('birth_hour')).zfill(2)
+            minute = str(user_data.get('birth_minute', 0)).zfill(2)
+            birth_time = f"{hour}:{minute}"
+        
+        birth_info = {
+            'name': user_data.get('name') or user_data.get('full_name'),
+            'gender': user_data.get('gender'),
+            'birth_date': birth_date,
+            'birth_time': birth_time,
+            'birth_location': user_data.get('birth_location'),
+            'longitude': user_data.get('longitude'),
+            'latitude': user_data.get('latitude'),
+            'has_chart': db.get_chart_lock(user_id) is not None
+        }
 
     return jsonify({
         'status': 'success',
@@ -1107,6 +1132,7 @@ def get_profile():
             'display_name': member.get('display_name'),
             'created_at': member.get('created_at')
         },
+        'birth_info': birth_info,
         'preferences': prefs,
         'consents': consents
     })
@@ -1137,6 +1163,82 @@ def update_consent():
     user_id = require_auth_user_id()
     db.save_member_consents(user_id, data)
     return jsonify({'status': 'success'})
+
+@app.route('/api/profile/birth-info', methods=['PUT'])
+def update_birth_info():
+    """
+    更新生辰資料
+    
+    Request:
+    {
+        "name": "張小明",
+        "gender": "男",
+        "birth_date": "1995-03-15",
+        "birth_time": "14:30",
+        "birth_location": "台灣台北市"
+    }
+    """
+    data = request.json or {}
+    user_id = require_auth_user_id()
+    
+    # 驗證必填欄位
+    if not data.get('birth_date') or not data.get('birth_time') or not data.get('birth_location'):
+        return jsonify({
+            'status': 'error',
+            'error': '生辰資料不完整（需要出生日期、時間、地點）'
+        }), 400
+    
+    # 解析日期時間
+    birth_date = data.get('birth_date')
+    birth_time = data.get('birth_time')
+    parsed_date = parse_birth_date_str(birth_date)
+    parsed_time = parse_birth_time_str(birth_time)
+    
+    if not parsed_date or not parsed_time:
+        return jsonify({
+            'status': 'error',
+            'error': '日期或時間格式錯誤'
+        }), 400
+    
+    # 組合更新資料
+    update_data = {
+        'name': data.get('name'),
+        'full_name': data.get('name'),
+        'gender': data.get('gender'),
+        'birth_year': parsed_date[0],
+        'birth_month': parsed_date[1],
+        'birth_day': parsed_date[2],
+        'birth_hour': parsed_time[0],
+        'birth_minute': parsed_time[1],
+        'birth_location': data.get('birth_location'),
+        'gregorian_birth_date': birth_date
+    }
+    
+    # 如果有經緯度就更新
+    if 'longitude' in data:
+        update_data['longitude'] = data.get('longitude')
+    if 'latitude' in data:
+        update_data['latitude'] = data.get('latitude')
+    
+    # 更新資料庫
+    try:
+        existing = db.get_user(user_id)
+        if existing:
+            db.update_user(user_id, update_data)
+        else:
+            update_data['user_id'] = user_id
+            db.create_user(update_data)
+        
+        return jsonify({
+            'status': 'success',
+            'message': '生辰資料已更新'
+        })
+    except Exception as e:
+        logger.error(f'更新生辰資料失敗: {str(e)}', user_id=user_id)
+        return jsonify({
+            'status': 'error',
+            'error': '資料更新失敗'
+        }), 500
 
 @app.route('/api/chart/initial-analysis', methods=['POST'])
 def initial_analysis():

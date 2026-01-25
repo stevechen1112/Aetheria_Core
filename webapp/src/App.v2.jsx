@@ -443,7 +443,8 @@ function App() {
               多種牌陣，每日一牌，情境解讀指引
             </div>
           </div>
-          <div className="feature-card" style={{gridColumn: 'span 2', background: 'var(--color-strategic-bg)', borderColor: 'var(--color-strategic)'}}>
+          {/* 戰略側寫特色卡已隱藏 */}
+          {/* <div className="feature-card" style={{gridColumn: 'span 2', background: 'var(--color-strategic-bg)', borderColor: 'var(--color-strategic)'}}>
             <div className="feature-icon" style={{background: 'var(--color-strategic)'}}>🎯</div>
             <div className="feature-title" style={{color: 'var(--color-strategic)'}}>
               ✨ 戰略側寫系統
@@ -452,7 +453,7 @@ function App() {
               全息圖譜、生辰校正、關係生態位、決策沙盒 - 四大戰略工具，
               從被動算命升級為主動決策支援
             </div>
-          </div>
+          </div> */}
         </div>
       </div>
     </div>
@@ -503,13 +504,14 @@ function App() {
                 <div className="stat-label">可用系統</div>
               </div>
             </div>
-            <div className="stat-card">
+            {/* 戰略側寫統計已隱藏 */}
+            {/* <div className="stat-card">
               <div className="stat-icon" style={{background: 'var(--color-strategic)'}}>🎯</div>
               <div className="stat-content">
                 <div className="stat-value">戰略版</div>
                 <div className="stat-label">進階功能</div>
               </div>
-            </div>
+            </div> */}
           </div>
         )}
 
@@ -530,7 +532,8 @@ function App() {
                 紫微斗數、八字命理、西洋占星術、靈數學、姓名學、塔羅牌
               </div>
             </div>
-            <div 
+            {/* 戰略側寫已隱藏 - AI 諮詢可完全取代 */}
+            {/* <div 
               className="card card-strategic" 
               style={{cursor: 'pointer'}}
               onClick={() => setCurrentView('strategic')}
@@ -543,7 +546,7 @@ function App() {
               <div className="card-body">
                 全息圖譜、生辰校正、關係生態位、決策沙盒
               </div>
-            </div>
+            </div> */}
           </div>
         </div>
       </div>
@@ -769,8 +772,8 @@ function App() {
                     <div style={{padding: 'var(--spacing-md)', background: 'var(--color-bg-secondary)', borderRadius: 'var(--radius-md)'}}>
                       <div style={{fontSize: '16px', fontWeight: 600, marginBottom: 'var(--spacing-sm)', color: 'var(--color-primary)'}}>🔮 紫微斗數</div>
                       <div style={{display: 'grid', gap: 'var(--spacing-xs)'}}>
-                        <div><strong>命宮：</strong>{chartSummary.命宮?.宮位 || '未知'} - {chartSummary.命宮?.主星?.join('、') || '未知'}</div>
-                        {chartSummary.核心格局 && <div><strong>格局：</strong>{chartSummary.核心格局.join('、')}</div>}
+                        <div><strong>命宮：</strong>{chartSummary.命宮?.宮位 || '未知'}宮 - {chartSummary.命宮?.主星?.length > 0 ? chartSummary.命宮.主星.join('、') : '命無正曜'}{chartSummary.命宮?.輔星?.length > 0 ? ` (${chartSummary.命宮.輔星.join('、')})` : ''}</div>
+                        {chartSummary.格局 && chartSummary.格局.length > 0 && <div><strong>格局：</strong>{chartSummary.格局.join('、')}</div>}
                         {chartSummary.五行局 && <div><strong>五行局：</strong>{chartSummary.五行局}</div>}
                       </div>
                     </div>
@@ -1165,7 +1168,8 @@ function App() {
           </div>
         </div>
 
-        <div className="nav-section">
+        {/* 戰略側寫已隱藏 - AI 諮詢可完全取代 */}
+        {/* <div className="nav-section">
           <div className="nav-label">進階功能</div>
           <div 
             className={`nav-item strategic ${currentView === 'strategic' ? 'active' : ''}`}
@@ -1175,7 +1179,7 @@ function App() {
             <div>戰略側寫</div>
             <div className="nav-badge">NEW</div>
           </div>
-        </div>
+        </div> */}
 
         <div className="nav-section">
           <div 
