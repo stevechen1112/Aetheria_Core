@@ -43,9 +43,33 @@ class ChartExtractor:
     def __init__(self):
         pass
     
+    def extract_json_structure(self, llm_response: str) -> Optional[Dict]:
+        """
+        從 AI 回應中提取 JSON 格式的命盤結構
+        
+        Args:
+            llm_response: AI 的原始回應文字
+            
+        Returns:
+            解析後的 JSON 結構，若無法解析則返回 None
+        """
+        # 尋找 ```json ... ``` 區塊
+        json_pattern = r'```json\s*([\s\S]*?)\s*```'
+        match = re.search(json_pattern, llm_response)
+        
+        if match:
+            json_str = match.group(1).strip()
+            try:
+                return json.loads(json_str)
+            except json.JSONDecodeError as e:
+                print(f"JSON 解析錯誤: {e}")
+                return None
+        return None
+    
     def extract_full_structure(self, llm_response: str) -> Dict:
         """
         提取完整命盤結構
+        優先使用 JSON 格式，若無則使用正則表達式回退方案
         
         Args:
             llm_response: Gemini 3 Pro 的原始回應文字
@@ -54,13 +78,46 @@ class ChartExtractor:
             結構化的命盤資料
         """
         
+        # 優先嘗試提取 JSON 結構
+        json_structure = self.extract_json_structure(llm_response)
+        
+        if json_structure:
+            # 使用 JSON 結構，並標準化格式
+            structure = {
+                '命宮': {
+                    '宮位': json_structure.get('命宮', {}).get('地支'),
+                    '主星': json_structure.get('命宮', {}).get('主星', []),
+                    '輔星': json_structure.get('命宮', {}).get('輔星', []),
+                    '四化': None
+                },
+                '格局': json_structure.get('格局', ['未明確提及']),
+                '五行局': json_structure.get('五行局'),
+                '十二宮': {},
+                '四化': json_structure.get('四化', {}),
+                '原始分析': llm_response[:500] + '...' if len(llm_response) > 500 else llm_response,
+                '提取方式': 'JSON'
+            }
+            
+            # 轉換十二宮格式
+            if '十二宮' in json_structure:
+                for palace_name, palace_data in json_structure['十二宮'].items():
+                    structure['十二宮'][palace_name] = {
+                        '宮位': palace_data.get('地支'),
+                        '主星': palace_data.get('主星', []),
+                        '四化': None
+                    }
+            
+            return structure
+        
+        # 回退：使用正則表達式提取（舊方法）
         structure = {
             '命宮': self.extract_life_palace(llm_response),
             '格局': self.extract_patterns(llm_response),
             '五行局': self.extract_element_bureau(llm_response),
             '十二宮': self.extract_twelve_palaces(llm_response),
             '四化': self.extract_transformations(llm_response),
-            '原始分析': llm_response[:500] + '...' if len(llm_response) > 500 else llm_response
+            '原始分析': llm_response[:500] + '...' if len(llm_response) > 500 else llm_response,
+            '提取方式': 'Regex'
         }
         
         return structure
@@ -242,25 +299,58 @@ class ChartExtractor:
             (是否有效, 錯誤訊息列表)
         """
         errors = []
+        warnings = []
+        
+        # 檢查提取方式
+        extraction_method = structure.get('提取方式', 'Unknown')
         
         # 檢查命宮
         if not structure.get('命宮', {}).get('宮位'):
             errors.append('命宮宮位缺失')
         
-        if not structure.get('命宮', {}).get('主星'):
+        ming_gong_stars = structure.get('命宮', {}).get('主星', [])
+        if not ming_gong_stars:
             errors.append('命宮主星缺失')
+        elif len(ming_gong_stars) > 3:
+            # 紫微斗數規則：每個宮位最多 2-3 顆主星
+            errors.append(f'命宮主星數量異常（{len(ming_gong_stars)}顆），可能提取錯誤')
+        
+        # 檢查五行局
+        if not structure.get('五行局'):
+            warnings.append('五行局未提取')
         
         # 檢查格局
         if not structure.get('格局') or structure['格局'] == ['未明確提及']:
-            errors.append('格局資訊缺失')
+            warnings.append('格局資訊缺失')
         
-        # 檢查關鍵三宮（官祿、財帛、夫妻）
-        key_palaces = ['官祿宮', '財帛宮', '夫妻宮']
-        for palace in key_palaces:
-            if palace not in structure.get('十二宮', {}):
-                errors.append(f'{palace}資訊缺失')
+        # 檢查十二宮（若使用 JSON 提取則應有完整十二宮）
+        twelve_palaces = structure.get('十二宮', {})
+        if extraction_method == 'JSON':
+            required_palaces = ['命宮', '官祿宮', '財帛宮', '夫妻宮']
+            for palace in required_palaces:
+                if palace not in twelve_palaces:
+                    errors.append(f'{palace}資訊缺失')
+                elif len(twelve_palaces[palace].get('主星', [])) > 3:
+                    errors.append(f'{palace}主星數量異常')
+        else:
+            # Regex 提取，只檢查關鍵三宮
+            key_palaces = ['官祿宮', '財帛宮', '夫妻宮']
+            for palace in key_palaces:
+                if palace not in twelve_palaces:
+                    warnings.append(f'{palace}資訊缺失')
         
-        return len(errors) == 0, errors
+        # 驗證四化（應該有4個）
+        si_hua = structure.get('四化', {})
+        if extraction_method == 'JSON' and len(si_hua) < 4:
+            warnings.append(f'四化不完整（僅有{len(si_hua)}項）')
+        
+        # 嚴格模式：有錯誤則失敗
+        # 寬鬆模式：只有警告也算通過
+        is_valid = len(errors) == 0
+        
+        all_messages = errors + [f'(警告) {w}' for w in warnings]
+        
+        return is_valid, all_messages
     
     def to_json(self, structure: Dict, indent: int = 2) -> str:
         """
