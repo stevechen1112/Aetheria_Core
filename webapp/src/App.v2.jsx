@@ -32,6 +32,8 @@ function App() {
   // Chart Data
   const [chartLocked, setChartLocked] = useState(false)
   const [chartSummary, setChartSummary] = useState(null)
+  const [chartAnalysis, setChartAnalysis] = useState(null) // 完整的綜合分析
+  const [systemAnalysis, setSystemAnalysis] = useState({}) // 各系統詳細分析
   
   // Wizard for chart creation
   const [wizardStep, setWizardStep] = useState(1)
@@ -612,21 +614,33 @@ function App() {
         {wizardStep === 5 && chartSummary && (
           <div className="card">
             <div className="card-header">
-              <div className="card-title">步驟 5：命盤預覽</div>
-              <div className="card-subtitle">請確認命盤資訊無誤</div>
+              <div className="card-title">步驟 5：命盤總攬</div>
+              <div className="card-subtitle">您的專屬命盤已生成，請確認資訊無誤</div>
             </div>
             <div className="card-body">
-              <div style={{display: 'grid', gap: 'var(--spacing-md)'}}>
-                <div>
-                  <strong>命宮：</strong>
-                  {chartSummary.命宮?.宮位} - {chartSummary.命宮?.主星?.join('、')}
+              <div style={{display: 'grid', gap: 'var(--spacing-lg)'}}>
+                {/* 紫微斗數 */}
+                <div style={{padding: 'var(--spacing-md)', background: 'var(--color-bg-secondary)', borderRadius: 'var(--radius-md)'}}>
+                  <div style={{fontSize: '16px', fontWeight: 600, marginBottom: 'var(--spacing-sm)', color: 'var(--color-primary)'}}>🔮 紫微斗數</div>
+                  <div style={{display: 'grid', gap: 'var(--spacing-xs)'}}>
+                    <div><strong>命宮：</strong>{chartSummary.命宮?.宮位} - {chartSummary.命宮?.主星?.join('、')}</div>
+                    {chartSummary.核心格局 && <div><strong>格局：</strong>{chartSummary.核心格局.join('、')}</div>}
+                    {chartSummary.五行局 && <div><strong>五行局：</strong>{chartSummary.五行局}</div>}
+                  </div>
                 </div>
-                {chartSummary.核心格局 && (
-                  <div><strong>格局：</strong>{chartSummary.核心格局.join('、')}</div>
+                
+                {/* 八字命理 */}
+                {chartSummary.八字 && (
+                  <div style={{padding: 'var(--spacing-md)', background: 'var(--color-bg-secondary)', borderRadius: 'var(--radius-md)'}}>
+                    <div style={{fontSize: '16px', fontWeight: 600, marginBottom: 'var(--spacing-sm)', color: 'var(--color-primary)'}}>☯️ 八字命理</div>
+                    <div><strong>四柱：</strong>{chartSummary.八字.年柱} {chartSummary.八字.月柱} {chartSummary.八字.日柱} {chartSummary.八字.時柱}</div>
+                  </div>
                 )}
-                {chartSummary.五行局 && (
-                  <div><strong>五行局：</strong>{chartSummary.五行局}</div>
-                )}
+                
+                {/* 其他系統提示 */}
+                <div style={{padding: 'var(--spacing-md)', background: 'var(--color-info)', opacity: 0.1, borderRadius: 'var(--radius-md)', color: 'var(--color-text)'}}>
+                  <div>✨ 鎖定後可使用：西洋占星、靈數學、姓名學、塔羅牌等完整分析</div>
+                </div>
               </div>
             </div>
             <div className="card-footer">
@@ -694,8 +708,12 @@ function App() {
               className="card"
               style={{cursor: 'pointer'}}
               onClick={() => {
+                if (!chartLocked) {
+                  showToast('請先建立並鎖定命盤', 'warning')
+                  return
+                }
                 setCurrentSystem(system.id)
-                showToast(`${system.name} 功能開發中`, 'info')
+                setCurrentView('system-detail')
               }}
             >
               <div style={{fontSize: '48px', marginBottom: 'var(--spacing-md)'}}>{system.icon}</div>
@@ -760,6 +778,216 @@ function App() {
       </div>
     </>
   )
+
+  // Overview View (我的命盤總攬)
+  const renderOverviewView = () => {
+    const [overviewData, setOverviewData] = useState(null)
+    const [loadingOverview, setLoadingOverview] = useState(false)
+
+    const fetchOverview = async () => {
+      setLoadingOverview(true)
+      try {
+        const data = await apiCall('/api/integrated/profile', {
+          user_id: profile.user_id,
+          birth_date: chartForm.birth_date || chartSummary?.birth_date,
+          birth_time: chartForm.birth_time || chartSummary?.birth_time,
+          birth_location: chartForm.birth_location || chartSummary?.birth_location
+        })
+        setOverviewData(data)
+        setChartAnalysis(data)
+      } catch (error) {
+        showToast('載入失敗', 'error')
+      } finally {
+        setLoadingOverview(false)
+      }
+    }
+
+    useEffect(() => {
+      if (chartLocked && !overviewData) {
+        fetchOverview()
+      }
+    }, [chartLocked])
+
+    return (
+      <>
+        <div className="content-header">
+          <h1 className="content-title">我的命盤總攬</h1>
+          <p className="content-subtitle">綜合六大系統的完整分析</p>
+        </div>
+        <div className="content-body">
+          {loadingOverview ? (
+            <div className="card" style={{minHeight: '400px', display: 'grid', placeItems: 'center'}}>
+              <div style={{textAlign: 'center'}}>
+                <div className="spinner" style={{margin: '0 auto var(--spacing-lg)'}}></div>
+                <div>正在載入您的命盤分析...</div>
+              </div>
+            </div>
+          ) : overviewData ? (
+            <div style={{display: 'grid', gap: 'var(--spacing-lg)'}}>
+              <div className="card">
+                <div className="card-header">
+                  <div className="card-title">📊 綜合分析</div>
+                </div>
+                <div className="card-body" style={{whiteSpace: 'pre-wrap'}}>
+                  {overviewData.analysis || overviewData.summary || '分析資料載入中...'}
+                </div>
+              </div>
+              
+              <div className="dashboard-grid">
+                {[
+                  { id: 'ziwei', icon: '🔮', name: '紫微斗數' },
+                  { id: 'bazi', icon: '☯️', name: '八字命理' },
+                  { id: 'astrology', icon: '⭐', name: '西洋占星' },
+                  { id: 'numerology', icon: '🔢', name: '靈數學' },
+                  { id: 'name', icon: '📝', name: '姓名學' },
+                  { id: 'tarot', icon: '🎴', name: '塔羅牌' }
+                ].map(system => (
+                  <div 
+                    key={system.id}
+                    className="card"
+                    style={{cursor: 'pointer'}}
+                    onClick={() => {
+                      setCurrentSystem(system.id)
+                      setCurrentView('system-detail')
+                    }}
+                  >
+                    <div className="card-header">
+                      <div className="card-title">{system.icon} {system.name}</div>
+                    </div>
+                    <div className="card-footer">
+                      <button className="btn btn-ghost">查看詳細</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="card">
+              <div className="card-body">尚無分析資料</div>
+            </div>
+          )}
+        </div>
+      </>
+    )
+  }
+
+  // System Detail View (單一系統詳細分析)
+  const renderSystemDetailView = () => {
+    const [systemData, setSystemData] = useState(null)
+    const [loadingSystem, setLoadingSystem] = useState(false)
+
+    const fetchSystemAnalysis = async () => {
+      if (!currentSystem || !chartLocked) return
+      
+      setLoadingSystem(true)
+      try {
+        let endpoint = ''
+        let payload = {
+          user_id: profile.user_id,
+          birth_date: chartForm.birth_date || chartSummary?.birth_date,
+          birth_time: chartForm.birth_time || chartSummary?.birth_time,
+          birth_location: chartForm.birth_location || chartSummary?.birth_location
+        }
+
+        switch (currentSystem) {
+          case 'ziwei':
+            // 使用 initial-analysis 已有的資料
+            setSystemData({ analysis: '紫微斗數詳細分析請使用「流年運勢」等專門功能' })
+            setLoadingSystem(false)
+            return
+          case 'bazi':
+            endpoint = '/api/bazi/analysis'
+            break
+          case 'astrology':
+            endpoint = '/api/astrology/natal'
+            break
+          case 'numerology':
+            endpoint = '/api/numerology/profile'
+            payload.name = profile.display_name || chartForm.chinese_name
+            break
+          case 'name':
+            endpoint = '/api/name/analyze'
+            payload.chinese_name = chartForm.chinese_name || profile.display_name
+            payload.gender = chartForm.gender
+            break
+          case 'tarot':
+            showToast('塔羅牌需要選擇牌陣和問題', 'info')
+            setLoadingSystem(false)
+            return
+          default:
+            showToast('系統不存在', 'error')
+            setLoadingSystem(false)
+            return
+        }
+
+        const data = await apiCall(endpoint, payload)
+        setSystemData(data)
+        setSystemAnalysis(prev => ({ ...prev, [currentSystem]: data }))
+      } catch (error) {
+        showToast(`載入${currentSystem}失敗`, 'error')
+      } finally {
+        setLoadingSystem(false)
+      }
+    }
+
+    useEffect(() => {
+      if (currentSystem && chartLocked && !systemAnalysis[currentSystem]) {
+        fetchSystemAnalysis()
+      } else if (systemAnalysis[currentSystem]) {
+        setSystemData(systemAnalysis[currentSystem])
+      }
+    }, [currentSystem, chartLocked])
+
+    const getSystemInfo = (id) => {
+      const systems = {
+        ziwei: { icon: '🔮', name: '紫微斗數' },
+        bazi: { icon: '☯️', name: '八字命理' },
+        astrology: { icon: '⭐', name: '西洋占星術' },
+        numerology: { icon: '🔢', name: '靈數學' },
+        name: { icon: '📝', name: '姓名學' },
+        tarot: { icon: '🎴', name: '塔羅牌' }
+      }
+      return systems[id] || { icon: '❓', name: '未知系統' }
+    }
+
+    const systemInfo = getSystemInfo(currentSystem)
+
+    return (
+      <>
+        <div className="content-header">
+          <button 
+            className="btn btn-ghost" 
+            onClick={() => setCurrentView('systems')}
+            style={{marginBottom: 'var(--spacing-md)'}}
+          >
+            ← 返回
+          </button>
+          <h1 className="content-title">{systemInfo.icon} {systemInfo.name}</h1>
+          <p className="content-subtitle">詳細分析報告</p>
+        </div>
+        <div className="content-body">
+          {loadingSystem ? (
+            <div className="card" style={{minHeight: '400px', display: 'grid', placeItems: 'center'}}>
+              <div style={{textAlign: 'center'}}>
+                <div className="spinner" style={{margin: '0 auto var(--spacing-lg)'}}></div>
+                <div>正在分析...</div>
+              </div>
+            </div>
+          ) : systemData ? (
+            <div className="card">
+              <div className="card-body" style={{whiteSpace: 'pre-wrap'}}>
+                {systemData.analysis || systemData.interpretation || JSON.stringify(systemData, null, 2)}
+              </div>
+            </div>
+          ) : (
+            <div className="card">
+              <div className="card-body">尚無分析資料</div>
+            </div>
+          )}
+        </div>
+      </>
+    )
+  }
 
   // Settings View
   const renderSettingsView = () => (
@@ -853,9 +1081,18 @@ function App() {
             onClick={() => setCurrentView('chart')}
           >
             <div className="nav-icon">🔮</div>
-            <div>我的命盤</div>
+            <div>建立命盤</div>
             {!chartLocked && <div className="nav-badge">!</div>}
           </div>
+          {chartLocked && (
+            <div 
+              className={`nav-item ${currentView === 'overview' ? 'active' : ''}`}
+              onClick={() => setCurrentView('overview')}
+            >
+              <div className="nav-icon">📊</div>
+              <div>我的命盤</div>
+            </div>
+          )}
         </div>
 
         <div className="nav-section">
@@ -1050,7 +1287,9 @@ function App() {
           <div className="main-content">
             {currentView === 'home' && renderDashboardHome()}
             {currentView === 'chart' && renderChartView()}
+            {currentView === 'overview' && renderOverviewView()}
             {currentView === 'systems' && renderSystemsView()}
+            {currentView === 'system-detail' && renderSystemDetailView()}
             {currentView === 'strategic' && renderStrategicView()}
             {currentView === 'settings' && renderSettingsView()}
           </div>
