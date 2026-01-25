@@ -865,16 +865,9 @@ def initial_analysis():
         
         # 驗證結構
         is_valid, errors = extractor.validate_structure(structure)
-        
         if not is_valid:
             logger.warning(f'命盤結構提取不完整', user_id=user_id, errors=errors)
-            return jsonify({
-                'status': 'error',
-                'error': '命盤結構提取不完整',
-                'details': errors,
-                'raw_analysis': analysis
-            }), 400
-        
+
         # 暫存到資料庫（待確認）
         temp_lock = {
             'user_id': user_id,
@@ -884,6 +877,8 @@ def initial_analysis():
             'created_at': datetime.now().isoformat(),
             'is_active': False
         }
+        if errors:
+            temp_lock['errors'] = errors
         save_chart_lock(user_id, temp_lock)
         
         duration_ms = (time.time() - start_time) * 1000
@@ -895,7 +890,9 @@ def initial_analysis():
             'analysis': analysis,
             'structure': structure,
             'lock_id': user_id,
-            'needs_confirmation': True
+            'needs_confirmation': True,
+            'warning': None if is_valid else '命盤結構提取不完整',
+            'errors': errors if errors else []
         })
         
     except AetheriaException:

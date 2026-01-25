@@ -300,6 +300,10 @@ function App() {
         birth_location: chartForm.birth_location,
         gender: chartForm.gender
       })
+
+      if (data.warning) {
+        showToast(data.warning, 'warning')
+      }
       
       // API 回傳 structure 或 chart_structure
       const structure = data.structure || data.chart_structure
