@@ -41,8 +41,8 @@ const [systemAnalysis, setSystemAnalysis] = useState({}) // 各系統快取
 ```
 
 ### 新增視圖
-- enderOverviewView(): 我的命盤總攬
-- enderSystemDetailView(): 單一系統詳細分析
+- `renderOverviewView()`: 我的命盤總攬
+- `renderSystemDetailView()`: 單一系統詳細分析
 
 ### API 調用策略
 - 首次載入時調用 API

@@ -34,6 +34,10 @@ function App() {
   const [chartSummary, setChartSummary] = useState(null)
   const [chartAnalysis, setChartAnalysis] = useState(null) // 完整的綜合分析
   const [systemAnalysis, setSystemAnalysis] = useState({}) // 各系統詳細分析
+  const [overviewData, setOverviewData] = useState(null)
+  const [overviewLoading, setOverviewLoading] = useState(false)
+  const [systemData, setSystemData] = useState(null)
+  const [systemLoading, setSystemLoading] = useState(false)
   
   // Wizard for chart creation
   const [wizardStep, setWizardStep] = useState(1)
@@ -72,6 +76,19 @@ function App() {
       showToast(error.message, 'error')
       throw error
     }
+  }
+
+  const getChartPayload = () => {
+    const birth_date = chartForm.birth_date || chartSummary?.birth_date
+    const birth_time = chartForm.birth_time || chartSummary?.birth_time
+    const birth_location = chartForm.birth_location || chartSummary?.birth_location
+    return { birth_date, birth_time, birth_location }
+  }
+
+  const ensureChartPayload = () => {
+    const { birth_date, birth_time, birth_location } = getChartPayload()
+    if (!birth_date || !birth_time || !birth_location) return null
+    return { birth_date, birth_time, birth_location }
   }
 
   // ========== Toast System ==========
@@ -165,6 +182,112 @@ function App() {
       checkChartLock()
     }
   }, [profile])
+
+  useEffect(() => {
+    if (currentView !== 'overview' || !chartLocked || !profile?.user_id || overviewData) return
+    const payload = ensureChartPayload()
+    if (!payload) {
+      showToast('缺少出生資料，請重新建立命盤', 'error')
+      return
+    }
+
+    let isActive = true
+    setOverviewLoading(true)
+    apiCall('/api/integrated/profile', {
+      user_id: profile.user_id,
+      ...payload
+    })
+      .then((data) => {
+        if (!isActive) return
+        setOverviewData(data)
+        setChartAnalysis(data)
+      })
+      .catch(() => {
+        if (isActive) showToast('載入失敗', 'error')
+      })
+      .finally(() => {
+        if (isActive) setOverviewLoading(false)
+      })
+
+    return () => {
+      isActive = false
+    }
+  }, [currentView, chartLocked, profile?.user_id, overviewData])
+
+  useEffect(() => {
+    if (currentView !== 'system-detail' || !currentSystem || !chartLocked || !profile?.user_id) return
+
+    if (systemAnalysis[currentSystem]) {
+      setSystemData(systemAnalysis[currentSystem])
+      return
+    }
+
+    setSystemData(null)
+
+    const payload = ensureChartPayload()
+    if (!payload) {
+      showToast('缺少出生資料，請重新建立命盤', 'error')
+      return
+    }
+
+    let isActive = true
+    setSystemLoading(true)
+
+    const run = async () => {
+      try {
+        let endpoint = ''
+        let requestPayload = {
+          user_id: profile.user_id,
+          ...payload
+        }
+
+        switch (currentSystem) {
+          case 'ziwei':
+            setSystemData({ analysis: '紫微斗數詳細分析請使用「流年運勢」等專門功能' })
+            setSystemLoading(false)
+            return
+          case 'bazi':
+            endpoint = '/api/bazi/analysis'
+            break
+          case 'astrology':
+            endpoint = '/api/astrology/natal'
+            break
+          case 'numerology':
+            endpoint = '/api/numerology/profile'
+            requestPayload.name = profile.display_name || chartForm.chinese_name
+            break
+          case 'name':
+            endpoint = '/api/name/analyze'
+            requestPayload.chinese_name = chartForm.chinese_name || profile.display_name
+            requestPayload.gender = chartForm.gender
+            break
+          case 'tarot':
+            showToast('塔羅牌需要選擇牌陣和問題', 'info')
+            setSystemLoading(false)
+            return
+          default:
+            showToast('系統不存在', 'error')
+            setSystemLoading(false)
+            return
+        }
+
+        const data = await apiCall(endpoint, requestPayload)
+        if (!isActive) return
+        setSystemData(data)
+        setSystemAnalysis((prev) => ({ ...prev, [currentSystem]: data }))
+      } catch (error) {
+        if (isActive) showToast(`載入${currentSystem}失敗`, 'error')
+      } finally {
+        if (isActive) setSystemLoading(false)
+      }
+    }
+
+    run()
+
+    return () => {
+      isActive = false
+    }
+  }, [currentView, currentSystem, chartLocked, profile?.user_id, chartForm.chinese_name, chartForm.gender, systemAnalysis])
 
   // ========== Chart Creation Wizard ==========
   const handleCreateChart = async () => {
@@ -780,42 +903,14 @@ function App() {
   )
 
   // Overview View (我的命盤總攬)
-  const renderOverviewView = () => {
-    const [overviewData, setOverviewData] = useState(null)
-    const [loadingOverview, setLoadingOverview] = useState(false)
-
-    const fetchOverview = async () => {
-      setLoadingOverview(true)
-      try {
-        const data = await apiCall('/api/integrated/profile', {
-          user_id: profile.user_id,
-          birth_date: chartForm.birth_date || chartSummary?.birth_date,
-          birth_time: chartForm.birth_time || chartSummary?.birth_time,
-          birth_location: chartForm.birth_location || chartSummary?.birth_location
-        })
-        setOverviewData(data)
-        setChartAnalysis(data)
-      } catch (error) {
-        showToast('載入失敗', 'error')
-      } finally {
-        setLoadingOverview(false)
-      }
-    }
-
-    useEffect(() => {
-      if (chartLocked && !overviewData) {
-        fetchOverview()
-      }
-    }, [chartLocked])
-
-    return (
+  const renderOverviewView = () => (
       <>
         <div className="content-header">
           <h1 className="content-title">我的命盤總攬</h1>
           <p className="content-subtitle">綜合六大系統的完整分析</p>
         </div>
         <div className="content-body">
-          {loadingOverview ? (
+          {overviewLoading ? (
             <div className="card" style={{minHeight: '400px', display: 'grid', placeItems: 'center'}}>
               <div style={{textAlign: 'center'}}>
                 <div className="spinner" style={{margin: '0 auto var(--spacing-lg)'}}></div>
@@ -869,75 +964,9 @@ function App() {
         </div>
       </>
     )
-  }
 
   // System Detail View (單一系統詳細分析)
   const renderSystemDetailView = () => {
-    const [systemData, setSystemData] = useState(null)
-    const [loadingSystem, setLoadingSystem] = useState(false)
-
-    const fetchSystemAnalysis = async () => {
-      if (!currentSystem || !chartLocked) return
-      
-      setLoadingSystem(true)
-      try {
-        let endpoint = ''
-        let payload = {
-          user_id: profile.user_id,
-          birth_date: chartForm.birth_date || chartSummary?.birth_date,
-          birth_time: chartForm.birth_time || chartSummary?.birth_time,
-          birth_location: chartForm.birth_location || chartSummary?.birth_location
-        }
-
-        switch (currentSystem) {
-          case 'ziwei':
-            // 使用 initial-analysis 已有的資料
-            setSystemData({ analysis: '紫微斗數詳細分析請使用「流年運勢」等專門功能' })
-            setLoadingSystem(false)
-            return
-          case 'bazi':
-            endpoint = '/api/bazi/analysis'
-            break
-          case 'astrology':
-            endpoint = '/api/astrology/natal'
-            break
-          case 'numerology':
-            endpoint = '/api/numerology/profile'
-            payload.name = profile.display_name || chartForm.chinese_name
-            break
-          case 'name':
-            endpoint = '/api/name/analyze'
-            payload.chinese_name = chartForm.chinese_name || profile.display_name
-            payload.gender = chartForm.gender
-            break
-          case 'tarot':
-            showToast('塔羅牌需要選擇牌陣和問題', 'info')
-            setLoadingSystem(false)
-            return
-          default:
-            showToast('系統不存在', 'error')
-            setLoadingSystem(false)
-            return
-        }
-
-        const data = await apiCall(endpoint, payload)
-        setSystemData(data)
-        setSystemAnalysis(prev => ({ ...prev, [currentSystem]: data }))
-      } catch (error) {
-        showToast(`載入${currentSystem}失敗`, 'error')
-      } finally {
-        setLoadingSystem(false)
-      }
-    }
-
-    useEffect(() => {
-      if (currentSystem && chartLocked && !systemAnalysis[currentSystem]) {
-        fetchSystemAnalysis()
-      } else if (systemAnalysis[currentSystem]) {
-        setSystemData(systemAnalysis[currentSystem])
-      }
-    }, [currentSystem, chartLocked])
-
     const getSystemInfo = (id) => {
       const systems = {
         ziwei: { icon: '🔮', name: '紫微斗數' },
@@ -966,7 +995,7 @@ function App() {
           <p className="content-subtitle">詳細分析報告</p>
         </div>
         <div className="content-body">
-          {loadingSystem ? (
+          {systemLoading ? (
             <div className="card" style={{minHeight: '400px', display: 'grid', placeItems: 'center'}}>
               <div style={{textAlign: 'center'}}>
                 <div className="spinner" style={{margin: '0 auto var(--spacing-lg)'}}></div>
