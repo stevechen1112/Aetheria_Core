@@ -218,15 +218,26 @@ class BaziCalculator:
     
     def _get_hour_ganzhi(self, lunar_day, hour: int) -> Tuple[str, str]:
         """
-        获取时柱干支
-        时辰划分：
-        23-1: 子时, 1-3: 丑时, 3-5: 寅时, 5-7: 卯时
-        7-9: 辰时, 9-11: 巳时, 11-13: 午时, 13-15: 未时
-        15-17: 申时, 17-19: 酉时, 19-21: 戌时, 21-23: 亥时
+        獲取時柱干支
+        時辰劃分：
+        23-1: 子時, 1-3: 丑時, 3-5: 寅時, 5-7: 卯時
+        7-9: 辰時, 9-11: 巳時, 11-13: 午時, 13-15: 未時
+        15-17: 申時, 17-19: 酉時, 19-21: 戌時, 21-23: 亥時
+        
+        Aetheria 修正：處理晚子時 (23:00-00:00) 的日柱不變邏輯。
         """
-        # 使用 sxtwl 的 getShiGz 方法计算时柱
+        # 獲取日柱干支索引
         day_gz = lunar_day.getDayGZ()
-        gz = sxtwl.getShiGz(day_gz.dz, hour)
+        
+        # 處理晚子時：sxtwl.getShiGz 在 23 點會自動跳到下一天（早子時邏輯）
+        # 為了實現「日柱不變」的晚子時，對於 23 點，我們取該日的子時（index 0）之干支，
+        # 這樣時干就是基於當日日干計算出的「壬子」（以癸日為例），而非下一日的「甲子」。
+        lookup_hour = hour
+        if hour >= 23:
+            lookup_hour = 0
+            
+        # sxtwl.getShiGz 需要 (日干索引, 小時)
+        gz = sxtwl.getShiGz(day_gz.tg, lookup_hour)
         return (self.TIANGAN[gz.tg], self.DIZHI[gz.dz])
     
     def _calculate_shishen(self, day_gan: str, target_gan: str, target_zhi: str) -> Dict[str, str]:

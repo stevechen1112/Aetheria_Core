@@ -785,6 +785,114 @@ body {
   line-height: 1.7;
 }
 
+/* ==========================
+   紫微斗數：十二宮 CSS Grid 命盤
+   ========================== */
+
+.ziwei-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-rows: repeat(4, minmax(92px, auto));
+  gap: var(--spacing-sm);
+}
+
+.ziwei-chart-cell {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm);
+  display: grid;
+  gap: var(--spacing-xs);
+  overflow: hidden;
+}
+
+.ziwei-chart-cell--ming {
+  border-color: rgba(99, 102, 241, 0.55);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.12);
+}
+
+.ziwei-cell-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+}
+
+.ziwei-cell-branch {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.ziwei-cell-palace {
+  font-weight: 600;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ziwei-cell-body {
+  display: grid;
+  gap: 6px;
+}
+
+.ziwei-stars {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  gap: var(--spacing-xs);
+  align-items: baseline;
+}
+
+.ziwei-stars-label {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.ziwei-stars-value {
+  font-size: 13px;
+}
+
+.ziwei-chart-center {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  display: grid;
+  gap: var(--spacing-sm);
+}
+
+.ziwei-center-title {
+  font-weight: 800;
+  font-size: 16px;
+}
+
+.ziwei-center-meta {
+  color: var(--color-text-muted);
+  font-size: 13px;
+  display: grid;
+  gap: 4px;
+}
+
+.ziwei-center-si-hua {
+  font-size: 13px;
+}
+
+@media (max-width: 900px) {
+  .ziwei-chart-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: auto;
+  }
+  .ziwei-chart-center {
+    grid-column: 1 / -1 !important;
+    grid-row: auto !important;
+  }
+  .ziwei-chart-cell {
+    grid-column: auto !important;
+    grid-row: auto !important;
+  }
+}
+
 .markdown-content h1,
 .markdown-content h2,
 .markdown-content h3,

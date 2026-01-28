@@ -2,14 +2,49 @@
    Voice Chat Component Styles
 ======================================== */
 
+/* Modal 背景遮罩 */
+.voice-chat-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 .voice-chat-container {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  width: 90%;
+  max-width: 600px;
+  height: 80vh;
+  max-height: 700px;
   background: var(--color-bg);
-  border-radius: var(--border-radius-lg);
+  border-radius: var(--radius-lg);
   overflow: hidden;
   box-shadow: var(--shadow-xl);
+  animation: slideUp 0.3s ease-out;
+}
+
+/* 移动端全屏 */
+@media (max-width: 640px) {
+  .voice-chat-container {
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    border-radius: 0;
+  }
 }
 
 /* 头部 */
@@ -39,7 +74,7 @@
   gap: var(--spacing-sm);
   background: rgba(255, 255, 255, 0.15);
   padding: 4px;
-  border-radius: var(--border-radius-md);
+  border-radius: var(--radius-md);
 }
 
 .mode-btn {
@@ -47,7 +82,7 @@
   border: none;
   background: transparent;
   color: white;
-  border-radius: var(--border-radius-sm);
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all 0.2s;
   font-size: 0.9rem;
@@ -85,6 +120,52 @@
 
 .close-btn:hover {
   background: rgba(255, 255, 255, 0.25);
+}
+
+/* 語音設定區 */
+.voice-settings {
+  padding: var(--spacing-md) var(--spacing-lg);
+  background: var(--color-surface-soft);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.voice-select-group {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  flex-wrap: wrap;
+}
+
+.voice-select-group label {
+  font-weight: 600;
+  color: var(--color-text-light);
+  font-size: 0.9rem;
+}
+
+.voice-select-group select {
+  flex: 1;
+  min-width: 200px;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.voice-select-group select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.connection-error {
+  margin-top: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid var(--color-error);
+  border-radius: var(--radius-sm);
+  color: var(--color-error);
+  font-size: 0.85rem;
 }
 
 /* 消息列表 */
@@ -161,15 +242,18 @@
   display: flex;
   flex-direction: column;
   gap: var(--spacing-sm);
+  min-width: 0;
 }
 
 .message-text {
   background: var(--color-surface);
   padding: var(--spacing-md);
-  border-radius: var(--border-radius-md);
+  border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
   line-height: 1.6;
   color: var(--color-text);
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .message.user .message-text {
@@ -180,7 +264,7 @@
 .message-citations {
   background: var(--color-surface-soft);
   padding: var(--spacing-sm);
-  border-radius: var(--border-radius-sm);
+  border-radius: var(--radius-sm);
   font-size: 0.85rem;
 }
 
@@ -211,7 +295,7 @@
   padding: var(--spacing-xs) var(--spacing-sm);
   border: 1px solid var(--color-border);
   background: var(--color-surface);
-  border-radius: var(--border-radius-sm);
+  border-radius: var(--radius-sm);
   cursor: pointer;
   font-size: 0.85rem;
   transition: all 0.2s;
@@ -271,7 +355,7 @@
   border: none;
   background: var(--color-primary);
   color: white;
-  border-radius: var(--border-radius-full);
+  border-radius: var(--radius-full);
   cursor: pointer;
   font-size: 1rem;
   font-weight: 600;
@@ -291,6 +375,32 @@
 .voice-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.voice-btn.connect {
+  background: linear-gradient(135deg, #10b981, #059669);
+}
+
+.voice-btn.connect:hover:not(:disabled) {
+  background: linear-gradient(135deg, #059669, #047857);
+}
+
+.voice-btn.disconnect {
+  background: var(--color-text-muted);
+  padding: var(--spacing-md) var(--spacing-lg);
+  font-size: 0.9rem;
+}
+
+.voice-btn.disconnect:hover:not(:disabled) {
+  background: var(--color-error);
+}
+
+.voice-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
 }
 
 .voice-btn.listening {
@@ -356,7 +466,7 @@
   flex: 1;
   padding: var(--spacing-md);
   border: 2px solid var(--color-border);
-  border-radius: var(--border-radius-md);
+  border-radius: var(--radius-md);
   font-size: 1rem;
   transition: border-color 0.2s;
 }
@@ -376,7 +486,7 @@
   border: none;
   background: var(--color-primary);
   color: white;
-  border-radius: var(--border-radius-md);
+  border-radius: var(--radius-md);
   cursor: pointer;
   font-weight: 600;
   transition: background 0.2s;

@@ -15,6 +15,7 @@ import secrets
 from datetime import datetime, date, timedelta
 from typing import Dict, Optional, Tuple, Any, List
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
 
 # 確保專案根目錄在 Python 路徑中
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
@@ -96,7 +97,7 @@ load_dotenv()
 # 初始化 Gemini 客戶端（使用新 SDK）
 gemini_client = GeminiClient(
     api_key=os.getenv('GEMINI_API_KEY'),
-    model_name=os.getenv('MODEL_NAME', 'gemini-2.0-flash-exp'),
+    model_name=os.getenv('MODEL_NAME', 'gemini-2.0-flash'),
     temperature=float(os.getenv('TEMPERATURE', '0.4')),
     max_output_tokens=int(os.getenv('MAX_OUTPUT_TOKENS', '8192'))
 )
@@ -113,8 +114,79 @@ def to_zh_tw(text: str) -> str:
     except Exception:
         return text
 
+
+def sanitize_plain_text(text: str) -> str:
+    """基礎清理回應內容，保留核心內容。"""
+    if not text:
+        return text
+    cleaned = text.strip()
+    # 移除 ```json 和 ``` 標記，但保留 JSON 內容
+    cleaned = re.sub(r'^```json\s*', '', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'^```\s*', '', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'```\s*$', '', cleaned)
+    return cleaned.strip()
+
+
+def strip_first_json_block(text: str) -> str:
+    """移除回應中第一段 JSON 區塊（避免前端顯示原始 JSON）。"""
+    if not text:
+        return text
+    json_block = extractor._extract_brace_block(text) if hasattr(extractor, '_extract_brace_block') else None
+    if not json_block:
+        return text
+    cleaned = text.replace(json_block, '')
+    cleaned = re.sub(r'【結構化命盤資料】\s*', '', cleaned)
+    cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
+    return cleaned.strip()
+
 app = Flask(__name__)
-CORS(app)  # 允許跨域請求
+
+# 明確指定允許的前端 origin（開發環境常用 http://172.237.19.63 與本機 dev server）
+ALLOWED_ORIGINS = [
+    'http://172.237.19.63',
+    'http://localhost:5173',
+    'http://127.0.0.1:5173'
+]
+
+# 使用 flask-cors，並允許帶憑證（若前端使用 cookies / Authorization header）
+CORS(app, resources={r"/*": {"origins": ALLOWED_ORIGINS}}, supports_credentials=True)
+
+# 回應 Private Network Access (PNA) 的預檢請求標頭
+@app.after_request
+def _allow_private_network(response):
+    # 處理 Private Network Access (PNA) 以及補強 CORS 回應
+    try:
+        origin = request.headers.get('Origin')
+        # 若 Origin 在允許清單中，則回應中回放該 Origin（不要使用 '*', 因為可能需要帶憑證）
+        if origin and origin in ALLOWED_ORIGINS:
+            response.headers['Access-Control-Allow-Origin'] = origin
+            response.headers['Vary'] = 'Origin'
+
+        # 必要的 CORS 標頭（預檢與一般回應）
+        response.headers.setdefault('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+        response.headers.setdefault('Access-Control-Allow-Headers', request.headers.get('Access-Control-Request-Headers', 'Authorization,Content-Type'))
+        # 若前端在預檢請求中包含 PNA 標頭，則在回應中加入允許標記
+        if request.headers.get('Access-Control-Request-Private-Network') == 'true':
+            response.headers['Access-Control-Allow-Private-Network'] = 'true'
+    except Exception:
+        pass
+    return response
+
+
+# 在所有路由上支援 OPTIONS 預檢回應（確保預檢能得到正確的 PNA header）
+@app.route('/', defaults={'path': ''}, methods=['OPTIONS'])
+@app.route('/<path:path>', methods=['OPTIONS'])
+def handle_options(path: str):
+    resp = jsonify({'ok': True})
+    origin = request.headers.get('Origin')
+    if origin and origin in ALLOWED_ORIGINS:
+        resp.headers['Access-Control-Allow-Origin'] = origin
+        resp.headers['Vary'] = 'Origin'
+    resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+    resp.headers['Access-Control-Allow-Headers'] = request.headers.get('Access-Control-Request-Headers', 'Authorization,Content-Type')
+    if request.headers.get('Access-Control-Request-Private-Network') == 'true':
+        resp.headers['Access-Control-Allow-Private-Network'] = 'true'
+    return resp, 200
 
 # 註冊錯誤處理器
 register_error_handlers(app)
@@ -158,46 +230,85 @@ extractor = ChartExtractor()
 # ============================================
 # Prompt 模板
 # ============================================
+def build_tarot_fallback(reading, context: str) -> str:
+    """以牌義資料建立快速解讀，避免等待 AI。"""
+    lines = []
+    lines.append("【塔羅解讀】")
+    if reading.question:
+        lines.append(f"問題：{reading.question}")
+    lines.append(f"牌陣：{reading.spread_name}")
+    lines.append("")
+    lines.append("【抽到的牌】")
+    for idx, card in enumerate(reading.cards, start=1):
+        meaning = tarot_calc.get_card_meaning(card.id, card.is_reversed, context)
+        orientation = "逆位" if card.is_reversed else "正位"
+        keywords = "、".join(meaning.get('keywords', []))
+        lines.append(f"{idx}. {card.position}：{card.name}（{orientation}）")
+        if keywords:
+            lines.append(f"   關鍵詞：{keywords}")
+        if meaning.get('meaning'):
+            lines.append(f"   牌義：{meaning.get('meaning')}")
+        if meaning.get('element'):
+            lines.append(f"   元素：{meaning.get('element')}")
+    lines.append("")
+    lines.append("【整體指引】")
+    lines.append("以上為牌義的核心提醒，建議你將焦點放在可控的選擇與行動上，透過具體決策來回應當前能量。")
+    return "\n".join(lines)
 
 SYSTEM_INSTRUCTION = """
 你是 Aetheria，精通紫微斗數的 AI 命理顧問。
 
 重要原則：
 1. 準確性最重要，不可編造星曜
-2. 晚子時（23:00-01:00）的判定邏輯要明確說明
+2. 晚子時（23:00-00:00）的判定邏輯要明確說明，且不得自作主張改規則
 3. 必須明確說出命宮位置、主星、格局
 4. 結構清晰，先說命盤結構，再說詳細分析
 
 輸出風格：專業、溫暖、具啟發性
 """
 
-INITIAL_ANALYSIS_PROMPT = """
-請為以下用戶提供完整的紫微斗數命盤分析：
+INITIAL_ANALYSIS_PROMPT = """你好，我是 Aetheria。很高興能為你解讀這張紫微鬥數命盤。
+
+請為以下用戶提供完整的紫微鬥數命盤分析：
 
 出生日期：{birth_date}
 出生時間：{birth_time}
 出生地點：{birth_location}
 性別：{gender}
 
-## ⚠️ 重要：請嚴格按照以下格式輸出
+【重要排盤邏輯：晚子時處理】
+（本次規則：{late_zi_rule_value}）
+{late_zi_logic_md}
+
+【格式要求】
+1. 使用 Markdown 格式輸出
+2. 標題層級：主要部分使用 ###，子部分使用 ####
+3. 重點使用 **粗體**
+4. 分隔線使用 ---
+5. JSON 區塊務必保留在 「### 【結構化命盤資料】」 之下
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ### 【結構化命盤資料】
-請在分析開頭輸出以下 JSON 格式的命盤結構（用 ```json 包裹）：
-
-```json
+請務必先輸出以下 JSON 格式數據，封裝在 ```json 區塊中：
 {{
-  "五行局": "水二局/木三局/金四局/土五局/火六局 擇一",
+    "排盤規則": {{
+        "晚子時換日": "{late_zi_rule_value}",
+        "晚子時區間": "23:00-00:00",
+        "排盤日期基準": "{birth_date}"
+    }},
+  "五行局": "火六局 等",
   "命宮": {{
-    "地支": "子/丑/寅/卯/辰/巳/午/未/申/酉/戌/亥 擇一",
-    "主星": ["最多2-3顆主星"],
-    "輔星": ["文昌", "文曲", "左輔", "右弼" 等，若無則空陣列"]
+    "地支": "地支",
+    "主星": ["星1", "星2"],
+    "輔星": ["輔星1"]
   }},
   "身宮": {{
     "地支": "地支",
-    "主星": ["主星"]
+    "主星": ["星1"]
   }},
   "十二宮": {{
-    "命宮": {{"地支": "X", "主星": ["星1", "星2"]}},
+    "命宮": {{"地支": "X", "主星": ["星1"]}},
     "兄弟宮": {{"地支": "X", "主星": ["星1"]}},
     "夫妻宮": {{"地支": "X", "主星": ["星1"]}},
     "子女宮": {{"地支": "X", "主星": ["星1"]}},
@@ -216,30 +327,49 @@ INITIAL_ANALYSIS_PROMPT = """
     "化科": "星名",
     "化忌": "星名"
   }},
-  "格局": ["格局名稱1", "格局名稱2"]
+  "格局": ["格局1", "格局2"]
 }}
+
+---
+
+【紫微鬥數命盤圖】
+請以下方 4x4 方格律為基準繪製 ASCII 命盤，中間四格留空或放入核心資訊（如姓名、五行局）：
+
+```text
+┌──────┬──────┬──────┬──────┐
+│  巳  │  午  │  未  │  申  │
+│      │      │      │      │
+├──────┼──────┴──────┼──────┤
+│  辰  │              │  酉  │
+│      │    中  宮    │      │
+├──────┤              ├──────┤
+│  卯  │   (基本資料)  │  戌  │
+│      │              │      │
+├──────┼──────┬──────┼──────┤
+│  寅  │  丑  │  子  │  亥  │
+│      │      │      │      │
+└──────┴──────┴──────┴──────┘
 ```
+請將主星、輔星及宮位名稱填入各對應地支格中。
 
-### 【命盤分析內容】（約1500-2000字）
+---
 
-#### 一、命盤基礎結構
-1. **時辰判定**：說明如何處理時辰（特別是晚子時的處理）
-2. **命宮主星解讀**：主星特質與影響
-3. **核心格局**：格局的意義與影響
+#### 一、命盤基礎結構：[加上具體描述，如：溫潤如玉的策劃者]
+
+1. **時辰判定與命身同宮**：說明時辰處理（如晚子時）與命身宮位置的意義。
+2. **命宮主星**：詳細解析主星特質。
+3. **核心格局**：解析如「機月同梁」等格局的社會定位。
 
 #### 二、十二宮深度解讀
-依序分析命宮、官祿宮、財帛宮、夫妻宮等重要宮位
+（依序分析重要宮位：命宮、財帛宮、官祿宮、夫妻宮、兄弟宮、遷移宮等）
 
 #### 三、性格特質與人生建議
-- 核心性格特質（至少5個關鍵詞）
-- 事業方向建議
-- 人際關係建議
-- 2026年流年提示
+1. **核心性格關鍵詞**
+2. **事業方向建議**
+3. **人際與感情建議**
+4. **2026年流年提示**
 
-**⚠️ 注意事項**：
-1. JSON 中每個宮位的主星最多只能有 2-3 顆（符合紫微斗數排盤規則）
-2. 十四主星為：紫微、天機、太陽、武曲、天同、廉貞、天府、太陰、貪狼、巨門、天相、天梁、七殺、破軍
-3. 必須確保 JSON 格式正確可解析
+Aetheria 的總結：結尾寄語。
 """
 
 CHAT_WITH_LOCKED_CHART_PROMPT = """
@@ -316,6 +446,149 @@ def parse_birth_time_str(birth_time_str: Optional[str]) -> Optional[Tuple[int, i
         return hour, minute
     return None
 
+
+_ZIWEI_LATE_ZI_EXPECTED_RULE = "日不進位"
+_ZIWEI_LATE_ZI_WINDOW = "23:00-00:00"
+_ZIWEI_RULESET_NO_DAY_ADVANCE_ID = "ziwei.late_zi.no_day_advance"
+_ZIWEI_RULESET_DAY_ADVANCE_ID = "ziwei.late_zi.day_advance"
+_ZIWEI_DEFAULT_RULESET_ID = _ZIWEI_RULESET_NO_DAY_ADVANCE_ID
+_ZIWEI_PIPELINE_VERSION = "ziwei.llm_json_extract.v1"
+_ZIWEI_LATE_ZI_DAY_ADVANCE_RE = re.compile(
+    r"(下一個\s*農曆日|視為\s*下一[個日]\s*農曆日|視為\s*(次日|隔日)|排盤\s*以\s*農曆.{0,8}24\s*日\s*計算|日期\s*進位|跳到\s*隔日|算作\s*隔日)",
+    flags=re.IGNORECASE
+)
+_ZIWEI_LATE_ZI_NO_ADVANCE_RE = re.compile(
+    r"(日不進位|不\s*進位|不\s*換日|以\s*當日\s*作為\s*排盤\s*基準)",
+    flags=re.IGNORECASE
+)
+
+
+def _normalize_ziwei_ruleset_id(value: Optional[str]) -> str:
+    """Map external/UI ruleset values to internal ruleset IDs."""
+    if not value:
+        return _ZIWEI_DEFAULT_RULESET_ID
+    text = str(value).strip().lower()
+    if text in {"no_day_advance", "no-advance", "noadvance", _ZIWEI_RULESET_NO_DAY_ADVANCE_ID.lower()}:
+        return _ZIWEI_RULESET_NO_DAY_ADVANCE_ID
+    if text in {"day_advance", "advance", "day-advance", _ZIWEI_RULESET_DAY_ADVANCE_ID.lower()}:
+        return _ZIWEI_RULESET_DAY_ADVANCE_ID
+    return _ZIWEI_DEFAULT_RULESET_ID
+
+
+def _get_ziwei_ruleset_config(ruleset_id: str) -> Dict:
+    rid = _normalize_ziwei_ruleset_id(ruleset_id)
+    if rid == _ZIWEI_RULESET_DAY_ADVANCE_ID:
+        return {
+            'ruleset_id': _ZIWEI_RULESET_DAY_ADVANCE_ID,
+            'late_zi_rule_value': '日進位',
+            'late_zi_logic_md': (
+                "若出生時間在 23:00 - 00:00 之間（晚子時），請務必遵循以下原則：\n"
+                "1. **日期進位**：晚子時視為隔日作為排盤基準（以門派規則進位）。\n"
+                "2. **時辰為子時**：時辰支為「子」。\n"
+                "3. **命身宮位置**：以進位後的排盤基準日對應的宮位排布。\n"
+            )
+        }
+    return {
+        'ruleset_id': _ZIWEI_RULESET_NO_DAY_ADVANCE_ID,
+        'late_zi_rule_value': '日不進位',
+        'late_zi_logic_md': (
+            "若出生時間在 23:00 - 00:00 之間（晚子時），請務必遵循以下原則：\n"
+            "1. **日期不進位**：以該「出生日期」當天作為排盤基準（不跳到隔日）。\n"
+            "2. **時辰為子時**：時辰支為「子」。\n"
+            "3. **命身宮位置**：以該日（晚子時）對應的宮位排布。\n"
+        )
+    }
+
+
+def _is_late_zi_time(birth_time: Optional[str]) -> bool:
+    parsed = parse_birth_time_str(birth_time)
+    if not parsed:
+        return False
+    hour, minute = parsed
+    return hour == 23 and 0 <= minute <= 59
+
+
+def _validate_ziwei_rule_consistency(
+    *,
+    birth_date: str,
+    birth_time: str,
+    structure: Dict,
+    analysis_text: str,
+    ruleset_id: str = _ZIWEI_DEFAULT_RULESET_ID
+) -> Optional[str]:
+    """Validate Ziwei late-zi-hour rule consistency.
+
+    This project adopts a single canonical rule for late-zi-hour (23:00-00:00):
+    - date does NOT advance; time branch is 子.
+    """
+    if not _is_late_zi_time(birth_time):
+        return None
+
+    effective_ruleset_id = _normalize_ziwei_ruleset_id(ruleset_id)
+    cfg = _get_ziwei_ruleset_config(effective_ruleset_id)
+    expected_rule_value = cfg.get('late_zi_rule_value')
+
+    rules = structure.get('排盤規則') if isinstance(structure, dict) else None
+    if rules is None:
+        return "晚子時規則驗證失敗：JSON 缺少『排盤規則』欄位（無法稽核換日規則）"
+    if isinstance(rules, dict):
+        rule_value = str(rules.get('晚子時換日') or '').strip()
+        base_date = str(rules.get('排盤日期基準') or '').strip()
+        window = str(rules.get('晚子時區間') or '').strip()
+        if not rule_value:
+            return "晚子時規則驗證失敗：JSON 的『排盤規則.晚子時換日』為空"
+        if effective_ruleset_id == _ZIWEI_RULESET_NO_DAY_ADVANCE_ID:
+            if rule_value != expected_rule_value:
+                return f"晚子時換日規則不一致：期望『{expected_rule_value}』，但 JSON 為『{rule_value}』"
+            if base_date and base_date != birth_date:
+                return f"排盤日期基準不一致：期望『{birth_date}』，但 JSON 為『{base_date}』"
+        elif effective_ruleset_id == _ZIWEI_RULESET_DAY_ADVANCE_ID:
+            # Allow a few common aliases for "day advance" in JSON.
+            if rule_value not in {"日進位", "隔日", "次日", "視為隔日", "視為次日"}:
+                return f"晚子時換日規則不一致：期望『日進位/隔日』類型，但 JSON 為『{rule_value}』"
+        if window and window != _ZIWEI_LATE_ZI_WINDOW:
+            return f"晚子時區間不一致：期望『{_ZIWEI_LATE_ZI_WINDOW}』，但 JSON 為『{window}』"
+
+    # Even if JSON lacks metadata, the narrative must not claim day-advance.
+    if analysis_text:
+        if effective_ruleset_id == _ZIWEI_RULESET_NO_DAY_ADVANCE_ID:
+            if _ZIWEI_LATE_ZI_DAY_ADVANCE_RE.search(analysis_text):
+                return "晚子時規則違反：文字敘述出現『隔日/下一個農曆日』等進位說法"
+        elif effective_ruleset_id == _ZIWEI_RULESET_DAY_ADVANCE_ID:
+            if _ZIWEI_LATE_ZI_NO_ADVANCE_RE.search(analysis_text):
+                return "晚子時規則違反：文字敘述出現『日不進位/不換日』等不進位說法"
+
+    return None
+
+
+def _build_ziwei_source_signature(*, birth_date: str, birth_time: str, birth_location: str, gender: str, ruleset_id: str = _ZIWEI_DEFAULT_RULESET_ID) -> str:
+    payload = {
+        'pipeline': _ZIWEI_PIPELINE_VERSION,
+        'ruleset': _normalize_ziwei_ruleset_id(ruleset_id),
+        'birth_date': birth_date,
+        'birth_time': birth_time,
+        'birth_location': birth_location,
+        'gender': gender,
+    }
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(raw.encode('utf-8')).hexdigest()
+
+
+def _build_ziwei_repair_prompt(*, original_prompt: str, rule_error: str, ruleset_id: str = _ZIWEI_DEFAULT_RULESET_ID) -> str:
+    cfg = _get_ziwei_ruleset_config(ruleset_id)
+    expected = cfg.get('late_zi_rule_value', _ZIWEI_LATE_ZI_EXPECTED_RULE)
+    return (
+        "你上一輪輸出違反了本系統的排盤規則或自我矛盾。\n"
+        f"問題：{rule_error}\n\n"
+        "請重新完整輸出一次（包含 JSON + 命盤圖 + 全文分析），並嚴格遵守：\n"
+        f"- 晚子時以 { _ZIWEI_LATE_ZI_WINDOW } 為準\n"
+        f"- 晚子時換日規則必須為『{ expected }』\n"
+        "- JSON 的『排盤規則』欄位必須存在且自洽\n"
+        + ("- 不得出現『下一個農曆日/隔日』等說法\n\n" if expected == '日不進位' else "- 不得出現『日不進位/不換日』等說法\n\n")
+        + "以下是原始需求（請依此重做，不要省略欄位）：\n\n"
+        + original_prompt
+    )
+
 def _build_user_response(user_row: Dict) -> Dict:
     """將資料庫格式轉為舊版使用者格式"""
     if not user_row:
@@ -383,14 +656,34 @@ def save_user(user_id: str, user_data: Dict):
     else:
         db.create_user(db_payload)
 
-def get_chart_lock(user_id: str) -> Optional[Dict]:
-    """取得用戶的鎖定命盤"""
-    record = db.get_chart_lock(user_id)
+def get_chart_lock(user_id: str, chart_type: str = 'ziwei') -> Optional[Dict]:
+    """取得用戶的鎖定命盤（預設：紫微）"""
+    record = db.get_chart_lock(user_id, chart_type)
     if record:
         chart_data = record.get('chart_data') or {}
         if record.get('analysis') and not chart_data.get('original_analysis'):
             chart_data['original_analysis'] = record.get('analysis')
         return chart_data
+    # 若紫微鎖盤遺失，嘗試從紫微報告回填
+    if chart_type == 'ziwei':
+        ziwei_report_wrapper = db.get_system_report(user_id, 'ziwei')
+        if ziwei_report_wrapper:
+            ziwei_report = ziwei_report_wrapper.get('report', {})
+            if ziwei_report.get('chart_structure'):
+                fallback_lock = {
+                    'user_id': user_id,
+                    'chart_type': 'ziwei',
+                    'chart_structure': ziwei_report.get('chart_structure'),
+                    'original_analysis': ziwei_report.get('analysis', ''),
+                    'confirmation_status': 'confirmed',
+                    'confirmed_at': datetime.now().isoformat(),
+                    'is_active': True
+                }
+                try:
+                    save_chart_lock(user_id, fallback_lock)
+                except Exception as e:
+                    logger.warning(f'回填鎖盤失敗: {str(e)}', user_id=user_id)
+                return fallback_lock
     # 向後相容：JSON 備援
     if LOCKS_FILE.exists():
         locks = load_json(LOCKS_FILE)
@@ -414,7 +707,8 @@ def migrate_json_to_sqlite():
         if LOCKS_FILE.exists():
             locks = load_json(LOCKS_FILE)
             for user_id, lock_data in locks.items():
-                if db.get_chart_lock(user_id) is None:
+                chart_type = (lock_data or {}).get('chart_type') or 'ziwei'
+                if db.get_chart_lock(user_id, chart_type) is None:
                     save_chart_lock(user_id, lock_data)
     except Exception as e:
         logger.warning(f'JSON 遷移到 SQLite 失敗: {str(e)}')
@@ -584,7 +878,11 @@ def log_response_info(response):
 # Gemini API 呼叫
 # ============================================
 
-def call_gemini(prompt: str, system_instruction: str = SYSTEM_INSTRUCTION) -> str:
+def call_gemini(
+    prompt: str,
+    system_instruction: str = SYSTEM_INSTRUCTION,
+    max_output_tokens: Optional[int] = None
+) -> str:
     """
     呼叫 Gemini API（使用新的 google.genai SDK）
     
@@ -602,7 +900,7 @@ def call_gemini(prompt: str, system_instruction: str = SYSTEM_INSTRUCTION) -> st
     full_prompt = f"{system_instruction}\n\n{prompt}"
     
     try:
-        response_text = gemini_client.generate(full_prompt)
+        response_text = gemini_client.generate(full_prompt, max_output_tokens=max_output_tokens)
         
         # 檢查回應是否有效
         if response_text is None:
@@ -1275,6 +1573,9 @@ def initial_analysis():
     logger.log_api_request('/api/chart/initial-analysis', 'POST', user_id=user_id)
     
     try:
+        requested_ruleset_id = _normalize_ziwei_ruleset_id(data.get('ziwei_ruleset'))
+        ruleset_cfg = _get_ziwei_ruleset_config(requested_ruleset_id)
+
         # 儲存用戶基本資料
         user_data = {
             'user_id': user_id,
@@ -1291,26 +1592,69 @@ def initial_analysis():
             birth_date=data['birth_date'],
             birth_time=data['birth_time'],
             birth_location=data['birth_location'],
-            gender=data['gender']
+            gender=data['gender'],
+            late_zi_rule_value=ruleset_cfg['late_zi_rule_value'],
+            late_zi_logic_md=ruleset_cfg['late_zi_logic_md']
         )
         
         # 呼叫 Gemini
         logger.info(f'正在為用戶 {user_id} 生成命盤...', user_id=user_id)
         analysis = call_gemini(prompt)
-        
+
         # 提取結構
         structure = extractor.extract_full_structure(analysis)
-        
+
         # 驗證結構
         is_valid, errors = extractor.validate_structure(structure)
         if not is_valid:
             logger.warning(f'命盤結構提取不完整', user_id=user_id, errors=errors)
 
+        # 規則一致性驗證（治本：禁止晚子時規則漂移）
+        rule_error = _validate_ziwei_rule_consistency(
+            birth_date=data['birth_date'],
+            birth_time=data['birth_time'],
+            structure=structure,
+            analysis_text=analysis,
+            ruleset_id=requested_ruleset_id
+        )
+        if rule_error:
+            logger.warning('紫微排盤規則不一致，嘗試修復重算一次', user_id=user_id, rule_error=rule_error)
+            repair_prompt = _build_ziwei_repair_prompt(original_prompt=prompt, rule_error=rule_error, ruleset_id=requested_ruleset_id)
+            analysis = call_gemini(repair_prompt)
+            structure = extractor.extract_full_structure(analysis)
+            is_valid, errors = extractor.validate_structure(structure)
+            rule_error = _validate_ziwei_rule_consistency(
+                birth_date=data['birth_date'],
+                birth_time=data['birth_time'],
+                structure=structure,
+                analysis_text=analysis,
+                ruleset_id=requested_ruleset_id
+            )
+            if rule_error:
+                errors = (errors or []) + [f'規則驗證失敗：{rule_error}']
+                logger.warning('紫微排盤規則修復後仍不一致', user_id=user_id, rule_error=rule_error)
+
         # 暫存到資料庫（待確認）
+        source_signature = _build_ziwei_source_signature(
+            birth_date=data['birth_date'],
+            birth_time=data['birth_time'],
+            birth_location=data['birth_location'],
+            gender=data['gender'],
+            ruleset_id=requested_ruleset_id
+        )
         temp_lock = {
             'user_id': user_id,
+            'chart_type': 'ziwei',
             'chart_structure': structure,
             'original_analysis': analysis,
+            'provenance': {
+                'ruleset': requested_ruleset_id,
+                'pipeline': _ZIWEI_PIPELINE_VERSION,
+                'source_signature': source_signature,
+                'model_name': getattr(gemini_client, 'model_name', None),
+                'temperature': getattr(gemini_client, 'default_config', {}).get('temperature') if hasattr(gemini_client, 'default_config') else None,
+            },
+            'source_signature': source_signature,
             'confirmation_status': 'pending',
             'created_at': datetime.now().isoformat(),
             'is_active': False
@@ -1392,6 +1736,8 @@ def save_profile_and_analyze():
     birth_date = data.get('birth_date', '')  # 格式: YYYY-MM-DD
     birth_time = data.get('birth_time', '')  # 格式: HH:MM
     birth_location = data.get('birth_location', '')
+    force_regenerate = data.get('force_regenerate', False)  # 是否強制重新生成
+    requested_ziwei_ruleset_id = _normalize_ziwei_ruleset_id(data.get('ziwei_ruleset'))
     
     # 決定可用的系統
     available_systems = ['tarot']  # 塔羅永遠可用
@@ -1403,6 +1749,11 @@ def save_profile_and_analyze():
         available_systems.extend(['bazi', 'ziwei'])
     if birth_date and birth_time and birth_location:
         available_systems.append('astrology')
+
+    # 若指定目標系統，則只生成指定範圍
+    requested_systems = data.get('target_systems') or data.get('available_systems')
+    if isinstance(requested_systems, list) and requested_systems:
+        available_systems = [s for s in available_systems if s in requested_systems]
     
     # 儲存用戶資料
     user_data = {
@@ -1416,6 +1767,26 @@ def save_profile_and_analyze():
     }
     save_user(user_id, user_data)
     
+    # 強制重生：先清空舊報告與鎖盤
+    if force_regenerate:
+        try:
+            db.delete_system_reports(user_id)
+        except Exception as e:
+            logger.warning(f'清除舊報告失敗: {str(e)}', user_id=user_id)
+        try:
+            db.delete_chart_lock(user_id)
+        except Exception as e:
+            logger.warning(f'清除鎖盤失敗: {str(e)}', user_id=user_id)
+        # 兼容舊 JSON 鎖盤
+        try:
+            if LOCKS_FILE.exists():
+                locks = load_json(LOCKS_FILE)
+                if user_id in locks:
+                    del locks[user_id]
+                    LOCKS_FILE.write_text(json.dumps(locks, ensure_ascii=False, indent=2), encoding='utf-8')
+        except Exception as e:
+            logger.warning(f'清除 JSON 鎖盤失敗: {str(e)}', user_id=user_id)
+
     # 批次生成報告
     reports_generated = {}
     generation_errors = {}
@@ -1440,142 +1811,253 @@ def save_profile_and_analyze():
     
     try:
         # 1. 姓名學
-        if 'name' in available_systems and chinese_name:
+        # === 並行生成報告優化 ===
+        def run_name_calc():
             try:
-                logger.info(f'生成姓名學報告...', user_id=user_id)
-                # 使用 NameCalculator 進行分析
+                if 'name' not in available_systems or not chinese_name: return ('name', False, None, False)
+                
+                # Check cache (thread-safe read)
+                existing = db.get_system_report(user_id, 'name')
+                if existing and not force_regenerate:
+                    logger.info('姓名學報告已存在，跳過生成', user_id=user_id)
+                    return ('name', True, None, True)
+                
+                logger.info('生成姓名學報告(Thread)...', user_id=user_id)
                 name_analysis_obj = name_calc.analyze(chinese_name)
                 name_result = name_calc.to_dict(name_analysis_obj)
-                # 生成 Prompt
                 prompts = generate_name_prompt(name_analysis_obj, 'basic')
                 full_prompt = f"{prompts['system_prompt']}\n\n{prompts['user_prompt']}"
-                name_interpretation = call_gemini(full_prompt)
-                db.save_system_report(user_id, 'name', {
+                name_interpretation = sanitize_plain_text(call_gemini(full_prompt))
+                
+                return ('name', True, {
                     'chinese_name': chinese_name,
                     'gender': gender,
                     'five_grids': name_result,
                     'analysis': name_interpretation
-                })
-                reports_generated['name'] = True
+                }, False)
             except Exception as e:
-                logger.error(f'姓名學報告生成失敗: {e}', user_id=user_id)
-                generation_errors['name'] = str(e)
-                reports_generated['name'] = False
-        
-        # 2. 靈數學
-        if 'numerology' in available_systems and birth_date and birth_year:
+                return ('name', False, str(e), False)
+
+        def run_numerology_calc():
             try:
-                logger.info(f'生成靈數學報告...', user_id=user_id)
+                if 'numerology' not in available_systems or not (birth_date and birth_year): return ('numerology', False, None, False)
+                existing = db.get_system_report(user_id, 'numerology')
+                if existing and not force_regenerate:
+                    logger.info('靈數學報告已存在，跳過生成', user_id=user_id)
+                    return ('numerology', True, None, True)
+                
+                logger.info('生成靈數學報告(Thread)...', user_id=user_id)
                 from datetime import date as date_type
                 bd = date_type(birth_year, birth_month, birth_day)
-                # 計算靈數檔案
                 profile = numerology_calc.calculate_full_profile(bd, chinese_name or '')
-                # 生成 Prompt
                 prompts = generate_numerology_prompt(profile, numerology_calc, 'full', 'general')
                 full_prompt = f"{prompts['system_prompt']}\n\n{prompts['user_prompt']}"
-                numerology_interpretation = call_gemini(full_prompt)
-                # 組合結果
+                numerology_interpretation = sanitize_plain_text(call_gemini(full_prompt))
                 numerology_result = numerology_calc.to_dict(profile)
-                db.save_system_report(user_id, 'numerology', {
+                
+                return ('numerology', True, {
                     'birth_date': birth_date,
                     'name': chinese_name,
                     'profile': numerology_result,
                     'analysis': numerology_interpretation
-                })
-                reports_generated['numerology'] = True
+                }, False)
             except Exception as e:
-                logger.error(f'靈數學報告生成失敗: {e}', user_id=user_id)
-                generation_errors['numerology'] = str(e)
-                reports_generated['numerology'] = False
-        
-        # 3. 八字命理
-        if 'bazi' in available_systems and birth_date and birth_time and birth_year:
+                return ('numerology', False, str(e), False)
+
+        def run_bazi_calc():
             try:
-                logger.info(f'生成八字報告...', user_id=user_id)
-                # 使用 BaziCalculator 計算八字
-                bazi_calc = BaziCalculator()
+                if 'bazi' not in available_systems or not (birth_date and birth_time and birth_year): return ('bazi', False, None, False)
+                existing = db.get_system_report(user_id, 'bazi')
+                if existing and not force_regenerate:
+                    logger.info('八字報告已存在，跳過生成', user_id=user_id)
+                    return ('bazi', True, None, True)
+                
+                logger.info('生成八字報告(Thread)...', user_id=user_id)
+                bazi_calculator = BaziCalculator()
                 gender_normalized = normalize_gender(gender)
-                bazi_result = bazi_calc.calculate_bazi(
-                    year=birth_year,
-                    month=birth_month,
-                    day=birth_day,
-                    hour=birth_hour,
-                    minute=birth_minute,
-                    gender=gender_normalized
-                )
-                # 生成分析 Prompt
-                bazi_prompt = format_bazi_analysis_prompt(
-                    bazi_result=bazi_result,
-                    gender=gender_normalized,
-                    birth_year=birth_year,
-                    birth_month=birth_month,
-                    birth_day=birth_day,
-                    birth_hour=birth_hour
-                )
-                bazi_analysis = call_gemini(bazi_prompt)
-                db.save_system_report(user_id, 'bazi', {
+                bazi_result = bazi_calculator.calculate_bazi(birth_year, birth_month, birth_day, birth_hour, birth_minute, gender_normalized)
+                bazi_prompt = format_bazi_analysis_prompt(bazi_result, gender_normalized, birth_year, birth_month, birth_day, birth_hour)
+                bazi_analysis = sanitize_plain_text(call_gemini(bazi_prompt))
+                
+                return ('bazi', True, {
                     'birth_date': birth_date,
                     'birth_time': birth_time,
                     'gender': gender,
                     'bazi_chart': bazi_result,
                     'analysis': bazi_analysis
-                })
-                reports_generated['bazi'] = True
+                }, False)
             except Exception as e:
-                logger.error(f'八字報告生成失敗: {e}', user_id=user_id)
-                generation_errors['bazi'] = str(e)
-                reports_generated['bazi'] = False
-        
-        # 4. 紫微斗數（使用 initial_analysis 邏輯）
-        if 'ziwei' in available_systems and birth_date and birth_time:
+                return ('bazi', False, str(e), False)
+
+        def run_ziwei_calc():
             try:
-                logger.info(f'生成紫微斗數報告...', user_id=user_id)
+                if 'ziwei' not in available_systems or not (birth_date and birth_time): return ('ziwei', False, None, False)
+                existing = db.get_system_report(user_id, 'ziwei')
+                if existing and not force_regenerate:
+                    logger.info('紫微斗數報告已存在，跳過生成', user_id=user_id)
+                    return ('ziwei', True, None, True)
+
+                # Lock-first: if we already have a confirmed Ziwei chart, reuse it to avoid drift.
+                lock = get_chart_lock(user_id, 'ziwei')
+                if lock and lock.get('chart_structure') and not force_regenerate:
+                    logger.info('使用已鎖定紫微命盤生成報告（避免重新排盤漂移）', user_id=user_id)
+                    lock_ruleset_id = None
+                    try:
+                        lock_ruleset_id = (lock.get('provenance') or {}).get('ruleset')
+                    except Exception:
+                        lock_ruleset_id = None
+                    effective_ruleset_id = _normalize_ziwei_ruleset_id(lock_ruleset_id) if lock_ruleset_id else requested_ziwei_ruleset_id
+
+                    # 重要：不要直接沿用舊 raw 分析（可能含「晚子時進位」等歷史漂移敘事），
+                    # 一律以鎖定盤面重新解讀，確保後續輸出不再自相矛盾。
+                    structure = lock.get('chart_structure') or {}
+                    life_palace = structure.get('命宮', {}) if isinstance(structure, dict) else {}
+                    main_stars = life_palace.get('主星') or []
+                    main_stars_text = ', '.join(main_stars) if main_stars else '未提及'
+                    life_palace_pos = life_palace.get('宮位', '未提及')
+                    pattern_text = ', '.join(structure.get('格局', []) or []) if isinstance(structure, dict) else ''
+                    pattern_text = pattern_text or '未提及'
+                    five_elements = structure.get('五行局', '未提及') if isinstance(structure, dict) else '未提及'
+
+                    structure_text = f"""
+命宮：{main_stars_text} ({life_palace_pos}宮)
+格局：{pattern_text}
+五行局：{five_elements}
+
+十二宮配置：
+"""
+                    for palace, info in (structure.get('十二宮', {}) or {}).items() if isinstance(structure, dict) else []:
+                        stars = ', '.join(info.get('主星') or []) if info else '空宮'
+                        palace_pos = info.get('宮位') if info else None
+                        palace_pos_text = palace_pos if palace_pos else '未提及'
+                        structure_text += f"- {palace} ({palace_pos_text}宮): {stars}\n"
+
+                    ruleset_cfg = _get_ziwei_ruleset_config(effective_ruleset_id)
+                    interpretation_prompt = (
+                        "你是 Aetheria，精通紫微斗數的 AI 命理顧問。\n\n"
+                        "【語言要求】全文僅使用台灣繁體中文（zh-TW）。\n\n"
+                        "【重要規則】\n"
+                        f"- 本次晚子時換日規則：{ruleset_cfg['late_zi_rule_value']}\n"
+                        "- 嚴禁重新排盤、嚴禁改動宮位/星曜配置、嚴禁提出『兩種規則都可能』\n\n"
+                        "【已鎖定的命盤結構】\n"
+                        f"{structure_text}\n\n"
+                        "【輸出要求】\n"
+                        "請輸出一份完整的紫微斗數解讀報告（Markdown），至少包含：\n"
+                        "### 一、命盤基礎結構\n"
+                        "### 二、十二宮重點（命/財/官/遷/夫妻）\n"
+                        "### 三、性格與決策風格\n"
+                        "### 四、事業與財務策略\n"
+                        "### 五、關係/婚姻互動建議\n"
+                        "最後以 3 條可執行建議收束。\n"
+                    )
+
+                    locked_analysis = ''
+                    try:
+                        locked_analysis = sanitize_plain_text(call_gemini(interpretation_prompt))
+                    except Exception as e:
+                        logger.warning(f'鎖定盤面解讀失敗，回退使用舊分析摘要: {str(e)}', user_id=user_id)
+                        locked_raw = lock.get('original_analysis') or ''
+                        locked_analysis = sanitize_plain_text(strip_first_json_block(locked_raw)) if locked_raw else ''
+
+                    return ('ziwei', True, {
+                        'birth_date': birth_date,
+                        'birth_time': birth_time,
+                        'birth_location': birth_location,
+                        'gender': gender,
+                        'chart_structure': structure,
+                        'analysis': locked_analysis,
+                        'original_analysis': lock.get('original_analysis') or '',
+                        'provenance': {
+                            **(lock.get('provenance') or {}),
+                            'effective_ruleset': effective_ruleset_id,
+                            'requested_ruleset': requested_ziwei_ruleset_id,
+                        },
+                        'source_signature': lock.get('source_signature'),
+                    }, False)
+                
+                logger.info('生成紫微斗數報告(Thread)...', user_id=user_id)
+                ruleset_cfg = _get_ziwei_ruleset_config(requested_ziwei_ruleset_id)
                 ziwei_prompt = INITIAL_ANALYSIS_PROMPT.format(
                     birth_date=birth_date,
                     birth_time=birth_time,
                     birth_location=birth_location or '台灣',
-                    gender=gender
+                    gender=gender,
+                    late_zi_rule_value=ruleset_cfg['late_zi_rule_value'],
+                    late_zi_logic_md=ruleset_cfg['late_zi_logic_md']
                 )
-                ziwei_analysis = call_gemini(ziwei_prompt)
+                raw_ziwei_analysis = call_gemini(ziwei_prompt)
+                if not raw_ziwei_analysis: raise ValueError("Gemini API 未返回有效內容")
+
+                structure = extractor.extract_full_structure(raw_ziwei_analysis)
+
+                # 規則一致性驗證（治本：禁止晚子時規則漂移）
+                rule_error = _validate_ziwei_rule_consistency(
+                    birth_date=birth_date,
+                    birth_time=birth_time,
+                    structure=structure,
+                    analysis_text=raw_ziwei_analysis,
+                    ruleset_id=requested_ziwei_ruleset_id
+                )
+                if rule_error:
+                    logger.warning('紫微排盤規則不一致，嘗試修復重算一次', user_id=user_id, rule_error=rule_error)
+                    repair_prompt = _build_ziwei_repair_prompt(original_prompt=ziwei_prompt, rule_error=rule_error, ruleset_id=requested_ziwei_ruleset_id)
+                    raw_ziwei_analysis = call_gemini(repair_prompt)
+                    if not raw_ziwei_analysis:
+                        raise ValueError('Gemini API 修復重算未返回有效內容')
+                    structure = extractor.extract_full_structure(raw_ziwei_analysis)
+                    rule_error = _validate_ziwei_rule_consistency(
+                        birth_date=birth_date,
+                        birth_time=birth_time,
+                        structure=structure,
+                        analysis_text=raw_ziwei_analysis,
+                        ruleset_id=requested_ziwei_ruleset_id
+                    )
+                    if rule_error:
+                        logger.warning('紫微排盤規則修復後仍不一致（仍保存，但標記 provenance.errors）', user_id=user_id, rule_error=rule_error)
+
+                ziwei_analysis = sanitize_plain_text(strip_first_json_block(raw_ziwei_analysis))
+
+                source_signature = _build_ziwei_source_signature(
+                    birth_date=birth_date,
+                    birth_time=birth_time,
+                    birth_location=birth_location or '台灣',
+                    gender=gender,
+                    ruleset_id=requested_ziwei_ruleset_id
+                )
+                provenance = {
+                    'ruleset': requested_ziwei_ruleset_id,
+                    'pipeline': _ZIWEI_PIPELINE_VERSION,
+                    'source_signature': source_signature,
+                    'model_name': getattr(gemini_client, 'model_name', None),
+                    'temperature': getattr(gemini_client, 'default_config', {}).get('temperature') if hasattr(gemini_client, 'default_config') else None,
+                }
+                if rule_error:
+                    provenance['errors'] = [f'規則驗證失敗：{rule_error}']
                 
-                # 檢查 API 返回是否有效
-                if not ziwei_analysis:
-                    raise ValueError("Gemini API 未返回有效內容")
-                
-                structure = extractor.extract_full_structure(ziwei_analysis)
-                
-                db.save_system_report(user_id, 'ziwei', {
+                return ('ziwei', True, {
                     'birth_date': birth_date,
                     'birth_time': birth_time,
                     'birth_location': birth_location,
                     'gender': gender,
                     'chart_structure': structure,
-                    'analysis': ziwei_analysis
-                })
-                reports_generated['ziwei'] = True
-                
-                # 同時更新 chart_locks（保持相容性）
-                chart_lock = {
-                    'user_id': user_id,
-                    'chart_structure': structure,
-                    'original_analysis': ziwei_analysis,
-                    'confirmation_status': 'confirmed',
-                    'confirmed_at': datetime.now().isoformat(),
-                    'is_active': True
-                }
-                save_chart_lock(user_id, chart_lock)
-                
+                    'analysis': ziwei_analysis,
+                    'original_analysis': raw_ziwei_analysis,
+                    'provenance': provenance,
+                    'source_signature': source_signature,
+                }, False)
             except Exception as e:
-                logger.error(f'紫微斗數報告生成失敗: {e}', user_id=user_id)
-                generation_errors['ziwei'] = str(e)
-                reports_generated['ziwei'] = False
-        
-        # 5. 西洋占星
-        if 'astrology' in available_systems and birth_date and birth_time and birth_location and birth_year:
+                return ('ziwei', False, str(e), False)
+
+        def run_astrology_calc():
             try:
-                logger.info(f'生成占星報告...', user_id=user_id)
+                if 'astrology' not in available_systems or not (birth_date and birth_time and birth_location and birth_year): return ('astrology', False, None, False)
+                existing = db.get_system_report(user_id, 'astrology')
+                if existing and not force_regenerate:
+                    logger.info('占星報告已存在，跳過生成', user_id=user_id)
+                    return ('astrology', True, None, True)
                 
-                # 台灣城市座標對照表
+                logger.info('生成占星報告(Thread)...', user_id=user_id)
+                
                 taiwan_cities = {
                     '台北': (25.0330, 121.5654), '台北市': (25.0330, 121.5654),
                     '新北': (25.0169, 121.4628), '新北市': (25.0169, 121.4628),
@@ -1599,7 +2081,6 @@ def save_profile_and_analyze():
                     '連江': (26.1505, 119.9499), '連江縣': (26.1505, 119.9499), '馬祖': (26.1505, 119.9499),
                 }
                 
-                # 解析地點，提取經緯度
                 lat, lng = None, None
                 city_name = birth_location.replace('台灣', '').replace('臺灣', '').strip()
                 
@@ -1608,56 +2089,177 @@ def save_profile_and_analyze():
                         lat, lng = city_lat, city_lng
                         break
                 
-                # 預設使用台北座標
                 if lat is None:
                     lat, lng = 25.0330, 121.5654
                     logger.info(f'無法識別地點 "{birth_location}"，使用台北座標', user_id=user_id)
                 
-                # 計算本命盤（使用經緯度）
                 natal_chart = astrology_calc.calculate_natal_chart(
-                    name=chinese_name or '用戶',
-                    year=birth_year,
-                    month=birth_month,
-                    day=birth_day,
-                    hour=birth_hour,
-                    minute=birth_minute,
-                    city="Taiwan",
-                    longitude=lng,
-                    latitude=lat,
-                    timezone_str="Asia/Taipei"
+                    name=chinese_name or '用戶', year=birth_year, month=birth_month, day=birth_day,
+                    hour=birth_hour, minute=birth_minute, city="Taiwan", longitude=lng, latitude=lat, timezone_str="Asia/Taipei"
                 )
-                # 格式化為文本
                 chart_text = astrology_calc.format_for_gemini(natal_chart)
-                # 生成分析
                 astrology_prompt = get_natal_chart_analysis_prompt(chart_text)
                 system_instruction = "你是專精西洋占星術的命理分析師，遵循「有所本」原則，所有解釋必須引用占星學經典理論。輸出必須使用繁體中文（台灣用語）。"
                 full_prompt = f"{system_instruction}\n\n{astrology_prompt}"
-                astrology_analysis = call_gemini(full_prompt, "")
-                db.save_system_report(user_id, 'astrology', {
+                astrology_analysis = sanitize_plain_text(call_gemini(full_prompt, ""))
+                
+                return ('astrology', True, {
                     'birth_date': birth_date,
                     'birth_time': birth_time,
                     'birth_location': birth_location,
                     'coordinates': {'latitude': lat, 'longitude': lng},
                     'natal_chart': natal_chart,
                     'analysis': astrology_analysis
-                })
-                reports_generated['astrology'] = True
+                }, False)
             except Exception as e:
-                logger.error(f'占星報告生成失敗: {e}', user_id=user_id)
-                generation_errors['astrology'] = str(e)
-                reports_generated['astrology'] = False
+                return ('astrology', False, str(e), False)
+
+        timed_out = False
+        overall_timeout_seconds = int(os.getenv('SAVE_AND_ANALYZE_TIMEOUT_SECONDS', '180'))
+
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            future_to_sys = {}
+            if 'name' in available_systems:
+                future_to_sys[executor.submit(run_name_calc)] = 'name'
+            if 'numerology' in available_systems:
+                future_to_sys[executor.submit(run_numerology_calc)] = 'numerology'
+            if 'bazi' in available_systems:
+                future_to_sys[executor.submit(run_bazi_calc)] = 'bazi'
+            if 'ziwei' in available_systems:
+                future_to_sys[executor.submit(run_ziwei_calc)] = 'ziwei'
+            if 'astrology' in available_systems:
+                future_to_sys[executor.submit(run_astrology_calc)] = 'astrology'
+
+            futures = list(future_to_sys.keys())
+
+            try:
+                for future in as_completed(futures, timeout=overall_timeout_seconds):
+                    try:
+                        res = future.result()
+                        if not res:
+                            continue
+                        sys_name, success, data, is_skip = res
+
+                        if success:
+                            reports_generated[sys_name] = True
+                            if is_skip:
+                                continue
+
+                            db.save_system_report(user_id, sys_name, data)
+
+                            if sys_name == 'ziwei':
+                                chart_lock = {
+                                    'user_id': user_id,
+                                    'chart_type': 'ziwei',
+                                    'chart_structure': data.get('chart_structure'),
+                                    # Keep raw analysis for auditability; the report stores cleaned analysis.
+                                    'original_analysis': data.get('original_analysis') or data.get('analysis'),
+                                    'provenance': data.get('provenance'),
+                                    'source_signature': data.get('source_signature'),
+                                    'confirmation_status': 'confirmed',
+                                    'confirmed_at': datetime.now().isoformat(),
+                                    'is_active': True
+                                }
+                                save_chart_lock(user_id, chart_lock)
+                        else:
+                            logger.error(f'{sys_name} 報告生成失敗: {data}', user_id=user_id)
+                            generation_errors[sys_name] = str(data)
+                            reports_generated[sys_name] = False
+                    except Exception as e:
+                        sys_name = future_to_sys.get(future, 'unknown')
+                        logger.error(f'{sys_name} 執行緒錯誤: {e}', user_id=user_id)
+                        generation_errors[sys_name] = str(e)
+                        reports_generated[sys_name] = False
+            except FuturesTimeoutError:
+                timed_out = True
+                pending = [f for f in futures if not f.done()]
+                for f in pending:
+                    sys_name = future_to_sys.get(f, 'unknown')
+                    generation_errors[sys_name] = f'系統生成逾時（>{overall_timeout_seconds}s）'
+                    reports_generated[sys_name] = False
+                    try:
+                        f.cancel()
+                    except Exception:
+                        pass
         
         duration_ms = (time.time() - start_time) * 1000
         logger.log_api_response('/api/profile/save-and-analyze', 200, duration_ms)
         
-        return jsonify({
-            'status': 'success',
+        # 回傳各系統的結構化數據給前端顯示
+        response_data = {
+            'status': 'partial' if (timed_out or generation_errors) else 'success',
             'profile_saved': True,
             'reports_generated': reports_generated,
             'generation_errors': generation_errors if generation_errors else None,
             'available_systems': available_systems,
             'total_time_seconds': round(duration_ms / 1000, 1)
-        })
+        }
+        
+        # 附加各系統的關鍵數據（供步驟5顯示）
+        # 注意：db.get_system_report 返回 {'report': data, 'created_at': ..., 'updated_at': ...}
+        
+        # 紫微斗數
+        if reports_generated.get('ziwei'):
+            ziwei_report_wrapper = db.get_system_report(user_id, 'ziwei')
+            if ziwei_report_wrapper:
+                ziwei_report = ziwei_report_wrapper.get('report', {})
+                if ziwei_report.get('chart_structure'):
+                    response_data['ziwei_structure'] = ziwei_report['chart_structure']
+        
+        # 八字命理
+        if reports_generated.get('bazi'):
+            bazi_report_wrapper = db.get_system_report(user_id, 'bazi')
+            if bazi_report_wrapper:
+                bazi_report = bazi_report_wrapper.get('report', {})
+                if bazi_report.get('bazi_chart'):
+                    response_data['bazi_chart'] = bazi_report['bazi_chart']
+        
+        # 靈數學
+        if reports_generated.get('numerology'):
+            numerology_report_wrapper = db.get_system_report(user_id, 'numerology')
+            if numerology_report_wrapper:
+                numerology_report = numerology_report_wrapper.get('report', {})
+                if numerology_report.get('profile'):
+                    response_data['numerology_profile'] = numerology_report['profile']
+        
+        # 姓名學
+        if reports_generated.get('name'):
+            name_report_wrapper = db.get_system_report(user_id, 'name')
+            if name_report_wrapper:
+                name_report = name_report_wrapper.get('report', {})
+                five_grids_obj = name_report.get('five_grids')
+                total_strokes = None
+                try:
+                    if isinstance(five_grids_obj, dict):
+                        total_strokes = (five_grids_obj.get('name_info') or {}).get('total_strokes')
+                except Exception:
+                    total_strokes = None
+
+                response_data['name_result'] = {
+                    'name': name_report.get('chinese_name'),
+                    'five_grids': name_report.get('five_grids'),
+                    'total_strokes': total_strokes
+                }
+        
+        # 西洋占星
+        if reports_generated.get('astrology'):
+            astrology_report_wrapper = db.get_system_report(user_id, 'astrology')
+            if astrology_report_wrapper:
+                astrology_report = astrology_report_wrapper.get('report', {})
+                if astrology_report.get('natal_chart'):
+                    nc = astrology_report['natal_chart']
+                    planets = nc.get('planets', {}) if isinstance(nc, dict) else {}
+                    sun = planets.get('sun', {}) if isinstance(planets, dict) else {}
+                    moon = planets.get('moon', {}) if isinstance(planets, dict) else {}
+                    asc = planets.get('ascendant', {}) if isinstance(planets, dict) else {}
+                    response_data['astrology_chart'] = {
+                        # Prefer zh labels if available, else fall back to sign abbreviations.
+                        'sun_sign': sun.get('sign_zh') or sun.get('sign'),
+                        'moon_sign': moon.get('sign_zh') or moon.get('sign'),
+                        'ascendant': asc.get('sign_zh') or asc.get('sign')
+                    }
+        
+        return jsonify(response_data)
         
     except Exception as e:
         logger.error(f'批次生成報告失敗: {str(e)}', user_id=user_id)
@@ -1668,6 +2270,66 @@ def save_profile_and_analyze():
             'generation_errors': generation_errors,
             'error': str(e)
         }), 500
+
+
+@app.route('/api/profile/clear-reports', methods=['POST'])
+def clear_reports_only():
+    """清空六大系統內容（不重新生成、不呼叫 LLM）。
+
+    預設會刪除：system_reports、fortune_profile 快取。
+    若傳入 clear_chart_lock=true，才會額外刪除命盤鎖定（chart_lock）。
+    """
+    data = request.get_json(silent=True) or {}
+    user_id = data.get('user_id')
+    if not user_id:
+        raise MissingParameterException('user_id')
+
+    logger.log_api_request('/api/profile/clear-reports', 'POST', user_id=user_id)
+
+    clear_chart_lock = bool(data.get('clear_chart_lock', False))
+
+    deleted_reports = False
+    deleted_chart_lock = False
+    deleted_fortune_profile = False
+    deleted_json_lock = False
+
+    try:
+        deleted_reports = bool(db.delete_system_reports(user_id))
+    except Exception as e:
+        logger.warning(f'清除舊報告失敗: {str(e)}', user_id=user_id)
+
+    if clear_chart_lock:
+        try:
+            deleted_chart_lock = bool(db.delete_chart_lock(user_id))
+        except Exception as e:
+            logger.warning(f'清除鎖盤失敗: {str(e)}', user_id=user_id)
+
+    try:
+        deleted_fortune_profile = bool(db.delete_fortune_profile(user_id))
+    except Exception as e:
+        logger.warning(f'清除 fortune profile 失敗: {str(e)}', user_id=user_id)
+
+    # 兼容舊 JSON 鎖盤（只有在指定清除鎖盤時才處理）
+    if clear_chart_lock:
+        try:
+            if LOCKS_FILE.exists():
+                locks = load_json(LOCKS_FILE)
+                if user_id in locks:
+                    del locks[user_id]
+                    LOCKS_FILE.write_text(json.dumps(locks, ensure_ascii=False, indent=2), encoding='utf-8')
+                    deleted_json_lock = True
+        except Exception as e:
+            logger.warning(f'清除 JSON 鎖盤失敗: {str(e)}', user_id=user_id)
+
+    return jsonify({
+        'status': 'success',
+        'user_id': user_id,
+        'deleted_reports': deleted_reports,
+        'deleted_chart_lock': deleted_chart_lock,
+        'deleted_fortune_profile': deleted_fortune_profile,
+        'deleted_json_lock': deleted_json_lock,
+        'clear_chart_lock': clear_chart_lock,
+    })
 
 
 @app.route('/api/reports/get', methods=['GET'])
@@ -1897,8 +2559,31 @@ def chat_consult():
     # Persist user message first
     db.add_chat_message(session_id, 'user', message, payload=None)
 
-    raw = call_gemini(prompt, consult_system)
+    # 呼叫 Gemini API 並處理可能的錯誤
+    raw = None
+    try:
+        raw = call_gemini(prompt, consult_system)
+        logger.info(f"Gemini 回覆長度: {len(raw) if raw else 0}")
+    except Exception as e:
+        logger.error(f"Gemini API 呼叫失敗: {e}")
+        # 返回友善的錯誤訊息而不是拋出異常
+        return jsonify({
+            'status': 'success',
+            'session_id': session_id,
+            'reply': f'抱歉，AI 暫時無法回應，請稍後再試。（錯誤：{str(e)[:50]}）',
+            'citations': [],
+            'used_systems': [],
+            'confidence': 0.1,
+            'next_steps': ['請稍後重試'],
+            'available_systems': []
+        })
+    
+    raw = sanitize_plain_text(raw)
     parsed = parse_json_object(raw)
+    
+    # 記錄解析結果
+    if parsed is None:
+        logger.warning(f"JSON 解析失敗，原始回覆: {raw[:200] if raw else 'None'}")
 
     reply = None
     used_fact_ids: List[str] = []
@@ -2181,6 +2866,169 @@ def chat_message():
     except Exception as e:
         logger.error(f'對話失敗: {str(e)}', user_id=user_id if 'user_id' in dir() else None)
         return jsonify({'error': str(e)}), 500
+
+
+# =====================================================================
+# OpenAI Realtime Voice API
+# =====================================================================
+
+@app.route('/api/voice/session', methods=['POST'])
+def create_voice_session():
+    """建立 OpenAI Realtime WebRTC 語音會話。
+    
+    Request:
+      {
+        "sdp": "...",           # WebRTC SDP offer
+        "voice": "alloy",       # 可選: alloy, ash, ballad, coral, echo, sage, shimmer, verse
+        "instructions": "..."   # 可選: 系統指令
+      }
+    
+    Response:
+      {"sdp": "..."}  # WebRTC SDP answer
+    """
+    import requests as http_requests
+    
+    user_id = require_auth_user_id()
+    data = request.json or {}
+    # 注意：不要 strip() SDP，因為 SDP 末尾的 \r\n 是必要的
+    sdp = data.get('sdp') or ''
+    voice = data.get('voice', 'alloy')
+    instructions = data.get('instructions', '')
+    
+    # 除錯：顯示原始 SDP
+    logger.info(f'原始 SDP 長度: {len(sdp)}, 末尾 20 字元: {repr(sdp[-20:]) if len(sdp) > 20 else repr(sdp)}')
+    
+    if not sdp:
+        raise MissingParameterException('sdp')
+    
+    openai_api_key = os.getenv('OPENAI_API_KEY')
+    if not openai_api_key:
+        logger.error('OPENAI_API_KEY 未設定')
+        return jsonify({'error': 'OpenAI API 未設定'}), 500
+    
+    # 可用的語音選項（Realtime API 支援的所有語音）
+    available_voices = ['alloy', 'ash', 'ballad', 'coral', 'echo', 'sage', 'shimmer', 'verse', 'marin', 'cedar']
+    if voice not in available_voices:
+        voice = 'marin'  # 預設使用 marin（官方推薦的女聲）
+    
+    # 取得用戶命盤資料用於系統指令
+    user_context = ""
+    try:
+        reports = db.get_all_system_reports(user_id)
+        if reports:
+            for sys_type in ['ziwei', 'bazi', 'numerology']:
+                if sys_type in reports and reports[sys_type].get('analysis'):
+                    user_context += f"\n【{sys_type}】\n{reports[sys_type]['analysis'][:500]}...\n"
+    except Exception as e:
+        logger.warning(f'取得用戶命盤失敗: {e}')
+    
+    # 系統指令（命理顧問人設）
+    system_instructions = instructions or f"""你是 Aetheria 命理顧問，一位專業、溫暖、有洞察力的命理分析師。
+
+你的溝通風格：
+- 使用台灣繁體中文，自然親切的口語表達
+- 像朋友聊天一樣，但保持專業深度
+- 適當使用命理術語但會解釋其意義
+- 回答簡潔有力，通常 2-3 句話即可
+
+你的專長：
+- 紫微斗數、八字命理、西洋占星、命理數字、姓名學
+- 能整合多系統給予全面分析
+
+{f'用戶命盤摘要：{user_context}' if user_context else ''}
+
+注意：保持語音對話的自然節奏，回答不要太長。"""
+
+    # 設定 session config (Unified Interface format)
+    # 注意：/v1/realtime/calls 端點只支援有限的參數
+    session_config = {
+        'type': 'realtime',
+        'model': os.getenv('REALTIME_MODEL', 'gpt-4o-realtime-preview'),
+        'audio': {
+            'output': {
+                'voice': voice
+            }
+        },
+        'instructions': system_instructions
+    }
+    
+    # 呼叫 OpenAI Realtime API (Unified Interface)
+    base_url = os.getenv('OPENAI_BASE_URL', 'https://api.openai.com').rstrip('/')
+    
+    try:
+        from requests_toolbelt import MultipartEncoder
+        
+        # 確保 SDP 使用正確的換行符號 (CRLF for SDP)
+        # SDP 協議要求使用 CRLF (\r\n) 作為行結束符
+        sdp_normalized = sdp.replace('\r\n', '\n').replace('\r', '\n').replace('\n', '\r\n')
+        
+        # 除錯日誌
+        logger.info(f'SDP 長度: {len(sdp_normalized)}, 前 100 字元: {repr(sdp_normalized[:100])}')
+        
+        # 使用 multipart form data
+        m = MultipartEncoder(
+            fields={
+                'sdp': sdp_normalized,
+                'session': json.dumps(session_config)
+            }
+        )
+        
+        response = http_requests.post(
+            f"{base_url}/v1/realtime/calls",
+            headers={
+                'Authorization': f'Bearer {openai_api_key}',
+                'Content-Type': m.content_type
+            },
+            data=m,
+            timeout=25
+        )
+        
+        if not response.ok:
+            error_text = response.text
+            logger.error(f'OpenAI Realtime API 失敗: {response.status_code} - {error_text}')
+            return jsonify({
+                'error': 'OpenAI Realtime API 失敗',
+                'status': response.status_code,
+                'details': error_text[:500]
+            }), 502
+        
+        answer_sdp = response.text
+        logger.info(f'語音會話建立成功', user_id=user_id)
+        
+        return jsonify({'sdp': answer_sdp})
+        
+    except ImportError:
+        logger.error('請安裝 requests-toolbelt: pip install requests-toolbelt')
+        return jsonify({'error': '缺少 requests-toolbelt 套件'}), 500
+    except http_requests.Timeout:
+        logger.error('OpenAI Realtime API 超時')
+        return jsonify({'error': 'API 請求超時'}), 504
+    except Exception as e:
+        logger.error(f'語音會話建立失敗: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/voice/voices', methods=['GET'])
+def get_available_voices():
+    """取得可用的語音選項。"""
+    voices = [
+        # 推薦語音（官方推薦）
+        {'id': 'marin', 'name': 'Marin', 'description': '溫暖自然（女聲）', 'gender': 'female', 'recommended': True},
+        {'id': 'cedar', 'name': 'Cedar', 'description': '沉穩可靠（男聲）', 'gender': 'male', 'recommended': True},
+        # 其他女聲
+        {'id': 'shimmer', 'name': 'Shimmer', 'description': '活潑輕快（女聲）', 'gender': 'female'},
+        {'id': 'coral', 'name': 'Coral', 'description': '清晰明亮（女聲）', 'gender': 'female'},
+        {'id': 'sage', 'name': 'Sage', 'description': '智慧沉穩（女聲）', 'gender': 'female'},
+        {'id': 'ballad', 'name': 'Ballad', 'description': '富有情感（女聲）', 'gender': 'female'},
+        # 中性語音
+        {'id': 'alloy', 'name': 'Alloy', 'description': '中性平衡', 'gender': 'neutral'},
+        {'id': 'verse', 'name': 'Verse', 'description': '文藝氣質', 'gender': 'neutral'},
+        # 男聲
+        {'id': 'ash', 'name': 'Ash', 'description': '溫暖柔和（男聲）', 'gender': 'male'},
+        {'id': 'echo', 'name': 'Echo', 'description': '穩重低沉（男聲）', 'gender': 'male'},
+    ]
+    return jsonify({'voices': voices})
+
 
 @app.route('/api/chart/relock', methods=['POST'])
 def relock_chart():
@@ -3527,7 +4375,7 @@ def astrology_synastry():
         # 調用 Gemini 分析
         system_instruction = "你是專精合盤分析的西洋占星師，遵循「有所本」與「實證導向」原則。輸出必須使用繁體中文（台灣用語）。"
         full_prompt = f"{system_instruction}\n\n{prompt}"
-        analysis = call_gemini(full_prompt)
+        analysis = sanitize_plain_text(call_gemini(full_prompt, max_output_tokens=1200))
         
         return jsonify({
             'status': 'success',
@@ -3596,7 +4444,7 @@ def astrology_transit():
         # 調用 Gemini 分析
         system_instruction = "你是專精流年運勢的西洋占星師，遵循「有所本」原則。輸出必須使用繁體中文（台灣用語）。"
         full_prompt = f"{system_instruction}\n\n{prompt}"
-        analysis = call_gemini(full_prompt)
+        analysis = sanitize_plain_text(call_gemini(full_prompt, max_output_tokens=800))
         
         return jsonify({
             'status': 'success',
@@ -3732,13 +4580,24 @@ def tarot_reading():
             allow_reversed=allow_reversed
         )
         
-        # 生成 Prompt
-        prompts = generate_tarot_prompt(reading, context)
-        
-        # 調用 Gemini 解讀
-        system_instruction = prompts['system_prompt'] + "\n\n輸出必須使用繁體中文（台灣用語）。"
-        full_prompt = f"{system_instruction}\n\n{prompts['user_prompt']}"
-        analysis = call_gemini(full_prompt)
+        # 生成解讀（預設快速模式）
+        fast_mode = data.get('fast_mode', True)
+        if fast_mode:
+            analysis = build_tarot_fallback(reading, context)
+        else:
+            # AI 深度解讀模式，失敗時自動降級為快速模式
+            try:
+                prompts = generate_tarot_prompt(reading, context)
+                system_instruction = prompts['system_prompt'] + "\n\n輸出必須使用繁體中文（台灣用語）。"
+                full_prompt = f"{system_instruction}\n\n{prompts['user_prompt']}"
+                analysis = sanitize_plain_text(call_gemini(full_prompt, max_output_tokens=1200))
+                if not analysis or len(analysis.strip()) < 50:
+                    # AI 回傳空內容或過短，降級為快速模式
+                    logger.warning('塔羅 AI 解讀回傳內容不足，降級為快速模式')
+                    analysis = build_tarot_fallback(reading, context) + "\n\n（註：AI 深度解讀暫時無法使用，已改為基本解讀）"
+            except Exception as ai_err:
+                logger.warning(f'塔羅 AI 解讀失敗，降級為快速模式: {str(ai_err)}')
+                analysis = build_tarot_fallback(reading, context) + "\n\n（註：AI 深度解讀暫時無法使用，已改為基本解讀）"
         
         # 準備回傳資料
         reading_data = tarot_calc.to_dict(reading)
@@ -3782,13 +4641,15 @@ def tarot_daily():
             allow_reversed=True
         )
         
-        # 生成 Prompt
-        prompts = generate_tarot_prompt(reading, 'general')
-        
-        # 調用 Gemini 解讀
-        system_instruction = prompts['system_prompt'] + "\n\n輸出必須使用繁體中文（台灣用語）。請簡潔扼要，總字數控制在 300-400 字內。"
-        full_prompt = f"{system_instruction}\n\n{prompts['user_prompt']}"
-        analysis = call_gemini(full_prompt)
+        # 生成解讀（預設快速模式）
+        fast_mode = request.args.get('fast_mode', 'true').lower() != 'false'
+        if fast_mode:
+            analysis = build_tarot_fallback(reading, 'general')
+        else:
+            prompts = generate_tarot_prompt(reading, 'general')
+            system_instruction = prompts['system_prompt'] + "\n\n輸出必須使用繁體中文（台灣用語）。請簡潔扼要，總字數控制在 300-400 字內。"
+            full_prompt = f"{system_instruction}\n\n{prompts['user_prompt']}"
+            analysis = sanitize_plain_text(call_gemini(full_prompt, max_output_tokens=800))
         
         # 取得牌卡資訊
         card = reading.cards[0]

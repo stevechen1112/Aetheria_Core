@@ -1,33 +1,65 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import './VoiceChat.css'
 
 /**
- * VoiceChat Component - 语音/文字混合AI咨询界面
- * 使用浏览器 Web Speech API 实现语音识别和合成
+ * VoiceChat Component - 語音/文字混合 AI 諮詢介面
+ * 支援兩種模式：
+ * 1. 文字模式：傳統文字對話
+ * 2. 語音模式：使用 OpenAI Realtime WebRTC API 即時語音對話
  */
 function VoiceChat({ apiBase, token, onClose }) {
+  // 基本狀態
   const [mode, setMode] = useState('text') // 'text' or 'voice'
-  const [isListening, setIsListening] = useState(false)
-  const [isSpeaking, setIsSpeaking] = useState(false)
   const [messages, setMessages] = useState([])
   const [inputText, setInputText] = useState('')
   const [sessionId, setSessionId] = useState(null)
   const [loading, setLoading] = useState(false)
   
-  const recognitionRef = useRef(null)
-  const synthesisRef = useRef(null)
+  // 語音模式狀態
+  const [isConnected, setIsConnected] = useState(false)
+  const [isListening, setIsListening] = useState(false)
+  const [isSpeaking, setIsSpeaking] = useState(false)
+  const [selectedVoice, setSelectedVoice] = useState('alloy')
+  const [availableVoices, setAvailableVoices] = useState([])
+  const [connectionError, setConnectionError] = useState('')
+  
+  // WebRTC 相關 refs
+  const pcRef = useRef(null)
+  const dcRef = useRef(null)
+  const localStreamRef = useRef(null)
+  const audioElRef = useRef(null)
   const messagesEndRef = useRef(null)
 
-  // 初始化 Web Speech API
-  useEffect(() => {
-    // 检查浏览器支持
-    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-      console.warn('浏览器不支持语音识别')
-    }
-    if (!('speechSynthesis' in window)) {
-      console.warn('浏览器不支持语音合成')
-    }
+  // 舊版 Web Speech API refs（備援）
+  const recognitionRef = useRef(null)
 
-    // 初始化语音识别
+  // 載入可用語音選項
+  useEffect(() => {
+    const fetchVoices = async () => {
+      try {
+        const response = await fetch(`${apiBase}/api/voice/voices`)
+        if (response.ok) {
+          const data = await response.json()
+          setAvailableVoices(data.voices || [])
+          // 預設選擇推薦的語音
+          const recommended = data.voices?.find(v => v.recommended)
+          if (recommended) setSelectedVoice(recommended.id)
+        }
+      } catch (e) {
+        console.warn('無法載入語音選項:', e)
+        // 使用預設列表
+        setAvailableVoices([
+          { id: 'alloy', name: 'Alloy', description: '中性平衡' },
+          { id: 'sage', name: 'Sage', description: '智慧沉穩' },
+          { id: 'shimmer', name: 'Shimmer', description: '活潑輕快' }
+        ])
+      }
+    }
+    fetchVoices()
+  }, [apiBase])
+
+  // 初始化舊版 Web Speech API（作為備援）
+  useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
     if (SpeechRecognition) {
       recognitionRef.current = new SpeechRecognition()
@@ -41,84 +73,202 @@ function VoiceChat({ apiBase, token, onClose }) {
         setIsListening(false)
       }
 
-      recognitionRef.current.onerror = (event) => {
-        console.error('语音识别错误:', event.error)
-        setIsListening(false)
-      }
-
-      recognitionRef.current.onend = () => {
-        setIsListening(false)
-      }
+      recognitionRef.current.onerror = () => setIsListening(false)
+      recognitionRef.current.onend = () => setIsListening(false)
     }
 
     return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current.stop()
-      }
-      if (window.speechSynthesis) {
-        window.speechSynthesis.cancel()
-      }
+      disconnectRealtime()
+      if (recognitionRef.current) recognitionRef.current.stop()
     }
   }, [])
 
-  // 自动滚动到底部
+  // 自動滾動到底部
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // 开始/停止语音识别
-  const toggleListening = () => {
-    if (!recognitionRef.current) {
-      alert('浏览器不支持语音识别功能')
-      return
+  // 斷開 WebRTC 連線
+  const disconnectRealtime = useCallback(() => {
+    if (dcRef.current) {
+      dcRef.current.close()
+      dcRef.current = null
     }
+    if (pcRef.current) {
+      pcRef.current.close()
+      pcRef.current = null
+    }
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(t => t.stop())
+      localStreamRef.current = null
+    }
+    if (audioElRef.current) {
+      audioElRef.current.srcObject = null
+      audioElRef.current = null
+    }
+    setIsConnected(false)
+    setIsSpeaking(false)
+  }, [])
 
-    if (isListening) {
-      recognitionRef.current.stop()
-      setIsListening(false)
-    } else {
-      try {
-        recognitionRef.current.start()
+  // 添加訊息
+  const addMessage = useCallback((role, content) => {
+    setMessages(prev => [...prev, {
+      role,
+      content,
+      timestamp: new Date().toISOString()
+    }])
+  }, [])
+
+  // 處理 Realtime API 事件
+  const handleRealtimeEvent = useCallback((msg) => {
+    switch (msg.type) {
+      case 'conversation.item.created':
+        if (msg.item?.role === 'user' && msg.item?.content?.[0]?.transcript) {
+          const text = msg.item.content[0].transcript
+          addMessage('user', text)
+        }
+        break
+      
+      case 'response.audio_transcript.delta':
+        // AI 正在說話
+        setIsSpeaking(true)
+        break
+      
+      case 'response.audio_transcript.done':
+        // AI 說完了
+        if (msg.transcript) {
+          addMessage('assistant', msg.transcript)
+        }
+        setIsSpeaking(false)
+        break
+      
+      case 'response.done':
+        setIsSpeaking(false)
+        break
+      
+      case 'input_audio_buffer.speech_started':
         setIsListening(true)
-      } catch (error) {
-        console.error('启动语音识别失败:', error)
-      }
+        break
+      
+      case 'input_audio_buffer.speech_stopped':
+        setIsListening(false)
+        break
+      
+      case 'error':
+        console.error('Realtime API 錯誤:', msg.error)
+        setConnectionError(msg.error?.message || 'API 錯誤')
+        break
+      
+      default:
+        // 其他事件忽略
+        break
     }
-  }
+  }, [addMessage])
 
-  // 语音合成
-  const speak = (text) => {
-    if (!window.speechSynthesis) {
-      console.warn('浏览器不支持语音合成')
+  // WebRTC 連接到 OpenAI Realtime
+  const connectRealtime = useCallback(async () => {
+    if (!token) {
+      setConnectionError('請先登入')
       return
     }
 
-    // 停止当前播放
-    window.speechSynthesis.cancel()
+    setConnectionError('')
+    setLoading(true)
 
-    const utterance = new SpeechSynthesisUtterance(text)
-    utterance.lang = 'zh-TW'
-    utterance.rate = 0.9 // 语速
-    utterance.pitch = 1.0 // 音调
+    try {
+      // 取得麥克風權限
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      localStreamRef.current = stream
+      const [audioTrack] = stream.getTracks()
 
-    utterance.onstart = () => setIsSpeaking(true)
-    utterance.onend = () => setIsSpeaking(false)
-    utterance.onerror = () => setIsSpeaking(false)
+      // 建立音訊播放元素
+      const audioEl = new Audio()
+      audioEl.autoplay = true
+      audioElRef.current = audioEl
 
-    window.speechSynthesis.speak(utterance)
-  }
+      // 建立 WebRTC PeerConnection
+      const pc = new RTCPeerConnection()
+      pcRef.current = pc
 
-  // 停止语音播放
-  const stopSpeaking = () => {
-    if (window.speechSynthesis) {
-      window.speechSynthesis.cancel()
-      setIsSpeaking(false)
+      // 加入本地音訊軌道
+      pc.addTrack(audioTrack)
+
+      // 處理遠端音訊
+      pc.ontrack = (e) => {
+        console.log('收到遠端音訊軌道')
+        audioEl.srcObject = e.streams[0]
+      }
+
+      // 建立 DataChannel 接收事件
+      const dc = pc.createDataChannel('oai-events')
+      dcRef.current = dc
+
+      dc.onopen = () => {
+        console.log('DataChannel 已開啟')
+        setIsConnected(true)
+        setLoading(false)
+        addMessage('system', '🎙️ 語音連線已建立，請開始說話...')
+      }
+
+      dc.onclose = () => {
+        console.log('DataChannel 已關閉')
+        setIsConnected(false)
+      }
+
+      dc.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data)
+          handleRealtimeEvent(msg)
+        } catch (err) {
+          console.warn('解析 Realtime 事件失敗:', err)
+        }
+      }
+
+      // 建立 SDP offer
+      const offer = await pc.createOffer()
+      await pc.setLocalDescription(offer)
+
+      // 傳送到後端交換 SDP
+      const response = await fetch(`${apiBase}/api/voice/session`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          sdp: offer.sdp,
+          voice: selectedVoice
+        })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || `連線失敗 (${response.status})`)
+      }
+
+      const { sdp: answerSdp } = await response.json()
+      
+      // 設定遠端 SDP
+      await pc.setRemoteDescription({
+        type: 'answer',
+        sdp: answerSdp
+      })
+
+    } catch (error) {
+      console.error('Realtime 連線失敗:', error)
+      setConnectionError(error.message || '連線失敗')
+      setLoading(false)
+      disconnectRealtime()
     }
-  }
+  }, [apiBase, token, selectedVoice, addMessage, handleRealtimeEvent, disconnectRealtime])
 
-  // 发送消息
-  const sendMessage = async () => {
+  // 文字模式：發送訊息
+  const sendTextMessage = async () => {
     if (!inputText.trim()) return
+    if (!token) {
+      alert('請先登入後再使用 AI 諮詢')
+      return
+    }
 
     const userMessage = {
       role: 'user',
@@ -140,16 +290,14 @@ function VoiceChat({ apiBase, token, onClose }) {
         body: JSON.stringify({
           message: inputText,
           session_id: sessionId,
-          voice_mode: mode === 'voice' // 传递语音模式标记
+          voice_mode: false
         })
       })
 
       const data = await response.json()
 
       if (data.status === 'success') {
-        if (!sessionId) {
-          setSessionId(data.session_id)
-        }
+        if (!sessionId) setSessionId(data.session_id)
 
         const assistantMessage = {
           role: 'assistant',
@@ -161,185 +309,246 @@ function VoiceChat({ apiBase, token, onClose }) {
         }
 
         setMessages(prev => [...prev, assistantMessage])
-
-        // 语音模式下自动播放回复
-        if (mode === 'voice') {
-          speak(data.reply)
-        }
       } else {
-        throw new Error(data.error || '请求失败')
+        throw new Error(data.error || '請求失敗')
       }
     } catch (error) {
-      console.error('发送消息失败:', error)
-      alert('发送失败：' + error.message)
+      console.error('發送訊息失敗:', error)
+      alert('發送失敗：' + error.message)
     } finally {
       setLoading(false)
     }
   }
 
-  // 切换模式
-  const switchMode = (newMode) => {
-    if (newMode !== mode) {
-      stopSpeaking()
-      if (isListening) {
-        recognitionRef.current?.stop()
+  // 語音模式：透過 DataChannel 發送文字（如果已連線）
+  const sendVoiceText = () => {
+    if (!inputText.trim()) return
+    
+    if (isConnected && dcRef.current?.readyState === 'open') {
+      // 透過 WebRTC DataChannel 發送
+      const event = {
+        type: 'conversation.item.create',
+        item: {
+          type: 'message',
+          role: 'user',
+          content: [{ type: 'input_text', text: inputText }]
+        }
       }
-      setMode(newMode)
+      dcRef.current.send(JSON.stringify(event))
+      
+      // 觸發回應
+      dcRef.current.send(JSON.stringify({ type: 'response.create' }))
+      
+      addMessage('user', inputText)
+      setInputText('')
+    } else {
+      // 未連線，使用文字模式
+      sendTextMessage()
     }
   }
 
+  // 切換模式
+  const switchMode = (newMode) => {
+    if (newMode === mode) return
+    
+    if (mode === 'voice' && isConnected) {
+      disconnectRealtime()
+    }
+    
+    setMode(newMode)
+    setConnectionError('')
+  }
+
   return (
-    <div className="voice-chat-container">
-      {/* 头部 */}
-      <div className="voice-chat-header">
-        <div className="header-title">
-          <h2>AI 命理顾问</h2>
-          <p className="header-subtitle">
-            {mode === 'voice' ? '🎙️ 语音对话模式' : '💬 文字对话模式'}
-          </p>
-        </div>
-        
-        {/* 模式切换 */}
-        <div className="mode-switch">
-          <button
-            className={`mode-btn ${mode === 'text' ? 'active' : ''}`}
-            onClick={() => switchMode('text')}
-            disabled={loading}
-          >
-            💬 文字
-          </button>
-          <button
-            className={`mode-btn ${mode === 'voice' ? 'active' : ''}`}
-            onClick={() => switchMode('voice')}
-            disabled={loading}
-          >
-            🎙️ 语音
-          </button>
-        </div>
-
-        <button className="close-btn" onClick={onClose}>✕</button>
-      </div>
-
-      {/* 消息列表 */}
-      <div className="voice-chat-messages">
-        {messages.length === 0 && (
-          <div className="empty-state">
-            <div className="empty-icon">🔮</div>
-            <p>您好！我是命理顾问</p>
-            <p className="empty-hint">
+    <div className="voice-chat-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="voice-chat-container">
+        {/* 頭部 */}
+        <div className="voice-chat-header">
+          <div className="header-title">
+            <h2>AI 命理顧問</h2>
+            <p className="header-subtitle">
               {mode === 'voice' 
-                ? '点击麦克风按钮开始语音对话'
-                : '输入您的问题开始咨询'}
+                ? (isConnected ? '🎙️ 即時語音對話中' : '🎙️ 語音對話模式')
+                : '💬 文字對話模式'}
             </p>
           </div>
-        )}
-
-        {messages.map((msg, index) => (
-          <div key={index} className={`message ${msg.role}`}>
-            <div className="message-avatar">
-              {msg.role === 'user' ? '👤' : '🔮'}
-            </div>
-            <div className="message-content">
-              <div className="message-text">{msg.content}</div>
-              
-              {/* 引用来源 */}
-              {msg.citations && msg.citations.length > 0 && (
-                <div className="message-citations">
-                  <div className="citations-title">📚 依据：</div>
-                  {msg.citations.map((cite, i) => (
-                    <div key={i} className="citation-item">
-                      <span className="citation-system">
-                        {cite.system || '未知'}
-                      </span>
-                      <span className="citation-excerpt">
-                        {cite.excerpt?.substring(0, 50)}...
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* 语音模式下显示播放控制 */}
-              {mode === 'voice' && msg.role === 'assistant' && (
-                <div className="message-actions">
-                  {isSpeaking ? (
-                    <button className="action-btn" onClick={stopSpeaking}>
-                      🔊 停止播放
-                    </button>
-                  ) : (
-                    <button className="action-btn" onClick={() => speak(msg.content)}>
-                      🔈 重新播放
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
-
-        {loading && (
-          <div className="message assistant loading">
-            <div className="message-avatar">🔮</div>
-            <div className="message-content">
-              <div className="loading-dots">
-                <span>.</span><span>.</span><span>.</span>
-              </div>
-            </div>
-          </div>
-        )}
-
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* 输入区域 */}
-      <div className="voice-chat-input">
-        {mode === 'voice' && (
-          <div className="voice-controls">
+        
+          {/* 模式切換 */}
+          <div className="mode-switch">
             <button
-              className={`voice-btn ${isListening ? 'listening' : ''}`}
-              onClick={toggleListening}
+              className={`mode-btn ${mode === 'text' ? 'active' : ''}`}
+              onClick={() => switchMode('text')}
               disabled={loading}
             >
-              {isListening ? (
-                <>
-                  <span className="pulse-ring"></span>
-                  <span className="voice-icon">🎙️</span>
-                  <span>正在聆听...</span>
-                </>
-              ) : (
-                <>
-                  <span className="voice-icon">🎤</span>
-                  <span>点击说话</span>
-                </>
-              )}
+              💬 文字
             </button>
-            
-            {isSpeaking && (
-              <div className="speaking-indicator">
-                <span className="speaker-icon">🔊</span>
-                <span>AI 正在回答...</span>
-              </div>
+            <button
+              className={`mode-btn ${mode === 'voice' ? 'active' : ''}`}
+              onClick={() => switchMode('voice')}
+              disabled={loading}
+            >
+              🎙️ 語音
+            </button>
+          </div>
+
+          <button className="close-btn" onClick={onClose}>✕</button>
+        </div>
+
+        {/* 語音設定區（僅語音模式） */}
+        {mode === 'voice' && !isConnected && (
+          <div className="voice-settings">
+            <div className="voice-select-group">
+              <label>選擇語音風格：</label>
+              <select 
+                value={selectedVoice} 
+                onChange={(e) => setSelectedVoice(e.target.value)}
+                disabled={loading}
+              >
+                {availableVoices.map(v => (
+                  <option key={v.id} value={v.id}>
+                    {v.name} - {v.description}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {connectionError && (
+              <div className="connection-error">⚠️ {connectionError}</div>
             )}
           </div>
         )}
 
-        <div className="input-row">
-          <input
-            type="text"
-            className="chat-input"
-            placeholder={mode === 'voice' ? '或输入文字...' : '输入您的问题...'}
-            value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && !loading && sendMessage()}
-            disabled={loading}
-          />
-          <button
-            className="send-btn"
-            onClick={sendMessage}
-            disabled={!inputText.trim() || loading}
-          >
-            {loading ? '...' : '发送'}
-          </button>
+        {/* 訊息列表 */}
+        <div className="voice-chat-messages">
+          {messages.length === 0 && (
+            <div className="empty-state">
+              <div className="empty-icon">🔮</div>
+              <p>您好！我是命理顧問</p>
+              <p className="empty-hint">
+                {mode === 'voice' 
+                  ? (isConnected 
+                      ? '請開始說話，我在聆聽...'
+                      : '點擊「開始語音」連線後即可對話')
+                  : '輸入您的問題開始諮詢'}
+              </p>
+            </div>
+          )}
+
+          {messages.map((msg, index) => (
+            <div key={index} className={`message ${msg.role}`}>
+              <div className="message-avatar">
+                {msg.role === 'user' ? '👤' : msg.role === 'system' ? 'ℹ️' : '🔮'}
+              </div>
+              <div className="message-content">
+                <div className="message-text">{msg.content}</div>
+                
+                {/* 引用來源 */}
+                {msg.citations && msg.citations.length > 0 && (
+                  <div className="message-citations">
+                    <div className="citations-title">📚 依據：</div>
+                    {msg.citations.map((cite, i) => (
+                      <div key={i} className="citation-item">
+                        <span className="citation-system">{cite.system || '未知'}</span>
+                        <span className="citation-excerpt">
+                          {cite.excerpt?.substring(0, 50)}...
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+
+          {/* 載入中 / 正在說話 指示 */}
+          {(loading || isSpeaking) && (
+            <div className="message assistant loading">
+              <div className="message-avatar">🔮</div>
+              <div className="message-content">
+                <div className="loading-dots">
+                  <span>.</span><span>.</span><span>.</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* 輸入區域 */}
+        <div className="voice-chat-input">
+          {mode === 'voice' && (
+            <div className="voice-controls">
+              {!isConnected ? (
+                <button
+                  className="voice-btn connect"
+                  onClick={connectRealtime}
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <>
+                      <span className="voice-icon">⏳</span>
+                      <span>連線中...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="voice-icon">🎙️</span>
+                      <span>開始語音</span>
+                    </>
+                  )}
+                </button>
+              ) : (
+                <>
+                  <button
+                    className={`voice-btn ${isListening ? 'listening' : ''}`}
+                    disabled={true}
+                  >
+                    {isListening ? (
+                      <>
+                        <span className="pulse-ring"></span>
+                        <span className="voice-icon">🎙️</span>
+                        <span>正在聆聽...</span>
+                      </>
+                    ) : isSpeaking ? (
+                      <>
+                        <span className="voice-icon">🔊</span>
+                        <span>AI 回答中...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="voice-icon">🎤</span>
+                        <span>請說話...</span>
+                      </>
+                    )}
+                  </button>
+                  <button
+                    className="voice-btn disconnect"
+                    onClick={disconnectRealtime}
+                  >
+                    ⏹️ 結束
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
+          <div className="input-row">
+            <input
+              type="text"
+              className="chat-input"
+              placeholder={mode === 'voice' ? '或輸入文字...' : '輸入您的問題...'}
+              value={inputText}
+              onChange={(e) => setInputText(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && !loading && (mode === 'voice' ? sendVoiceText() : sendTextMessage())}
+              disabled={loading}
+            />
+            <button
+              className="send-btn"
+              onClick={mode === 'voice' ? sendVoiceText : sendTextMessage}
+              disabled={!inputText.trim() || loading}
+            >
+              {loading ? '...' : '發送'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

@@ -65,17 +65,21 @@ class AetheriaDatabase:
                 )
             """)
             
-            # 命盤鎖定表
+            # 命盤鎖定表（治本：以 user_id + chart_type 為鍵，避免不同命盤互相覆蓋）
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS chart_locks (
-                    user_id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
                     chart_type TEXT NOT NULL,
                     chart_data TEXT NOT NULL,
                     analysis TEXT,
                     locked_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (user_id, chart_type),
                     FOREIGN KEY (user_id) REFERENCES users(user_id)
                 )
             """)
+
+            # Schema migration: old versions used user_id as the only primary key.
+            self._migrate_chart_locks_schema(cursor)
             
             # 分析歷史表
             cursor.execute("""
@@ -199,6 +203,46 @@ class AetheriaDatabase:
                 CREATE INDEX IF NOT EXISTS idx_system_reports_user_id
                 ON system_reports(user_id)
             """)
+
+    def _migrate_chart_locks_schema(self, cursor: sqlite3.Cursor) -> None:
+        """Migrate chart_locks schema to composite primary key (user_id, chart_type).
+
+        Older versions mistakenly used only user_id as the primary key, which caused
+        different chart types (ziwei/bazi/astrology/...) to overwrite each other.
+        This migration is best-effort and should never block DB initialization.
+        """
+        try:
+            cursor.execute("PRAGMA table_info(chart_locks)")
+            cols = cursor.fetchall() or []
+            # PRAGMA table_info columns: cid, name, type, notnull, dflt_value, pk
+            pk_cols = [row[1] for row in cols if int(row[5] or 0) > 0]
+
+            if pk_cols == ['user_id', 'chart_type']:
+                return
+
+            # If we cannot confidently detect the legacy schema, do nothing.
+            if pk_cols != ['user_id']:
+                return
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS chart_locks_v2 (
+                    user_id TEXT NOT NULL,
+                    chart_type TEXT NOT NULL,
+                    chart_data TEXT NOT NULL,
+                    analysis TEXT,
+                    locked_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (user_id, chart_type),
+                    FOREIGN KEY (user_id) REFERENCES users(user_id)
+                )
+            """)
+            cursor.execute("""
+                INSERT OR REPLACE INTO chart_locks_v2 (user_id, chart_type, chart_data, analysis, locked_at)
+                SELECT user_id, chart_type, chart_data, analysis, locked_at FROM chart_locks
+            """)
+            cursor.execute("DROP TABLE chart_locks")
+            cursor.execute("ALTER TABLE chart_locks_v2 RENAME TO chart_locks")
+        except Exception:
+            return
 
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_id
@@ -374,7 +418,7 @@ class AetheriaDatabase:
         """
         return self.save_chart_lock(user_id, chart_type, chart_data, analysis)
     
-    def get_chart_lock(self, user_id: str) -> Optional[Dict[str, Any]]:
+    def get_chart_lock(self, user_id: str, chart_type: str = 'ziwei') -> Optional[Dict[str, Any]]:
         """
         取得命盤鎖定資料
         
@@ -387,8 +431,8 @@ class AetheriaDatabase:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT * FROM chart_locks WHERE user_id = ?
-            """, (user_id,))
+                SELECT * FROM chart_locks WHERE user_id = ? AND chart_type = ?
+            """, (user_id, chart_type))
             row = cursor.fetchone()
             
             if row:
@@ -397,7 +441,7 @@ class AetheriaDatabase:
                 return data
             return None
     
-    def delete_chart_lock(self, user_id: str) -> bool:
+    def delete_chart_lock(self, user_id: str, chart_type: Optional[str] = None) -> bool:
         """
         刪除命盤鎖定
         
@@ -409,7 +453,13 @@ class AetheriaDatabase:
         """
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM chart_locks WHERE user_id = ?", (user_id,))
+            if chart_type:
+                cursor.execute(
+                    "DELETE FROM chart_locks WHERE user_id = ? AND chart_type = ?",
+                    (user_id, chart_type),
+                )
+            else:
+                cursor.execute("DELETE FROM chart_locks WHERE user_id = ?", (user_id,))
             return cursor.rowcount > 0
     
     # ==================== 分析歷史相關 ====================
@@ -729,6 +779,13 @@ class AetheriaDatabase:
                 'profile': profile_data,
                 'updated_at': row[2]
             }
+
+    def delete_fortune_profile(self, user_id: str) -> bool:
+        """刪除 fortune profile 快取（重置報告時使用）"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM fortune_profiles WHERE user_id = ?", (user_id,))
+            return cursor.rowcount > 0
 
     # ==================== Chat（對話） ====================
 

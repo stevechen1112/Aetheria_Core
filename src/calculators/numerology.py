@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 from pathlib import Path
 from datetime import datetime, date
+import re
 
 
 @dataclass
@@ -39,6 +40,9 @@ class NumerologyProfile:
     personality: int = 0
     personality_master: bool = False
     birthday: int = 0
+
+    # 姓名靈數可用性（避免中文姓名產生 0 的誤導結果）
+    name_numbers_available: bool = False
     
     # 流年資訊
     personal_year: int = 0
@@ -545,6 +549,10 @@ class NumerologyCalculator:
             birth_date=birth_date,
             full_name=full_name
         )
+
+        # 判斷是否可計算「姓名靈數」：只對含拉丁字母 (A-Z) 的姓名啟用
+        # （中文/非拉丁字母姓名若硬算，會得到 0 等不具意義的結果）
+        name_has_latin = bool(re.search(r"[A-Za-z]", full_name or ""))
         
         # 計算生命靈數
         profile.life_path, profile.life_path_master, lp_details = self.calculate_life_path(birth_date)
@@ -553,10 +561,13 @@ class NumerologyCalculator:
         profile.birthday, _, bd_details = self.calculate_birthday(birth_date)
         
         # 如果有姓名，計算姓名相關數字
-        if full_name:
+        if full_name and name_has_latin:
             profile.expression, profile.expression_master, exp_details = self.calculate_expression(full_name)
             profile.soul_urge, profile.soul_urge_master, su_details = self.calculate_soul_urge(full_name)
             profile.personality, profile.personality_master, pers_details = self.calculate_personality(full_name)
+            profile.name_numbers_available = True
+        elif full_name and not name_has_latin:
+            profile.name_numbers_available = False
         
         # 計算流年相關
         profile.personal_year, _, py_details = self.calculate_personal_year(birth_date, target_date.year)
@@ -568,7 +579,7 @@ class NumerologyCalculator:
         profile.challenges = self.calculate_challenges(birth_date)
         
         # 檢查業力債
-        profile.karmic_debts = self.check_karmic_debts(birth_date, full_name)
+        profile.karmic_debts = self.check_karmic_debts(birth_date, full_name if name_has_latin else "")
         
         # 儲存計算細節
         profile.calculation_details = {
@@ -580,6 +591,12 @@ class NumerologyCalculator:
         }
         
         if full_name:
+            profile.calculation_details["name_numbers"] = {
+                "available": bool(profile.name_numbers_available),
+                "reason": "" if name_has_latin else "姓名未包含拉丁字母；姓名靈數需英文/拼音輸入",
+            }
+
+        if full_name and name_has_latin:
             profile.calculation_details.update({
                 "expression": exp_details,
                 "soul_urge": su_details,
@@ -631,7 +648,7 @@ class NumerologyCalculator:
         lines.append(f"• 生日數：{profile.birthday} - {bd_meaning if isinstance(bd_meaning, str) else ''}")
         
         # 姓名相關數字
-        if profile.full_name:
+        if profile.full_name and profile.name_numbers_available:
             exp_meaning = self.get_number_meaning(profile.expression, "life_path")
             lines.append(f"• 天賦數：{profile.expression} - {exp_meaning.get('name', '')}")
             
@@ -640,6 +657,8 @@ class NumerologyCalculator:
             
             pers_meaning = self.get_number_meaning(profile.personality, "life_path")
             lines.append(f"• 人格數：{profile.personality} - {pers_meaning.get('name', '')}")
+        elif profile.full_name and not profile.name_numbers_available:
+            lines.append("• 姓名靈數：略（姓名需英文/拼音，才能計算天賦數/靈魂渴望數/人格數）")
         
         lines.append("")
         lines.append("【流年運勢】")
@@ -705,17 +724,17 @@ class NumerologyCalculator:
                     "number": profile.expression,
                     "is_master": profile.expression_master,
                     "meaning": self.get_number_meaning(profile.expression, "life_path")
-                } if profile.full_name else None,
+                } if (profile.full_name and profile.name_numbers_available) else None,
                 "soul_urge": {
                     "number": profile.soul_urge,
                     "is_master": profile.soul_urge_master,
                     "meaning": self.get_number_meaning(profile.soul_urge, "life_path")
-                } if profile.full_name else None,
+                } if (profile.full_name and profile.name_numbers_available) else None,
                 "personality": {
                     "number": profile.personality,
                     "is_master": profile.personality_master,
                     "meaning": self.get_number_meaning(profile.personality, "life_path")
-                } if profile.full_name else None
+                } if (profile.full_name and profile.name_numbers_available) else None
             },
             "cycles": {
                 "personal_year": {

@@ -111,12 +111,19 @@ def test_ziwei():
         response = requests.post(url, json=test_data, timeout=180)
         duration = time.time() - start
         
-        if response.status_code == 200 and 'analysis' in response.json():
-            analysis = response.json()['analysis']
-            print(f"✓ 流年分析成功（耗時 {duration:.1f}s，{len(analysis)} 字）")
-            results.append(("紫微-流年運勢", True))
+        if response.status_code == 200:
+            resp_json = response.json()
+            analysis = resp_json.get('analysis')
+            if analysis:
+                print(f"✓ 流年分析成功（耗時 {duration:.1f}s，{len(analysis)} 字）")
+                results.append(("紫微-流年運勢", True))
+            else:
+                print(f"✗ 流年分析失敗：回傳內容中 'analysis' 為空或 None")
+                print(f"  完整回傳：{resp_json}")
+                results.append(("紫微-流年運勢", False))
         else:
-            print(f"✗ 流年分析失敗")
+            print(f"✗ 流年分析失敗：HTTP {response.status_code}")
+            print(f"  回應內容：{response.text[:200]}")
             results.append(("紫微-流年運勢", False))
     else:
         print("⚠ 跳過（需要先鎖定命盤）")

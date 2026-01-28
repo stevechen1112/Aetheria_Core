@@ -40,8 +40,51 @@ class ChartExtractor:
         '機梁加會', '巨日同宮', '陽梁昌祿', '明珠出海', '石中隱玉'
     ]
     
+    # 已知的命宮雙星組合（紫微斗數規則）
+    # 這些星曜在特定條件下必定同宮
+    KNOWN_PAIRS = {
+        '天同': ['太陰'],      # 天同太陰同宮（特定宮位）
+        '太陰': ['天同'],      # 反向對應
+        '紫微': ['天府'],      # 紫府同宮（特定宮位）
+        '天府': ['紫微'],
+        '武曲': ['天相', '貪狼', '七殺', '破軍'],  # 武曲可能的同宮星
+        '太陽': ['太陰', '巨門'],  # 太陽可能的同宮星
+    }
+    
     def __init__(self):
-        pass
+        self.validation_warnings = []
+    
+    def validate_palace_stars(self, palace_name: str, stars: List[str], earthly_branch: str) -> Tuple[List[str], List[str]]:
+        """
+        驗證宮位主星的完整性
+        
+        Args:
+            palace_name: 宮位名稱（如 '命宮'）
+            stars: 提取到的主星列表
+            earthly_branch: 地支（如 '戌'）
+            
+        Returns:
+            (validated_stars, warnings): 驗證後的星曜列表和警告訊息
+        """
+        warnings = []
+        validated_stars = list(stars)
+        
+        # 規則 1: 天同在戌宮必有太陰同宮
+        if '天同' in validated_stars and earthly_branch == '戌':
+            if '太陰' not in validated_stars:
+                warnings.append(f"警告：{palace_name}({earthly_branch}宮)有天同但缺少太陰，已自動補充")
+                validated_stars.append('太陰')
+        
+        # 規則 2: 太陰在戌宮必有天同同宮
+        if '太陰' in validated_stars and earthly_branch == '戌':
+            if '天同' not in validated_stars:
+                warnings.append(f"警告：{palace_name}({earthly_branch}宮)有太陰但缺少天同，已自動補充")
+                validated_stars.append('天同')
+        
+        # 規則 3: 天同在酉宮也可能有太陰（視命盤而定）
+        # 這裡不強制補充，只記錄可能的遺漏
+        
+        return validated_stars, warnings
     
     def extract_json_structure(self, llm_response: str) -> Optional[Dict]:
         """
@@ -53,17 +96,60 @@ class ChartExtractor:
         Returns:
             解析後的 JSON 結構，若無法解析則返回 None
         """
-        # 尋找 ```json ... ``` 區塊
+        # 1) 尋找 ```json ... ``` 區塊
         json_pattern = r'```json\s*([\s\S]*?)\s*```'
         match = re.search(json_pattern, llm_response)
-        
         if match:
             json_str = match.group(1).strip()
             try:
                 return json.loads(json_str)
             except json.JSONDecodeError as e:
                 print(f"JSON 解析錯誤: {e}")
-                return None
+
+        # 2) 尋找「【結構化命盤資料】」後的 JSON（無 code fence）
+        marker = '【結構化命盤資料】'
+        marker_index = llm_response.find(marker)
+        search_text = llm_response[marker_index + len(marker):] if marker_index != -1 else llm_response
+        brace_index = search_text.find('{')
+        if brace_index != -1:
+            json_candidate = self._extract_brace_block(search_text[brace_index:])
+            if json_candidate:
+                try:
+                    return json.loads(json_candidate)
+                except json.JSONDecodeError as e:
+                    print(f"JSON 解析錯誤: {e}")
+
+        return None
+
+    def _extract_brace_block(self, text: str) -> Optional[str]:
+        """
+        從文字中擷取第一個完整的 JSON 大括號區塊
+        """
+        depth = 0
+        in_string = False
+        escape = False
+        start_index = None
+
+        for i, ch in enumerate(text):
+            if ch == '"' and not escape:
+                in_string = not in_string
+            if ch == '\\' and not escape:
+                escape = True
+                continue
+            escape = False
+
+            if in_string:
+                continue
+
+            if ch == '{':
+                if depth == 0:
+                    start_index = i
+                depth += 1
+            elif ch == '}':
+                depth -= 1
+                if depth == 0 and start_index is not None:
+                    return text[start_index:i + 1].strip()
+
         return None
     
     def extract_full_structure(self, llm_response: str) -> Dict:
@@ -77,17 +163,29 @@ class ChartExtractor:
         Returns:
             結構化的命盤資料
         """
+        self.validation_warnings = []  # 重置警告
         
         # 優先嘗試提取 JSON 結構
         json_structure = self.extract_json_structure(llm_response)
         
         if json_structure:
+            # 取得命宮資訊
+            ming_gong = json_structure.get('命宮', {})
+            ming_branch = ming_gong.get('地支')
+            ming_stars = ming_gong.get('主星', [])
+            
+            # 驗證命宮主星完整性
+            validated_ming_stars, ming_warnings = self.validate_palace_stars(
+                '命宮', ming_stars, ming_branch
+            )
+            self.validation_warnings.extend(ming_warnings)
+            
             # 使用 JSON 結構，並標準化格式
             structure = {
                 '命宮': {
-                    '宮位': json_structure.get('命宮', {}).get('地支'),
-                    '主星': json_structure.get('命宮', {}).get('主星', []),
-                    '輔星': json_structure.get('命宮', {}).get('輔星', []),
+                    '宮位': ming_branch,
+                    '主星': validated_ming_stars,  # 使用驗證後的星曜
+                    '輔星': ming_gong.get('輔星', []),
                     '四化': None
                 },
                 '格局': json_structure.get('格局', ['未明確提及']),
@@ -95,17 +193,34 @@ class ChartExtractor:
                 '十二宮': {},
                 '四化': json_structure.get('四化', {}),
                 '原始分析': llm_response[:500] + '...' if len(llm_response) > 500 else llm_response,
-                '提取方式': 'JSON'
+                '提取方式': 'JSON',
+                '驗證警告': self.validation_warnings if self.validation_warnings else None
             }
             
-            # 轉換十二宮格式
+            # 轉換十二宮格式，並驗證每個宮位
             if '十二宮' in json_structure:
                 for palace_name, palace_data in json_structure['十二宮'].items():
+                    palace_branch = palace_data.get('地支')
+                    palace_stars = palace_data.get('主星', [])
+                    
+                    # 驗證該宮位的主星
+                    validated_stars, warnings = self.validate_palace_stars(
+                        palace_name, palace_stars, palace_branch
+                    )
+                    self.validation_warnings.extend(warnings)
+                    
                     structure['十二宮'][palace_name] = {
-                        '宮位': palace_data.get('地支'),
-                        '主星': palace_data.get('主星', []),
+                        '宮位': palace_branch,
+                        '主星': validated_stars,  # 使用驗證後的星曜
+                        '輔星': palace_data.get('輔星', []),
                         '四化': None
                     }
+            
+            # 更新驗證警告
+            structure['驗證警告'] = self.validation_warnings if self.validation_warnings else None
+
+            # 補齊十二宮
+            structure = self.ensure_complete_twelve_palaces(structure)
             
             return structure
         
@@ -117,9 +232,40 @@ class ChartExtractor:
             '十二宮': self.extract_twelve_palaces(llm_response),
             '四化': self.extract_transformations(llm_response),
             '原始分析': llm_response[:500] + '...' if len(llm_response) > 500 else llm_response,
-            '提取方式': 'Regex'
+            '提取方式': 'Regex',
+            '驗證警告': None
         }
         
+        # 對 Regex 提取的結果也進行驗證
+        ming_gong = structure['命宮']
+        if ming_gong.get('宮位') and ming_gong.get('主星'):
+            validated_stars, warnings = self.validate_palace_stars(
+                '命宮', ming_gong['主星'], ming_gong['宮位']
+            )
+            structure['命宮']['主星'] = validated_stars
+            structure['驗證警告'] = warnings if warnings else None
+
+        # 補齊十二宮
+        structure = self.ensure_complete_twelve_palaces(structure)
+        
+        return structure
+
+    def ensure_complete_twelve_palaces(self, structure: Dict) -> Dict:
+        """
+        補齊十二宮資料，確保所有宮位都有基本結構
+        """
+        if '十二宮' not in structure or not isinstance(structure['十二宮'], dict):
+            structure['十二宮'] = {}
+
+        for palace_name in self.PALACES:
+            if palace_name not in structure['十二宮']:
+                structure['十二宮'][palace_name] = {
+                    '宮位': None,
+                    '主星': [],
+                    '輔星': [],
+                    '四化': None
+                }
+
         return structure
     
     def extract_life_palace(self, text: str) -> Dict:
@@ -411,7 +557,7 @@ if __name__ == '__main__':
     ### 一、命盤基礎結構
     
     #### 1. 時辰判定
-    你出生於 23:58，屬於晚子時，排盤以農曆24日計算。
+    你出生於 23:58，屬於晚子時。依本系統規則採「日不進位、時歸子時」（23:00-00:00 仍算當日）。
     
     #### 2. 命宮：位於「戌宮」
     命宮座落在戌宮，主星為天同星、太陰星。文昌星同宮。

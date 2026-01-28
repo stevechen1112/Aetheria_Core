@@ -15,7 +15,7 @@ class GeminiClient:
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model_name: str = "gemini-2.0-flash-exp",
+        model_name: str = "gemini-2.0-flash",
         temperature: float = 0.4,
         max_output_tokens: int = 8192
     ):
@@ -72,6 +72,20 @@ class GeminiClient:
                 contents=prompt,
                 config=config
             )
+            
+            # 檢查回應是否有效
+            if response is None:
+                raise Exception("API 返回空回應")
+            if not hasattr(response, 'text') or response.text is None:
+                # 嘗試從候選項中獲取
+                if hasattr(response, 'candidates') and response.candidates:
+                    candidate = response.candidates[0]
+                    if hasattr(candidate, 'content') and candidate.content:
+                        parts = candidate.content.parts
+                        if parts:
+                            return parts[0].text
+                raise Exception("API 回應沒有有效內容")
+            
             return response.text
         except Exception as e:
             raise Exception(f"Gemini API 呼叫失敗: {str(e)}")
