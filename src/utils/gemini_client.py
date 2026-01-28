@@ -44,7 +44,8 @@ class GeminiClient:
         prompt: str,
         temperature: Optional[float] = None,
         max_output_tokens: Optional[int] = None,
-        model_name: Optional[str] = None
+        model_name: Optional[str] = None,
+        response_mime_type: Optional[str] = None
     ) -> str:
         """
         生成內容
@@ -54,6 +55,7 @@ class GeminiClient:
             temperature: 覆蓋預設溫度
             max_output_tokens: 覆蓋預設最大 Token 數
             model_name: 覆蓋預設模型
+            response_mime_type: 響應格式 (例如 'application/json')
             
         Returns:
             生成的文字內容
@@ -64,6 +66,7 @@ class GeminiClient:
         config = types.GenerateContentConfig(
             temperature=temperature or self.default_config['temperature'],
             max_output_tokens=max_output_tokens or self.default_config['max_output_tokens'],
+            response_mime_type=response_mime_type
         )
         
         try:
@@ -72,6 +75,7 @@ class GeminiClient:
                 contents=prompt,
                 config=config
             )
+
             
             # 檢查回應是否有效
             if response is None:

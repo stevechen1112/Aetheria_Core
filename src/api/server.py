@@ -90,9 +90,12 @@ from src.utils.errors import (
     register_error_handlers
 )
 from src.utils.database import get_database, AetheriaDatabase
+from src.api.blueprints.auth import auth_bp
+import src.utils.auth_utils as auth_utils
 
 # 載入環境變數
 load_dotenv()
+
 
 # 初始化 Gemini 客戶端（使用新 SDK）
 gemini_client = GeminiClient(
@@ -190,6 +193,10 @@ def handle_options(path: str):
 
 # 註冊錯誤處理器
 register_error_handlers(app)
+
+# 註冊 Blueprint
+app.register_blueprint(auth_bp, url_prefix='/api/auth')
+
 
 # 初始化日誌系統
 logger = setup_logger(log_level='INFO')
@@ -752,59 +759,17 @@ def build_conversation_log(history: list) -> str:
     return "\n".join(lines)
 
 def hash_password(password: str) -> Dict[str, str]:
-    """雜湊密碼（PBKDF2-HMAC-SHA256）"""
-    salt = secrets.token_hex(16)
-    pwd_hash = hashlib.pbkdf2_hmac(
-        'sha256',
-        password.encode('utf-8'),
-        salt.encode('utf-8'),
-        100000
-    ).hex()
-    return {'hash': pwd_hash, 'salt': salt}
+    return auth_utils.hash_password(password)
 
 def verify_password(password: str, stored_hash: str, salt: str) -> bool:
-    """驗證密碼"""
-    pwd_hash = hashlib.pbkdf2_hmac(
-        'sha256',
-        password.encode('utf-8'),
-        salt.encode('utf-8'),
-        100000
-    ).hex()
-    return hmac.compare_digest(pwd_hash, stored_hash)
+    return auth_utils.verify_password(password, stored_hash, salt)
 
 def get_auth_token_from_request(data: Optional[Dict] = None) -> Optional[str]:
-    """從 Authorization header 或 payload 取得 token"""
-    auth_header = request.headers.get('Authorization', '')
-    if auth_header.lower().startswith('bearer '):
-        return auth_header.split(' ', 1)[1].strip()
-    if data:
-        return data.get('token')
-    return None
+    return auth_utils.get_auth_token_from_request(data)
 
 def require_auth_user_id() -> str:
-    """驗證 session 並回傳 user_id"""
-    # 優先從 header 讀取，其次從 body
-    data = {}
-    if request.method not in ('GET', 'DELETE'):
-        try:
-            data = request.json or {}
-        except Exception:
-            data = {}
-    token = get_auth_token_from_request(data)
-    if not token:
-        raise MissingParameterException('token')
-    session = db.get_session(token)
-    if not session:
-        raise UserNotFoundException('session')
-    expires_at = session.get('expires_at')
-    if expires_at:
-        try:
-            if datetime.fromisoformat(expires_at) < datetime.now():
-                db.delete_session(token)
-                raise UserNotFoundException('session')
-        except Exception:
-            pass
-    return session.get('user_id')
+    return auth_utils.require_auth_user_id(db)
+
 
 def parse_birth_date_str(birth_date_str: Optional[str]) -> Optional[Tuple[int, int, int]]:
     """解析出生日期字串，回傳 (year, month, day)"""
@@ -881,7 +846,8 @@ def log_response_info(response):
 def call_gemini(
     prompt: str,
     system_instruction: str = SYSTEM_INSTRUCTION,
-    max_output_tokens: Optional[int] = None
+    max_output_tokens: Optional[int] = None,
+    response_mime_type: Optional[str] = None
 ) -> str:
     """
     呼叫 Gemini API（使用新的 google.genai SDK）
@@ -889,6 +855,8 @@ def call_gemini(
     Args:
         prompt: 提示詞
         system_instruction: 系統指令（將前置到 prompt 中）
+        max_output_tokens: 最大 Token 數
+        response_mime_type: 響應格式
         
     Returns:
         繁體中文的回應文字
@@ -896,11 +864,17 @@ def call_gemini(
     import time
     start_time = time.time()
     
-    # 新 SDK 不支持 system_instruction，我們將它前置到 prompt 中
+    # 新 SDK 支持 system_instruction (或者我們可以繼續前置)
+    # 這裡維持原樣，但加入 response_mime_type
     full_prompt = f"{system_instruction}\n\n{prompt}"
     
     try:
-        response_text = gemini_client.generate(full_prompt, max_output_tokens=max_output_tokens)
+        response_text = gemini_client.generate(
+            full_prompt, 
+            max_output_tokens=max_output_tokens,
+            response_mime_type=response_mime_type
+        )
+
         
         # 檢查回應是否有效
         if response_text is None:
@@ -1303,90 +1277,9 @@ def health_check():
     return jsonify({'status': 'ok', 'service': 'Aetheria Chart Locking API'})
 
 # ============================================
-# 會員系統
+# 會員資料與設定
 # ============================================
 
-@app.route('/api/auth/register', methods=['POST'])
-def register_member():
-    """會員註冊"""
-    data = request.json or {}
-    email = data.get('email')
-    password = data.get('password')
-    phone = data.get('phone')
-    display_name = data.get('display_name')
-    consents = data.get('consents') or {}
-
-    if not email:
-        raise MissingParameterException('email')
-    if not password:
-        raise MissingParameterException('password')
-
-    if db.get_member_by_email(email):
-        return jsonify({'status': 'error', 'message': 'Email 已註冊'}), 409
-
-    user_id = uuid.uuid4().hex
-    hashed = hash_password(password)
-    db.create_member({
-        'user_id': user_id,
-        'email': email,
-        'phone': phone,
-        'display_name': display_name,
-        'password_hash': hashed['hash'],
-        'password_salt': hashed['salt']
-    })
-
-    if consents:
-        db.save_member_consents(user_id, consents)
-
-    token = uuid.uuid4().hex
-    expires_at = (datetime.now() + timedelta(days=30)).isoformat()
-    db.create_session(token, user_id, expires_at)
-
-    return jsonify({
-        'status': 'success',
-        'user_id': user_id,
-        'token': token,
-        'expires_at': expires_at
-    })
-
-@app.route('/api/auth/login', methods=['POST'])
-def login_member():
-    """會員登入"""
-    data = request.json or {}
-    email = data.get('email')
-    password = data.get('password')
-
-    if not email:
-        raise MissingParameterException('email')
-    if not password:
-        raise MissingParameterException('password')
-
-    member = db.get_member_by_email(email)
-    if not member:
-        return jsonify({'status': 'error', 'message': '帳號或密碼錯誤'}), 401
-
-    if not verify_password(password, member.get('password_hash'), member.get('password_salt')):
-        return jsonify({'status': 'error', 'message': '帳號或密碼錯誤'}), 401
-
-    token = uuid.uuid4().hex
-    expires_at = (datetime.now() + timedelta(days=30)).isoformat()
-    db.create_session(token, member.get('user_id'), expires_at)
-
-    return jsonify({
-        'status': 'success',
-        'user_id': member.get('user_id'),
-        'token': token,
-        'expires_at': expires_at
-    })
-
-@app.route('/api/auth/logout', methods=['POST'])
-def logout_member():
-    """會員登出"""
-    token = get_auth_token_from_request(request.json or {})
-    if not token:
-        raise MissingParameterException('token')
-    db.delete_session(token)
-    return jsonify({'status': 'success'})
 
 @app.route('/api/profile', methods=['GET'])
 def get_profile():
@@ -2562,7 +2455,8 @@ def chat_consult():
     # 呼叫 Gemini API 並處理可能的錯誤
     raw = None
     try:
-        raw = call_gemini(prompt, consult_system)
+        raw = call_gemini(prompt, consult_system, response_mime_type='application/json')
+
         logger.info(f"Gemini 回覆長度: {len(raw) if raw else 0}")
     except Exception as e:
         logger.error(f"Gemini API 呼叫失敗: {e}")
