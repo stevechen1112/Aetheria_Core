@@ -7,13 +7,16 @@ import './VoiceChat.css'
  * 1. 文字模式：傳統文字對話
  * 2. 語音模式：使用 OpenAI Realtime WebRTC API 即時語音對話
  */
-function VoiceChat({ apiBase, token, onClose }) {
+function VoiceChat({ apiBase, token, userId, onClose, embedded = false }) {
   // 基本狀態
   const [mode, setMode] = useState('text') // 'text' or 'voice'
   const [messages, setMessages] = useState([])
   const [inputText, setInputText] = useState('')
   const [sessionId, setSessionId] = useState(null)
   const [loading, setLoading] = useState(false)
+  const storagePrefix = userId || token || 'guest'
+  const storageSessionKey = `aetheria_chat_session_id_${storagePrefix}`
+  const storageMessagesKey = `aetheria_chat_messages_${storagePrefix}`
   
   // 語音模式狀態
   const [isConnected, setIsConnected] = useState(false)
@@ -81,12 +84,106 @@ function VoiceChat({ apiBase, token, onClose }) {
       disconnectRealtime()
       if (recognitionRef.current) recognitionRef.current.stop()
     }
-  }, [])
+  }, [disconnectRealtime])
 
   // 自動滾動到底部
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  // 使用者切換時清空前端暫存狀態
+  useEffect(() => {
+    setMessages([])
+    setSessionId(null)
+  }, [storagePrefix])
+
+  // 載入先前對話（優先從 API，失敗則用 localStorage）
+  useEffect(() => {
+    if (!token) return
+
+    const loadMessages = async (sessId) => {
+      try {
+        const resp = await fetch(`${apiBase}/api/chat/messages?session_id=${sessId}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+        if (resp.status === 401) {
+          localStorage.removeItem('aetheria_token')
+          return
+        }
+        if (!resp.ok) throw new Error('load messages failed')
+        const data = await resp.json()
+        if (data?.messages?.length) {
+          setMessages(data.messages.map(m => ({
+            role: m.role,
+            content: m.content,
+            citations: m.citations || [],
+            used_systems: m.used_systems || [],
+            confidence: m.confidence || 0,
+            timestamp: m.created_at || new Date().toISOString()
+          })))
+        }
+      } catch (error) {
+        console.warn('Load messages failed:', error)
+        const cached = localStorage.getItem(storageMessagesKey)
+        if (cached) {
+          try {
+            setMessages(JSON.parse(cached))
+          } catch (error) {
+            console.warn('Parse cached messages failed:', error)
+          }
+        }
+      }
+    }
+
+    const init = async () => {
+      const savedSession = localStorage.getItem(storageSessionKey)
+      if (savedSession) {
+        setSessionId(savedSession)
+        await loadMessages(savedSession)
+        return
+      }
+
+      try {
+        const resp = await fetch(`${apiBase}/api/chat/sessions`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+        if (resp.status === 401) {
+          localStorage.removeItem('aetheria_token')
+          return
+        }
+        if (!resp.ok) throw new Error('load sessions failed')
+        const data = await resp.json()
+        const latest = data?.sessions?.[0]
+        if (latest?.session_id) {
+          setSessionId(latest.session_id)
+          localStorage.setItem(storageSessionKey, latest.session_id)
+          await loadMessages(latest.session_id)
+        }
+      } catch (error) {
+        console.warn('Init chat session failed:', error)
+        const cached = localStorage.getItem(storageMessagesKey)
+        if (cached) {
+          try {
+            setMessages(JSON.parse(cached))
+          } catch (error) {
+            console.warn('Parse cached messages failed:', error)
+          }
+        }
+      }
+    }
+
+    init()
+  }, [apiBase, token, storageMessagesKey, storageSessionKey])
+
+  useEffect(() => {
+    if (sessionId) localStorage.setItem(storageSessionKey, sessionId)
+  }, [sessionId, storageSessionKey])
+
+  useEffect(() => {
+    if (messages?.length) {
+      localStorage.setItem(storageMessagesKey, JSON.stringify(messages.slice(-200)))
+    }
+  }, [messages, storageMessagesKey])
 
   // 斷開 WebRTC 連線
   const disconnectRealtime = useCallback(() => {
@@ -262,7 +359,7 @@ function VoiceChat({ apiBase, token, onClose }) {
     }
   }, [apiBase, token, selectedVoice, addMessage, handleRealtimeEvent, disconnectRealtime])
 
-  // 文字模式：發送訊息
+  // 文字模式：發送訊息（Streaming 版本）
   const sendTextMessage = async () => {
     if (!inputText.trim()) return
     if (!token) {
@@ -277,44 +374,123 @@ function VoiceChat({ apiBase, token, onClose }) {
     }
 
     setMessages(prev => [...prev, userMessage])
+    const userInput = inputText
     setInputText('')
     setLoading(true)
 
+    // 添加一個空的 AI 訊息，準備接收 streaming 內容
+    const assistantMessageId = `assistant-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    setMessages(prev => [...prev, {
+      id: assistantMessageId,
+      role: 'assistant',
+      content: '',
+      streaming: true,
+      timestamp: new Date().toISOString()
+    }])
+
     try {
-      const response = await fetch(`${apiBase}/api/chat/consult`, {
+      const response = await fetch(`${apiBase}/api/chat/consult-stream`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          message: inputText,
-          session_id: sessionId,
-          voice_mode: false
+          message: userInput,
+          session_id: sessionId
         })
       })
 
-      const data = await response.json()
-
-      if (data.status === 'success') {
-        if (!sessionId) setSessionId(data.session_id)
-
-        const assistantMessage = {
-          role: 'assistant',
-          content: data.reply,
-          citations: data.citations || [],
-          used_systems: data.used_systems || [],
-          confidence: data.confidence || 0,
-          timestamp: new Date().toISOString()
-        }
-
-        setMessages(prev => [...prev, assistantMessage])
-      } else {
-        throw new Error(data.error || '請求失敗')
+      if (response.status === 401) {
+        localStorage.removeItem('aetheria_token')
+        throw new Error('請先登入')
       }
+
+      if (!response.ok) {
+        throw new Error(`請求失敗 (${response.status})`)
+      }
+
+      // 讀取 SSE 流
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let accumulatedText = ''
+      let currentEvent = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (!line.trim() || line.startsWith(':')) continue
+
+          if (line.startsWith('event: ')) {
+            currentEvent = line.slice(7).trim()
+            continue
+          }
+
+          if (line.startsWith('data: ')) {
+            const dataStr = line.slice(6).trim()
+            try {
+              const data = JSON.parse(dataStr)
+              
+              // 處理不同類型的事件
+              if (currentEvent === 'text' && data.chunk) {
+                // 文字片段
+                accumulatedText += data.chunk
+                setMessages(prev => {
+                  const newMessages = [...prev]
+                  const targetIndex = newMessages.findIndex(m => m?.id === assistantMessageId)
+                  if (targetIndex >= 0) {
+                    newMessages[targetIndex] = {
+                      ...newMessages[targetIndex],
+                      content: accumulatedText
+                    }
+                  }
+                  return newMessages
+                })
+              } else if (data.session_id && !sessionId) {
+                // 新 session
+                setSessionId(data.session_id)
+              } else if (data.message) {
+                // 狀態訊息（忽略或顯示在 UI）
+                console.log('狀態:', data.message)
+              } else if (data.name && data.status) {
+                // 工具調用事件（可以顯示 UI 提示）
+                if (data.status === 'executing') {
+                  console.log('正在執行工具:', data.name)
+                }
+              }
+            } catch (e) {
+              console.warn('解析 SSE 資料失敗:', e, dataStr)
+            }
+          }
+        }
+      }
+
+      // Streaming 完成，標記訊息為非 streaming
+      setMessages(prev => {
+        const newMessages = [...prev]
+        const targetIndex = newMessages.findIndex(m => m?.id === assistantMessageId)
+        if (targetIndex >= 0) {
+          newMessages[targetIndex] = {
+            ...newMessages[targetIndex],
+            streaming: false
+          }
+        }
+        return newMessages
+      })
+
     } catch (error) {
       console.error('發送訊息失敗:', error)
       alert('發送失敗：' + error.message)
+      
+      // 移除失敗的 AI 訊息
+      setMessages(prev => prev.slice(0, -1))
     } finally {
       setLoading(false)
     }
@@ -359,9 +535,15 @@ function VoiceChat({ apiBase, token, onClose }) {
     setConnectionError('')
   }
 
+  const wrapperClass = embedded ? 'voice-chat-page' : 'voice-chat-overlay'
+  const containerClass = embedded ? 'voice-chat-container embedded' : 'voice-chat-container'
+
   return (
-    <div className="voice-chat-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="voice-chat-container">
+    <div
+      className={wrapperClass}
+      onClick={embedded ? undefined : (e) => e.target === e.currentTarget && onClose && onClose()}
+    >
+      <div className={containerClass}>
         {/* 頭部 */}
         <div className="voice-chat-header">
           <div className="header-title">
@@ -391,7 +573,9 @@ function VoiceChat({ apiBase, token, onClose }) {
             </button>
           </div>
 
-          <button className="close-btn" onClick={onClose}>✕</button>
+          {!embedded && onClose && (
+            <button className="close-btn" onClick={onClose}>✕</button>
+          )}
         </div>
 
         {/* 語音設定區（僅語音模式） */}

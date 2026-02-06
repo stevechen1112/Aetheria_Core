@@ -3,10 +3,21 @@
 使用 Kerykeion (基於 Swiss Ephemeris GPL v2)
 """
 
+import os
+
+# 避免 kerykeion 在未設定時輸出警告
+if not os.getenv("GEONAMES_USERNAME"):
+    os.environ["GEONAMES_USERNAME"] = "demo"
+
 from kerykeion import AstrologicalSubject
 from datetime import datetime
 import pytz
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
+
+from src.utils.geonames_cache import get_geonames_cache
+from src.utils.logger import get_logger
+
+logger = get_logger()
 
 
 class AstrologyCalculator:
@@ -107,19 +118,60 @@ class AstrologyCalculator:
             完整的本命盤數據
         """
         
-        # 如果沒有提供經緯度，使用城市名稱
+        # 如果沒有提供經緯度，從緩存或 GeoNames 獲取
+        geonames_username = os.getenv("GEONAMES_USERNAME", "demo")
+        cached_location = None
+        
         if longitude is None or latitude is None:
-            subject = AstrologicalSubject(
-                name=name,
-                year=year,
-                month=month,
-                day=day,
-                hour=hour,
-                minute=minute,
-                city=city,
-                nation=nation,
-                tz_str=timezone_str
-            )
+            # 先查詢緩存
+            cache = get_geonames_cache()
+            cached_location = cache.get(city, nation)
+            
+            if cached_location:
+                # 使用緩存的經緯度
+                logger.info(f"使用緩存的地理資訊: {city} ({nation or 'auto'})")
+                subject = AstrologicalSubject(
+                    name=name,
+                    year=year,
+                    month=month,
+                    day=day,
+                    hour=hour,
+                    minute=minute,
+                    lng=cached_location['lng'],
+                    lat=cached_location['lat'],
+                    tz_str=cached_location['timezonestr'],
+                    geonames_username=geonames_username
+                )
+            else:
+                # 緩存未命中，查詢 GeoNames API
+                logger.info(f"緩存未命中，查詢 GeoNames API: {city} ({nation or 'auto'})")
+                subject = AstrologicalSubject(
+                    name=name,
+                    year=year,
+                    month=month,
+                    day=day,
+                    hour=hour,
+                    minute=minute,
+                    city=city,
+                    nation=nation,
+                    tz_str=timezone_str,
+                    geonames_username=geonames_username
+                )
+                
+                # 查詢成功後儲存到緩存
+                try:
+                    if hasattr(subject, 'lat') and hasattr(subject, 'lng'):
+                        cache.set(
+                            city=city,
+                            nation=nation,
+                            latitude=subject.lat,
+                            longitude=subject.lng,
+                            timezone=subject.tz,
+                            country_code=getattr(subject, 'nation', None)
+                        )
+                        logger.info(f"GeoNames 查詢結果已緩存: {city}")
+                except Exception as e:
+                    logger.warning(f"緩存 GeoNames 結果失敗: {e}")
         else:
             subject = AstrologicalSubject(
                 name=name,
@@ -130,7 +182,8 @@ class AstrologyCalculator:
                 minute=minute,
                 lng=longitude,
                 lat=latitude,
-                tz_str=timezone_str
+                tz_str=timezone_str,
+                geonames_username=geonames_username
             )
         
         # 提取行星位置

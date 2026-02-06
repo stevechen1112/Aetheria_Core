@@ -45,10 +45,11 @@ class GeminiClient:
         temperature: Optional[float] = None,
         max_output_tokens: Optional[int] = None,
         model_name: Optional[str] = None,
-        response_mime_type: Optional[str] = None
-    ) -> str:
+        response_mime_type: Optional[str] = None,
+        tools: Optional[list] = None
+    ) -> Any:
         """
-        生成內容
+        生成內容（支援 Function Calling）
         
         Args:
             prompt: 提示詞
@@ -56,17 +57,35 @@ class GeminiClient:
             max_output_tokens: 覆蓋預設最大 Token 數
             model_name: 覆蓋預設模型
             response_mime_type: 響應格式 (例如 'application/json')
+            tools: Function Calling 工具定義列表
             
         Returns:
-            生成的文字內容
+            若有 tools，返回完整 response 對象；否則返回文字內容
             
         Raises:
             Exception: API 呼叫失敗
         """
+        tools_config = None
+        if tools:
+            function_declarations = []
+            for tool in tools:
+                if isinstance(tool, dict):
+                    function_declarations.append(
+                        types.FunctionDeclaration(
+                            name=tool.get("name"),
+                            description=tool.get("description"),
+                            parameters=tool.get("parameters")
+                        )
+                    )
+                else:
+                    function_declarations.append(tool)
+            tools_config = [types.Tool(function_declarations=function_declarations)]
+
         config = types.GenerateContentConfig(
             temperature=temperature or self.default_config['temperature'],
             max_output_tokens=max_output_tokens or self.default_config['max_output_tokens'],
-            response_mime_type=response_mime_type
+            response_mime_type=None if tools else response_mime_type,
+            tools=tools_config
         )
         
         try:
@@ -76,6 +95,10 @@ class GeminiClient:
                 config=config
             )
 
+            
+            # 若指定了 tools，返回完整 response 供後續處理
+            if tools:
+                return response
             
             # 檢查回應是否有效
             if response is None:
@@ -93,6 +116,68 @@ class GeminiClient:
             return response.text
         except Exception as e:
             raise Exception(f"Gemini API 呼叫失敗: {str(e)}")
+    
+    def generate_content_stream(
+        self,
+        prompt: str,
+        system_instruction: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_output_tokens: Optional[int] = None,
+        model_name: Optional[str] = None,
+        tools: Optional[list] = None
+    ):
+        """
+        生成內容（Streaming 模式，支援 Function Calling）
+        
+        Args:
+            prompt: 提示詞
+            system_instruction: 系統指令
+            temperature: 覆蓋預設溫度
+            max_output_tokens: 覆蓋預設最大 Token 數
+            model_name: 覆蓋預設模型
+            tools: Function Calling 工具定義列表
+            
+        Yields:
+            串流的 response chunks
+            
+        Raises:
+            Exception: API 呼叫失敗
+        """
+        tools_config = None
+        if tools:
+            function_declarations = []
+            for tool in tools:
+                if isinstance(tool, dict):
+                    function_declarations.append(
+                        types.FunctionDeclaration(
+                            name=tool.get("name"),
+                            description=tool.get("description"),
+                            parameters=tool.get("parameters")
+                        )
+                    )
+                else:
+                    function_declarations.append(tool)
+            tools_config = [types.Tool(function_declarations=function_declarations)]
+        
+        config = types.GenerateContentConfig(
+            temperature=temperature or self.default_config['temperature'],
+            max_output_tokens=max_output_tokens or self.default_config['max_output_tokens'],
+            system_instruction=system_instruction,
+            tools=tools_config
+        )
+        
+        try:
+            response_stream = self.client.models.generate_content_stream(
+                model=model_name or self.model_name,
+                contents=prompt,
+                config=config
+            )
+            
+            for chunk in response_stream:
+                yield chunk
+                
+        except Exception as e:
+            raise Exception(f"Gemini API Streaming 失敗: {str(e)}")
     
     def generate_with_config(
         self,

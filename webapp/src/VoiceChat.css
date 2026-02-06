@@ -23,6 +23,11 @@
   to { opacity: 1; }
 }
 
+/* Embedded page layout */
+.voice-chat-page {
+  width: 100%;
+}
+
 .voice-chat-container {
   display: flex;
   flex-direction: column;
@@ -37,6 +42,15 @@
   animation: slideUp 0.3s ease-out;
 }
 
+.voice-chat-container.embedded {
+  width: 100%;
+  max-width: none;
+  height: calc(100vh - 240px);
+  max-height: none;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+
 /* 移动端全屏 */
 @media (max-width: 640px) {
   .voice-chat-container {
@@ -44,6 +58,10 @@
     height: 100%;
     max-height: none;
     border-radius: 0;
+  }
+  .voice-chat-container.embedded {
+    height: calc(100vh - 200px);
+    border-radius: var(--radius-md);
   }
 }
 

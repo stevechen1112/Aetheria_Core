@@ -1,37 +1,86 @@
-# Aetheria 專案 Git 忽略規則
+# Aetheria Core 2.0 — Git 忽略規則
 
-# 環境變數檔案（包含敏感資訊）
+# ===== 環境與敏感資訊 =====
 .env
 *.db
+*.db-shm
+*.db-wal
 
-
-# Python
+# ===== Python =====
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
+.venv/
 venv/
 env/
 ENV/
+*.egg-info/
+dist/
+build/
 
-# 測試與快取
+# ===== 測試與快取 =====
 .pytest_cache/
 .coverage
+.benchmarks/
 *.log
-feedback_log.jsonl
-tarot_reading_*.txt
-ziwei_fortune_*.txt
-output_*_analysis_*.txt
-output_*_fortune_*.txt
-output_*_validation_*.txt
+*.jsonl
 
-# IDE
+# ===== 臨時輸出文件（排盤報告） =====
+bazi_*.txt
+ziwei_*.txt
+astrology_*.txt
+tarot_*.txt
+name_*.txt
+numerology_*.txt
+output_*.txt
+cross_validation_*.txt
+*_analysis_*.txt
+*_fortune_*.txt
+*_reading_*.txt
+
+# ===== 日誌 =====
+logs/*.txt
+logs/*.log
+error.log
+server.log
+feedback_log.jsonl
+
+# ===== 快取目錄 =====
+cache/
+.cache/
+
+# ===== 前端（Node.js / React） =====
+node_modules/
+.npm/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+dist/
+.vite/
+*.local
+
+# ===== IDE =====
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
 
-# 作業系統
+# ===== 作業系統 =====
 .DS_Store
 Thumbs.db
+desktop.ini
+
+# ===== 部署與打包 =====
+*.tar.gz
+*.zip
+deploy/backup/
+tmp/
+
+# ===== 其他臨時文件 =====
+*.bak
+*.tmp
+*~

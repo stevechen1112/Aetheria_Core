@@ -2,6 +2,7 @@
 
 # Google Gemini API
 google-generativeai>=0.5.0
+google-genai>=1.0.0
 
 # 環境變數管理
 python-dotenv>=1.0.0
@@ -33,3 +34,5 @@ redis>=5.0.0
 # 可選：Web 框架（未來使用）
 fastapi>=0.110.0
 uvicorn>=0.27.0
+iztro-py==0.3.3
+kerykeion

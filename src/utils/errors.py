@@ -256,6 +256,7 @@ def register_error_handlers(app):
         app: Flask app 實例
     """
     from flask import jsonify
+    import logging
     
     @app.errorhandler(AetheriaException)
     def handle_aetheria_exception(error: AetheriaException):
@@ -276,6 +277,14 @@ def register_error_handlers(app):
     @app.errorhandler(405)
     def handle_method_not_allowed(error):
         """處理 405 錯誤"""
+        valid_methods = getattr(error, 'valid_methods', []) or []
+        valid_set = {m.upper() for m in valid_methods}
+        if valid_set.issubset({'OPTIONS', 'HEAD'}):
+            return jsonify({
+                'status': 'error',
+                'error_code': 404,
+                'message': '請求的資源不存在'
+            }), 404
         return jsonify({
             'status': 'error',
             'error_code': 405,
@@ -285,6 +294,13 @@ def register_error_handlers(app):
     @app.errorhandler(500)
     def handle_internal_error(error):
         """處理 500 錯誤"""
+        logger = logging.getLogger('aetheria')
+        # 盡可能記錄原始例外與堆疊
+        original = getattr(error, 'original_exception', None)
+        if original:
+            logger.error(f"Internal server error: {original}", exc_info=True)
+        else:
+            logger.error("Internal server error", exc_info=True)
         return jsonify({
             'status': 'error',
             'error_code': 500,

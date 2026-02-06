@@ -1,0 +1,215 @@
+import { useState, useCallback } from 'react'
+import ReactMarkdown from 'react-markdown'
+import ChartWidget from './widgets/ChartWidget'
+import './MessageRenderer.css'
+
+/**
+ * MessageRenderer - 統一訊息渲染器
+ * 
+ * 支援類型：
+ * - text: 純文字/Markdown 訊息
+ * - widget: 嵌入式互動組件 (chart, insight, system_card, progress)
+ * - system_event: 系統事件通知
+ * 
+ * §11.2: 包含回饋按鈕（👍👎）供用戶評價
+ */
+function MessageRenderer({ message, apiBase, token, sessionId }) {
+  const [feedbackGiven, setFeedbackGiven] = useState(null) // 'helpful' | 'not_helpful' | null
+
+  // §11.2 回饋提交
+  const submitFeedback = useCallback(async (rating) => {
+    if (!sessionId) {
+      console.warn('回饋提交失敗: 缺少 session_id')
+      return
+    }
+    setFeedbackGiven(rating)
+    try {
+      await fetch(`${apiBase || ''}/api/chat/feedback`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({
+          session_id: sessionId || '',
+          message_id: message.id,
+          rating: rating
+        })
+      })
+    } catch (e) {
+      console.warn('回饋提交失敗:', e)
+    }
+  }, [apiBase, token, message.id, sessionId])
+  // 文字訊息
+  if (message.type === 'text') {
+    return (
+      <div className={`message message-${message.role}`}>
+        <div className="message-avatar">
+          {message.role === 'user' ? '👤' : '🔮'}
+        </div>
+        <div className="message-content">
+          <div className="message-body">
+            {message.streaming ? (
+              <div className="streaming-text">
+                {message.content}
+                <span className="cursor">▊</span>
+              </div>
+            ) : (
+              <ReactMarkdown>{message.content || '...'}</ReactMarkdown>
+            )}
+          </div>
+          {message.citations && message.citations.length > 0 && (
+            <div className="message-citations">
+              <details>
+                <summary>📚 參考來源 ({message.citations.length})</summary>
+                <ul>
+                  {message.citations.map((cite, idx) => (
+                    <li key={idx}>
+                      <strong>{cite.system}:</strong> {cite.source}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            </div>
+          )}
+          {message.used_systems && message.used_systems.length > 0 && (
+            <div className="message-systems">
+              {message.used_systems.map((sys, idx) => (
+                <span key={idx} className="system-badge">{sys}</span>
+              ))}
+            </div>
+          )}
+          <div className="message-timestamp">
+            {new Date(message.timestamp).toLocaleTimeString('zh-TW', {
+              hour: '2-digit',
+              minute: '2-digit'
+            })}
+          </div>
+          {/* §11.2 回饋按鈕 — 僅 assistant 且非串流中 */}
+          {message.role === 'assistant' && !message.streaming && (
+            <div className="message-feedback">
+              {feedbackGiven ? (
+                <span className="feedback-thanks">
+                  {feedbackGiven === 'helpful' ? '👍' : '👎'} 感謝回饋
+                </span>
+              ) : (
+                <>
+                  <button
+                    className="feedback-btn feedback-up"
+                    onClick={() => submitFeedback('helpful')}
+                    title="有幫助"
+                  >👍</button>
+                  <button
+                    className="feedback-btn feedback-down"
+                    onClick={() => submitFeedback('not_helpful')}
+                    title="沒幫助"
+                  >👎</button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // Widget 訊息
+  if (message.type === 'widget') {
+    return (
+      <div className="message message-widget">
+        <div className="message-avatar">🔮</div>
+        <div className="message-content">
+          {message.widget_type === 'chart' && (
+            <ChartWidget 
+              data={message.widget_data}
+              compact={message.compact}
+              apiBase={apiBase}
+              token={token}
+            />
+          )}
+          {message.widget_type === 'insight' && (
+            <div className="widget-insight">
+              <div className="insight-header">
+                <span className="insight-icon">{message.widget_data.icon || '💡'}</span>
+                <span className="insight-title">{message.widget_data.title}</span>
+              </div>
+              <div className="insight-body">
+                <ReactMarkdown>{message.widget_data.content}</ReactMarkdown>
+              </div>
+              {message.widget_data.confidence && (
+                <div className="insight-confidence">
+                  可信度: {(message.widget_data.confidence * 100).toFixed(0)}%
+                </div>
+              )}
+            </div>
+          )}
+          {message.widget_type === 'system_card' && (
+            <div className="widget-system-card">
+              <div className="system-card-header">
+                <span className="system-icon">{message.widget_data.icon || '⭐'}</span>
+                <span className="system-name">{message.widget_data.system_name}</span>
+              </div>
+              <div className="system-card-content">
+                {message.widget_data.summary}
+              </div>
+              {message.widget_data.details && (
+                <details>
+                  <summary>查看詳情</summary>
+                  <div className="system-card-details">
+                    <ReactMarkdown>{message.widget_data.details}</ReactMarkdown>
+                  </div>
+                </details>
+              )}
+            </div>
+          )}
+          {message.widget_type === 'progress' && (
+            <div className="widget-progress">
+              <div className="progress-header">
+                <span className="progress-icon">
+                  {message.widget_data.status === 'completed' ? '✅' : 
+                   message.widget_data.status === 'error' ? '❌' : 
+                   message.widget_data.status === 'running' ? '⏳' : '⏸️'}
+                </span>
+                <span className="progress-task">{message.widget_data.task_name}</span>
+              </div>
+              <div className="progress-bar-container">
+                <div 
+                  className={`progress-bar progress-${message.widget_data.status}`}
+                  style={{width: `${message.widget_data.progress * 100}%`}}
+                />
+              </div>
+              {message.widget_data.message && (
+                <div className="progress-message">{message.widget_data.message}</div>
+              )}
+              <div className="progress-percentage">
+                {(message.widget_data.progress * 100).toFixed(0)}%
+              </div>
+            </div>
+          )}
+          <div className="message-timestamp">
+            {new Date(message.timestamp).toLocaleTimeString('zh-TW', {
+              hour: '2-digit',
+              minute: '2-digit'
+            })}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // 系統事件
+  if (message.type === 'system_event') {
+    return (
+      <div className="message message-system-event">
+        <div className="event-content">
+          <span className="event-icon">ℹ️</span>
+          <span className="event-text">{message.content}</span>
+        </div>
+      </div>
+    )
+  }
+
+  return null
+}
+
+export default MessageRenderer

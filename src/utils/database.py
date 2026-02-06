@@ -94,6 +94,23 @@ class AetheriaDatabase:
                 )
             """)
 
+            # 使用紀錄表（API 使用追蹤）
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS user_activity (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT,
+                    path TEXT NOT NULL,
+                    method TEXT NOT NULL,
+                    status_code INTEGER,
+                    duration_ms REAL,
+                    ip TEXT,
+                    user_agent TEXT,
+                    request_data TEXT,
+                    response_data TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
             # 會員資料表
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS members (
@@ -192,6 +209,91 @@ class AetheriaDatabase:
                     FOREIGN KEY (session_id) REFERENCES chat_sessions(session_id)
                 )
             """)
+
+            # ==================== 三層記憶架構表 ====================
+            
+            # 對話記憶表（包含 system_event）
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS conversation_memory (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    summary TEXT,
+                    timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+                    token_count INTEGER,
+                    is_archived INTEGER DEFAULT 0,
+                    FOREIGN KEY (user_id) REFERENCES members(user_id),
+                    FOREIGN KEY (session_id) REFERENCES chat_sessions(session_id)
+                )
+            """)
+
+            # 摘要記憶表
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS episodic_summary (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    summary_date TEXT NOT NULL,
+                    topic TEXT,
+                    key_points TEXT NOT NULL,
+                    source_session_ids TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES members(user_id)
+                )
+            """)
+
+            # 使用者畫像表（核心知識庫）
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS user_persona (
+                    user_id TEXT PRIMARY KEY,
+                    birth_info TEXT,
+                    chart_data TEXT,
+                    personality_tags TEXT,
+                    preferences TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES members(user_id)
+                )
+            """)
+            
+            # ==================== 背景任務系統表 ====================
+            
+            # 任務狀態表（持久化 TaskManager 狀態）
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS background_tasks (
+                    task_id TEXT PRIMARY KEY,
+                    task_name TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    priority INTEGER DEFAULT 5,
+                    progress REAL DEFAULT 0.0,
+                    message TEXT,
+                    result TEXT,
+                    error TEXT,
+                    metadata TEXT,
+                    created_at TEXT NOT NULL,
+                    started_at TEXT,
+                    completed_at TEXT,
+                    user_id TEXT,
+                    FOREIGN KEY (user_id) REFERENCES members(user_id)
+                )
+            """)
+            
+            # 任務索引
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_background_tasks_status
+                ON background_tasks(status)
+            """)
+            
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_background_tasks_user_id
+                ON background_tasks(user_id)
+            """)
+            
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_background_tasks_created_at
+                ON background_tasks(created_at)
+            """)
             
             # 索引
             cursor.execute("""
@@ -202,6 +304,82 @@ class AetheriaDatabase:
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_system_reports_user_id
                 ON system_reports(user_id)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_id
+                ON chat_sessions(user_id)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_chat_messages_session_id
+                ON chat_messages(session_id)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_analysis_history_created_at 
+                ON analysis_history(created_at DESC)
+            """)
+
+            # 記憶表索引
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_conversation_memory_user_id
+                ON conversation_memory(user_id)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_conversation_memory_session_id
+                ON conversation_memory(session_id)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_episodic_summary_user_id
+                ON episodic_summary(user_id)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_episodic_summary_date
+                ON episodic_summary(user_id, summary_date DESC)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_member_sessions_user_id
+                ON member_sessions(user_id)
+            """)
+
+            # ==================== §11.2 用戶回饋表 ====================
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS user_feedback (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    session_id TEXT,
+                    message_id INTEGER,
+                    rating TEXT NOT NULL,
+                    comment TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES members(user_id)
+                )
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_user_feedback_user_id
+                ON user_feedback(user_id)
+            """)
+
+            # ==================== §11.4 系統監控指標表 ====================
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS system_metrics (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    metric_name TEXT NOT NULL,
+                    metric_value REAL NOT NULL,
+                    labels TEXT,
+                    recorded_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_system_metrics_name_time
+                ON system_metrics(metric_name, recorded_at DESC)
             """)
 
     def _migrate_chart_locks_schema(self, cursor: sqlite3.Cursor) -> None:
@@ -243,28 +421,6 @@ class AetheriaDatabase:
             cursor.execute("ALTER TABLE chart_locks_v2 RENAME TO chart_locks")
         except Exception:
             return
-
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_id
-                ON chat_sessions(user_id)
-            """)
-
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_chat_messages_session_id
-                ON chat_messages(session_id)
-            """)
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_analysis_history_created_at 
-                ON analysis_history(created_at DESC)
-            """)
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_member_sessions_user_id
-                ON member_sessions(user_id)
-            """)
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_system_reports_user_id
-                ON system_reports(user_id)
-            """)
     
     # ==================== 用戶相關 ====================
     
@@ -440,6 +596,34 @@ class AetheriaDatabase:
                 data['chart_data'] = json.loads(data['chart_data'])
                 return data
             return None
+
+    def get_all_chart_locks(self, user_id: str) -> Dict[str, Dict[str, Any]]:
+        """
+        取得用戶所有命盤鎖定資料
+
+        Args:
+            user_id: 用戶 ID
+
+        Returns:
+            以 chart_type 為 key 的命盤鎖定資料
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM chart_locks WHERE user_id = ?
+            """, (user_id,))
+            rows = cursor.fetchall() or []
+
+        locks: Dict[str, Dict[str, Any]] = {}
+        for row in rows:
+            data = dict(row)
+            try:
+                data['chart_data'] = json.loads(data.get('chart_data') or '{}')
+            except Exception:
+                data['chart_data'] = {}
+            chart_type = data.get('chart_type') or 'unknown'
+            locks[chart_type] = data
+        return locks
     
     def delete_chart_lock(self, user_id: str, chart_type: Optional[str] = None) -> bool:
         """
@@ -461,6 +645,46 @@ class AetheriaDatabase:
             else:
                 cursor.execute("DELETE FROM chart_locks WHERE user_id = ?", (user_id,))
             return cursor.rowcount > 0
+
+    # ==================== 使用紀錄 ====================
+
+    def save_user_activity(
+        self,
+        user_id: Optional[str],
+        path: str,
+        method: str,
+        status_code: int,
+        duration_ms: float,
+        ip: Optional[str] = None,
+        user_agent: Optional[str] = None,
+        request_data: Optional[Dict[str, Any]] = None,
+        response_data: Optional[Dict[str, Any]] = None
+    ) -> bool:
+        """
+        保存 API 使用紀錄
+
+        Returns:
+            是否成功
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO user_activity
+                (user_id, path, method, status_code, duration_ms, ip, user_agent, request_data, response_data, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                user_id,
+                path,
+                method,
+                status_code,
+                duration_ms,
+                ip,
+                user_agent,
+                json.dumps(request_data, ensure_ascii=False) if request_data is not None else None,
+                json.dumps(response_data, ensure_ascii=False) if response_data is not None else None,
+                datetime.now().isoformat()
+            ))
+            return True
     
     # ==================== 分析歷史相關 ====================
     
@@ -899,14 +1123,182 @@ class AetheriaDatabase:
         """釋放資源（保留介面相容）"""
         return None
 
+    # ==================== 背景任務管理方法 ====================
+    
+    def save_task(self, task_data: Dict[str, Any]) -> bool:
+        """
+        儲存任務狀態到資料庫
+        
+        Args:
+            task_data: 任務資料字典，包含：
+                - task_id: 任務 ID
+                - task_name: 任務名稱
+                - status: 狀態 ('pending', 'running', 'completed', 'failed', 'cancelled')
+                - priority: 優先級 (1-10，預設 5)
+                - progress: 進度 (0.0-1.0)
+                - message: 狀態訊息
+                - result: 執行結果 (JSON 字串)
+                - error: 錯誤訊息
+                - metadata: 元數據 (JSON 字串)
+                - created_at: 建立時間
+                - started_at: 開始時間
+                - completed_at: 完成時間
+                - user_id: 用戶 ID (可選)
+        
+        Returns:
+            成功返回 True
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT OR REPLACE INTO background_tasks (
+                    task_id, task_name, status, priority, progress, message,
+                    result, error, metadata, created_at, started_at, completed_at, user_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                task_data['task_id'],
+                task_data['task_name'],
+                task_data['status'],
+                task_data.get('priority', 5),
+                task_data.get('progress', 0.0),
+                task_data.get('message'),
+                task_data.get('result'),
+                task_data.get('error'),
+                task_data.get('metadata'),
+                task_data['created_at'],
+                task_data.get('started_at'),
+                task_data.get('completed_at'),
+                task_data.get('user_id')
+            ))
+            return True
+    
+    def get_task(self, task_id: str) -> Optional[Dict[str, Any]]:
+        """取得任務資料"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM background_tasks WHERE task_id = ?
+            """, (task_id,))
+            row = cursor.fetchone()
+            
+            if row:
+                return dict(row)
+            return None
+    
+    def update_task_status(
+        self,
+        task_id: str,
+        status: str,
+        progress: Optional[float] = None,
+        message: Optional[str] = None,
+        result: Optional[str] = None,
+        error: Optional[str] = None,
+        started_at: Optional[str] = None,
+        completed_at: Optional[str] = None
+    ) -> bool:
+        """更新任務狀態"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # 動態構建 UPDATE 語句
+            update_fields = ["status = ?"]
+            params = [status]
+            
+            if progress is not None:
+                update_fields.append("progress = ?")
+                params.append(progress)
+            
+            if message is not None:
+                update_fields.append("message = ?")
+                params.append(message)
+            
+            if result is not None:
+                update_fields.append("result = ?")
+                params.append(result)
+            
+            if error is not None:
+                update_fields.append("error = ?")
+                params.append(error)
+            
+            if started_at is not None:
+                update_fields.append("started_at = ?")
+                params.append(started_at)
+            
+            if completed_at is not None:
+                update_fields.append("completed_at = ?")
+                params.append(completed_at)
+            
+            params.append(task_id)
+            
+            cursor.execute(f"""
+                UPDATE background_tasks 
+                SET {', '.join(update_fields)}
+                WHERE task_id = ?
+            """, params)
+            
+            return cursor.rowcount > 0
+    
+    def get_pending_tasks(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """取得待執行任務（按優先級排序）"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM background_tasks 
+                WHERE status = 'pending'
+                ORDER BY priority DESC, created_at ASC
+                LIMIT ?
+            """, (limit,))
+            
+            return [dict(row) for row in cursor.fetchall()]
+    
+    def get_user_tasks(
+        self,
+        user_id: str,
+        status: Optional[str] = None,
+        limit: int = 20
+    ) -> List[Dict[str, Any]]:
+        """取得用戶的任務列表"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            if status:
+                cursor.execute("""
+                    SELECT * FROM background_tasks 
+                    WHERE user_id = ? AND status = ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                """, (user_id, status, limit))
+            else:
+                cursor.execute("""
+                    SELECT * FROM background_tasks 
+                    WHERE user_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                """, (user_id, limit))
+            
+            return [dict(row) for row in cursor.fetchall()]
+    
+    def delete_old_tasks(self, max_age_hours: int = 24) -> int:
+        """刪除舊任務記錄"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                DELETE FROM background_tasks
+                WHERE status IN ('completed', 'failed', 'cancelled')
+                AND datetime(created_at) < datetime('now', '-' || ? || ' hours')
+            """, (max_age_hours,))
+            
+            return cursor.rowcount
 
-# 全域資料庫實例
-_db_instance: Optional[AetheriaDatabase] = None
+
+# 全域資料庫實例（依路徑快取）
+_db_instances: Dict[str, AetheriaDatabase] = {}
 
 
 def get_database(db_path: str = "data/aetheria.db") -> AetheriaDatabase:
-    """取得全域資料庫實例"""
-    global _db_instance
-    if _db_instance is None:
-        _db_instance = AetheriaDatabase(db_path)
-    return _db_instance
+    """取得全域資料庫實例（依 db_path 分開快取）"""
+    global _db_instances
+    key = str(Path(db_path).resolve())
+    if key not in _db_instances:
+        _db_instances[key] = AetheriaDatabase(db_path)
+    return _db_instances[key]
