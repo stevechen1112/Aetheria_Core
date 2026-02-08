@@ -12,7 +12,7 @@ import './ChatContainer.css'
  * 3. 零摩擦體驗 — 無須先「鎖定命盤」即可聊天
  * 4. 優雅錯誤處理 — 所有錯誤在對話流中呈現，不使用 alert/confirm
  */
-function ChatContainer({ apiBase, token, userId, embedded = false }) {
+function ChatContainer({ apiBase, token, userId, embedded = false, sidebarCollapsed = true, onToggleSidebar }) {
   const {
     messages,
     setMessages,
@@ -24,7 +24,6 @@ function ChatContainer({ apiBase, token, userId, embedded = false }) {
   const [loading, setLoading] = useState(false)
   const [toolExecuting, setToolExecuting] = useState(null)
   const [historyLoaded, setHistoryLoaded] = useState(false)
-  const [showClearConfirm, setShowClearConfirm] = useState(false)
 
   const messagesEndRef = useRef(null)
   const inputRef = useRef(null)
@@ -308,15 +307,6 @@ function ChatContainer({ apiBase, token, userId, embedded = false }) {
     }
   }
 
-  // ========== 開始新對話 ==========
-  const startNewSession = () => {
-    setMessages([])
-    setCurrentSession(null)
-    localStorage.removeItem(storageSessionKey)
-    localStorage.removeItem(storageMessagesKey)
-    setShowClearConfirm(false)
-  }
-
   // ========== 快速提問 ==========
   const handleQuickPrompt = (text) => {
     setInputText(text)
@@ -363,14 +353,18 @@ function ChatContainer({ apiBase, token, userId, embedded = false }) {
     <div className={`chat-container ${embedded ? 'embedded' : 'standalone'}`}>
       {/* 頂部操作列 */}
       <div className="chat-toolbar">
-        <button
-          className="toolbar-btn"
-          onClick={() => messages.length > 0 ? setShowClearConfirm(true) : null}
-          disabled={messages.length === 0}
-          title="開始新對話"
-        >
-          <span>＋</span> 新對話
-        </button>
+        {sidebarCollapsed && (
+          <button
+            className="toolbar-btn toolbar-sidebar-toggle"
+            onClick={onToggleSidebar}
+            title="開啟對話列表"
+          >
+            <span>☰</span>
+          </button>
+        )}
+        <div className="toolbar-session-title">
+          {currentSession ? '對話中' : '新對話'}
+        </div>
       </div>
 
       {/* 對話區域 */}
@@ -427,22 +421,6 @@ function ChatContainer({ apiBase, token, userId, embedded = false }) {
         </div>
       </div>
 
-      {/* 清除確認（取代 browser confirm） */}
-      {showClearConfirm && (
-        <div className="confirm-overlay" onClick={() => setShowClearConfirm(false)}>
-          <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
-            <p>確定要開始新對話嗎？<br /><small>目前的對話歷史仍會保存在伺服器。</small></p>
-            <div className="confirm-actions">
-              <button className="confirm-cancel" onClick={() => setShowClearConfirm(false)}>
-                取消
-              </button>
-              <button className="confirm-ok" onClick={startNewSession}>
-                開始新對話
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { AetheriaProvider } from './contexts/AetheriaContext'
 import ChatContainer from './ChatContainer'
+import SessionSidebar from './SessionSidebar'
 import './App.css'
 
 /* ==========================================
@@ -32,6 +33,16 @@ function App() {
   const [authMode, setAuthMode] = useState('login')
   const [authForm, setAuthForm] = useState({ email: '', password: '', display_name: '' })
   const [authLoading, setAuthLoading] = useState(false)
+
+  // ========== Sidebar State ==========
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    const saved = localStorage.getItem('aetheria_sidebar_collapsed')
+    return saved === 'true'
+  })
+
+  useEffect(() => {
+    localStorage.setItem('aetheria_sidebar_collapsed', sidebarCollapsed)
+  }, [sidebarCollapsed])
 
   // ========== Auto-provision guest on first visit ==========
   const provisionGuest = useCallback(async () => {
@@ -193,14 +204,24 @@ function App() {
           </div>
         </header>
 
-        {/* Chat — the ENTIRE main area */}
+        {/* Main area: Sidebar + Chat */}
         <main className="app-main">
-          <ChatContainer
+          <SessionSidebar
             apiBase={apiBase}
             token={token}
-            userId={userId}
-            embedded={false}
+            collapsed={sidebarCollapsed}
+            onToggleCollapse={() => setSidebarCollapsed(prev => !prev)}
           />
+          <div className="app-chat-area">
+            <ChatContainer
+              apiBase={apiBase}
+              token={token}
+              userId={userId}
+              embedded={false}
+              sidebarCollapsed={sidebarCollapsed}
+              onToggleSidebar={() => setSidebarCollapsed(prev => !prev)}
+            />
+          </div>
         </main>
 
         {/* Auth Modal */}

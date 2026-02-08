@@ -14,11 +14,25 @@
 /* ===== Toolbar ===== */
 .chat-toolbar {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
   padding: 6px 16px;
   background: rgba(255, 255, 255, 0.02);
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   flex-shrink: 0;
+}
+
+.toolbar-sidebar-toggle {
+  font-size: 1.1rem;
+  padding: 4px 8px;
+}
+
+.toolbar-session-title {
+  font-size: 0.8rem;
+  color: #888;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .toolbar-btn {
@@ -306,91 +320,6 @@
 .btn-send:disabled {
   opacity: 0.4;
   cursor: not-allowed;
-}
-
-/* ===== Confirm Dialog (replaces browser confirm) ===== */
-.confirm-overlay {
-  position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(3px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
-  animation: fadeIn 0.15s ease;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-.confirm-dialog {
-  background: #1e2a3a;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 14px;
-  padding: 24px;
-  max-width: 340px;
-  text-align: center;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
-  animation: slideUp 0.2s ease;
-}
-
-@keyframes slideUp {
-  from { opacity: 0; transform: translateY(12px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.confirm-dialog p {
-  font-size: 0.95rem;
-  color: #e0e0e0;
-  margin-bottom: 20px;
-  line-height: 1.5;
-}
-
-.confirm-dialog small {
-  color: #888;
-  font-size: 0.8rem;
-}
-
-.confirm-actions {
-  display: flex;
-  gap: 10px;
-  justify-content: center;
-}
-
-.confirm-cancel {
-  padding: 8px 20px;
-  background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  color: #aaa;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 0.85rem;
-  transition: all 0.2s;
-}
-
-.confirm-cancel:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: #fff;
-}
-
-.confirm-ok {
-  padding: 8px 20px;
-  background: linear-gradient(135deg, #6495ff 0%, #4a7cff 100%);
-  border: none;
-  color: white;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 0.85rem;
-  font-weight: 600;
-  transition: all 0.2s;
-}
-
-.confirm-ok:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 3px 12px rgba(100, 149, 255, 0.4);
 }
 
 /* ===== Responsive ===== */

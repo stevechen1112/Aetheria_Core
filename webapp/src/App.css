@@ -95,12 +95,21 @@
   background: rgba(100, 150, 255, 0.1);
 }
 
-/* ========== Main Area (Chat fills this) ========== */
+/* ========== Main Area (Sidebar + Chat side by side) ========== */
 .app-main {
   flex: 1;
   overflow: hidden;
   display: flex;
+  flex-direction: row;
+}
+
+/* Chat area fills remaining space beside sidebar */
+.app-chat-area {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
   flex-direction: column;
+  min-width: 0; /* prevent flex blowout */
 }
 
 /* Override ChatContainer standalone height since app-main handles it */
