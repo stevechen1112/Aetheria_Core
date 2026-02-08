@@ -348,6 +348,73 @@ _OFF_TOPIC_KEYWORDS = [
 ]
 
 
+# 用戶回答/回應型訊息的模式（不應算離題）
+_REPLY_PATTERNS = [
+    # 短回答
+    "好", "好的", "嗯", "嗯嗯", "ok", "可以", "沒問題", "對", "是", "不是",
+    "謝謝", "掰掰", "再見", "了解", "知道了", "明白",
+    # 回答 AI 提問
+    "準備好了", "開始", "請開始", "繼續", "請繼續", "沒問題",
+    # 否定/不理解
+    "不懂", "不太懂", "不了解", "不知道", "不確定", "不清楚",
+    # 提供個人資訊（回答 AI 詢問）
+    "男", "女", "男性", "女性",
+]
+
+
+def _is_answering_ai_question(message: str, history_msgs: List[Dict]) -> bool:
+    """判斷用戶是否在回答 AI 的問題（而非主動離題）"""
+    if not history_msgs:
+        return False
+    
+    # 找到最近的 AI 訊息
+    last_ai_msg = None
+    for m in reversed(history_msgs):
+        if m.get('role') == 'assistant':
+            last_ai_msg = m.get('content', '')
+            break
+    
+    if not last_ai_msg:
+        return False
+    
+    # 如果 AI 的上一條訊息以問句結尾，用戶的回覆就是在回答問題
+    ai_lower = last_ai_msg.strip()
+    if ai_lower.endswith('？') or ai_lower.endswith('?'):
+        return True
+    
+    # 如果 AI 訊息包含「請問」「可以告訴我」「方便提供」等詢問語句
+    ask_patterns = [
+        '請問', '可以告訴', '方便提供', '方便告訴', '你覺得', '你認為',
+        '想請問', '可以分享', '要不要', '準備好', '有沒有', '是否',
+    ]
+    if any(p in ai_lower for p in ask_patterns):
+        return True
+    
+    return False
+
+
+def _message_contains_personal_info(message: str) -> bool:
+    """判斷訊息是否包含個人資訊（如生辰、姓名、個性描述等）"""
+    personal_patterns = [
+        # 年份（出生年）
+        r'19[5-9]\d|200[0-9]|201[0-9]|202[0-6]',
+        # 時間
+        r'\d{1,2}[：:]\d{2}',
+        # 地點
+        '台灣', '台北', '台中', '高雄', '彰化', '新竹', '嘉義', '台南',
+        # 姓名格式
+        r'[\u4e00-\u9fff]{2,4}',
+        # 個性描述
+        '內向', '外向', '內斂', '活潑', '夜貓', '早起', '晚睡',
+        '安靜', '開朗', '害羞', '積極', '消極', '樂觀', '悲觀',
+    ]
+    import re
+    for pattern in personal_patterns:
+        if re.search(pattern, message):
+            return True
+    return False
+
+
 def detect_off_topic(
     message: str,
     history_msgs: List[Dict],
@@ -358,9 +425,10 @@ def detect_off_topic(
     偵測使用者是否偏離命理諮詢主題，並判斷是否需要引導。
     
     策略：
-    - 1-2 句離題 → 不干預（維持友善自然感）
-    - 3+ 句連續離題 → 溫和引導回命理
-    - 明確離題請求 → 委婉告知並引導
+    - 回答 AI 提問 → 永遠不算離題
+    - 包含個人資訊 → 不算離題
+    - 明確離題請求（寫程式、食譜等） → 引導
+    - 5+ 句連續非命理 → 溫和引導（提高閾值避免誤觸發）
     
     Args:
         message: 當前使用者訊息
@@ -377,77 +445,73 @@ def detect_off_topic(
             "steering_hint": str | None
         }
     """
+    _NOT_OFF_TOPIC = {
+        "is_off_topic": False,
+        "confidence": 0.0,
+        "consecutive_count": 0,
+        "should_steer": False,
+        "steering_hint": None
+    }
+    
     msg_lower = message.lower().strip()
     
-    # 短訊息（< 3 字）或問候語不算離題
-    if len(msg_lower) < 3 or msg_lower in ["嗯", "好", "ok", "嗯嗯", "好的", "謝謝", "掰掰", "再見"]:
-        return {
-            "is_off_topic": False,
-            "confidence": 0.0,
-            "consecutive_count": 0,
-            "should_steer": False,
-            "steering_hint": None
-        }
+    # 1. 短訊息（< 3 字）或固定回覆語 → 不算離題
+    if len(msg_lower) < 3 or msg_lower in _REPLY_PATTERNS:
+        return _NOT_OFF_TOPIC
     
-    # 檢查是否命理相關
-    is_fortune_related = any(kw in msg_lower for kw in _FORTUNE_KEYWORDS)
+    # 2. 包含命理關鍵詞 → 不算離題
+    if any(kw in msg_lower for kw in _FORTUNE_KEYWORDS):
+        return _NOT_OFF_TOPIC
     
-    # 檢查是否明確離題
+    # 3. 用戶在回答 AI 的問題 → 不算離題（關鍵修復！）
+    if _is_answering_ai_question(msg_lower, history_msgs):
+        return _NOT_OFF_TOPIC
+    
+    # 4. 包含個人資訊（姓名、生辰、個性描述等） → 不算離題
+    if _message_contains_personal_info(message):
+        return _NOT_OFF_TOPIC
+    
+    # 5. 檢查是否明確離題
     is_clearly_off_topic = any(kw in msg_lower for kw in _OFF_TOPIC_KEYWORDS)
     
-    if is_fortune_related:
+    if is_clearly_off_topic:
         return {
-            "is_off_topic": False,
-            "confidence": 0.0,
-            "consecutive_count": 0,
-            "should_steer": False,
-            "steering_hint": None
+            "is_off_topic": True,
+            "confidence": 0.9,
+            "consecutive_count": consecutive_off_topic_count + 1,
+            "should_steer": True,
+            "steering_hint": (
+                "【對話引導提示】\n"
+                "使用者的問題不在命理諮詢範圍內。請用自然友善的方式回應，"
+                "但溫和地引導話題回到命理方向。\n"
+                "範例：「這個問題我可能幫不上忙，不過我很擅長從命理角度"
+                "看你現在的運勢或方向，要不要聊聊？」"
+            )
         }
     
-    # 計算信心度
-    if is_clearly_off_topic:
-        confidence = 0.9
-    elif len(msg_lower) > 10 and not is_fortune_related:
-        confidence = 0.5
-    else:
-        confidence = 0.3
-    
+    # 6. 非命理但也非明確離題 → 累計，但閾值提高到 5
     new_count = consecutive_off_topic_count + 1
     
-    # 判斷是否需要引導
-    should_steer = False
-    steering_hint = None
-    
-    if is_clearly_off_topic:
-        should_steer = True
+    if new_count >= 5:
         steering_hint = (
             "【對話引導提示】\n"
-            "使用者的問題不在命理諮詢範圍內。請用自然友善的方式回應，"
-            "但溫和地引導話題回到命理方向。\n"
-            "範例：「這個問題我可能幫不上忙，不過我很擅長從命理角度"
-            "看你現在的運勢或方向，要不要聊聊？」"
+            "對話已偏離命理主題較久。\n"
+            "請自然地引導：「對了，我們聊了很多，要不要回來看看"
+            "命理方面有什麼可以幫你的？」"
         )
-    elif new_count >= 3:
-        should_steer = True
-        if has_birth_data:
-            steering_hint = (
-                "【對話引導提示】\n"
-                "使用者已連續 3+ 輪偏離命理話題。你已有他的命盤資料。\n"
-                "請自然地引導回命理：「對了，說到這個，你的命盤裡有個"
-                "有趣的地方剛好跟這相關，要不要聽聽看？」"
-            )
-        else:
-            steering_hint = (
-                "【對話引導提示】\n"
-                "使用者已連續 3+ 輪偏離命理話題。尚未取得生辰資料。\n"
-                "請自然地引導：「聊了這麼多，我越來越好奇你的命盤了。"
-                "方便告訴我你的出生年月日嗎？我幫你看看。」"
-            )
+        return {
+            "is_off_topic": True,
+            "confidence": 0.6,
+            "consecutive_count": new_count,
+            "should_steer": True,
+            "steering_hint": steering_hint
+        }
     
+    # 未達閾值 → 不干預
     return {
-        "is_off_topic": confidence > 0.4,
-        "confidence": confidence,
+        "is_off_topic": False,
+        "confidence": 0.3,
         "consecutive_count": new_count,
-        "should_steer": should_steer,
-        "steering_hint": steering_hint
+        "should_steer": False,
+        "steering_hint": None
     }

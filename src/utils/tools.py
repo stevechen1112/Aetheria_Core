@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 TOOL_DEFINITIONS = [
     {
         "name": "calculate_ziwei",
-        "description": "计算紫微斗数命盘。需要用户提供：出生日期（阳历）、出生时间、性别、出生地点",
+        "description": "计算紫微斗数命盘。需要用户提供：出生日期（阳历）、出生时间、性别、出生地点。注意：如果系统提示中的「命盘摘要」已包含紫微数据，则无需重复调用此工具，直接引用已有数据分析即可。",
         "parameters": {
             "type": "object",
             "properties": {
@@ -53,7 +53,7 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "calculate_bazi",
-        "description": "计算八字命盘（四柱八字、大运、流年）。需要用户提供：出生年月日时、性别",
+        "description": "计算八字命盘（四柱八字、大运、流年）。需要用户提供：出生年月日时、性别。注意：如果系统提示中的「命盘摘要」已包含八字数据，则无需重复调用此工具，直接引用已有数据分析即可。",
         "parameters": {
             "type": "object",
             "properties": {
@@ -94,7 +94,7 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "calculate_astrology",
-        "description": "计算西洋占星本命盘（行星、宫位、相位）。需要用户提供：出生年月日时、出生地点",
+        "description": "计算西洋占星本命盘（行星、宫位、相位）。需要用户提供：出生年月日时、出生地点。注意：如果系统提示中的「命盘摘要」已包含占星数据，则无需重复调用此工具。",
         "parameters": {
             "type": "object",
             "properties": {

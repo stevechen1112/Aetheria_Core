@@ -3941,10 +3941,15 @@ def get_chat_messages_api():
     if not session_id:
         raise MissingParameterException('session_id')
     
-    # 驗證 session 擁有者
+    # 驗證 session 擁有者（session 不存在時優雅返回空列表，不報 400）
     sess = db.get_chat_session(session_id)
     if not sess or sess.get('user_id') != user_id:
-        return jsonify({'status': 'error', 'message': '無效的 session_id'}), 400
+        return jsonify({
+            'status': 'success',
+            'session_id': session_id,
+            'messages': [],
+            'expired': True
+        })
     
     messages = db.get_chat_messages(session_id, limit=limit)
     # 格式化訊息，確保前端可用
@@ -5456,27 +5461,46 @@ def chat_consult_stream():
             memory_context_text = format_memory_context(memory_context)
             
             # Gap 5 修復：離題偵測與引導
+            # 判斷是否已有生辰資料（命盤鎖定 OR 對話中已提供）
+            _has_birth = bool(chart_context)
+            if not _has_birth and user_data:
+                _has_birth = bool(user_data.get('birth_date') or user_data.get('gregorian_birth_date'))
+            if not _has_birth:
+                # 檢查對話歷史中是否已提供過生辰
+                for _m in history_msgs:
+                    if _m.get('role') == 'user':
+                        _content = _m.get('content', '')
+                        import re as _re
+                        if _re.search(r'19[5-9]\d|200[0-9]|201[0-9]|202[0-6]', _content):
+                            _has_birth = True
+                            break
+            
             # 計算連續離題次數（從最近歷史倒推）
             _consecutive_off = 0
             for _m in reversed(history_msgs):
                 if _m.get('role') == 'user':
-                    _prev_check = detect_off_topic(_m.get('content', ''), [], bool(chart_context), 0)
+                    _prev_check = detect_off_topic(_m.get('content', ''), history_msgs, _has_birth, 0)
                     if _prev_check['is_off_topic']:
                         _consecutive_off += 1
                     else:
                         break
             off_topic_result = detect_off_topic(
-                message, history_msgs, bool(chart_context), _consecutive_off
+                message, history_msgs, _has_birth, _consecutive_off
             )
             steering_hint = ""
             if off_topic_result['should_steer'] and off_topic_result['steering_hint']:
                 steering_hint = f"\n\n{off_topic_result['steering_hint']}"
             
             # 結合命盤上下文 + 格式化記憶 + 引導提示
+            _dedup_hint = ""
+            if available_systems:
+                _existing = ', '.join(available_systems)
+                _dedup_hint = f"\n⚠️ 以下系統已有命盤數據，不要重複調用 calculate_ 工具：{_existing}"
+            
             consult_system = enhanced_prompt + f"""
 
 【可用命盤系統】
-{', '.join(available_systems) if available_systems else '無'}
+{', '.join(available_systems) if available_systems else '無'}{_dedup_hint}
 
 【命盤摘要】
 {chart_context or '（尚未提供生辰資料）'}

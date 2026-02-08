@@ -240,22 +240,39 @@
 
 /* 完整命盤展開區 */
 .chart-full-detail {
-  padding: 12px 16px;
+  padding: 4px 16px 16px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
-  max-height: 400px;
+  max-height: 500px;
   overflow-y: auto;
 }
 
-.chart-json {
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 8px;
-  padding: 12px;
-  font-size: 0.8rem;
-  line-height: 1.5;
-  color: #ccc;
-  white-space: pre-wrap;
-  word-break: break-all;
-  margin: 0;
+.full-detail-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.detail-block {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 10px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.detail-block-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #8ab4ff;
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.nested-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 8px;
 }
 
 /* 借宮標記 */

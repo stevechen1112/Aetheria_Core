@@ -243,14 +243,243 @@ function ChartWidget({ data, compact = true }) {
         </button>
       </div>
 
-      {/* 完整命盤展開區 */}
+      {/* 完整命盤展開區 — 結構化呈現 */}
       {showFullChart && (
         <div className="chart-full-detail">
-          <pre className="chart-json">
-            {JSON.stringify(chart_data, null, 2)}
-          </pre>
+          {system === 'ziwei' && <ZiweiFullDetail data={chart_data} />}
+          {system === 'bazi' && <BaziFullDetail data={chart_data} />}
+          {system === 'astrology' && <AstrologyFullDetail data={chart_data} />}
+          {!['ziwei', 'bazi', 'astrology'].includes(system) && (
+            <GenericFullDetail data={chart_data} />
+          )}
         </div>
       )}
+    </div>
+  )
+}
+
+/* ========== 紫微斗數完整命盤 ========== */
+function ZiweiFullDetail({ data }) {
+  if (!data) return null
+
+  return (
+    <div className="full-detail-sections">
+      {/* 四化 */}
+      {data.si_hua && typeof data.si_hua === 'object' && !Array.isArray(data.si_hua) && (
+        <div className="detail-block">
+          <div className="detail-block-title">四化星</div>
+          <div className="chart-grid">
+            {Object.entries(data.si_hua).map(([key, val]) => (
+              <div className="chart-item" key={key}>
+                <span className="label">{key}:</span>
+                <span className="value">{val}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 命宮完整資訊 */}
+      {data.ming_gong && (
+        <div className="detail-block">
+          <div className="detail-block-title">命宮詳情</div>
+          <div className="chart-grid">
+            <div className="chart-item">
+              <span className="label">宮位:</span>
+              <span className="value">{data.ming_gong.position || '—'}</span>
+            </div>
+            <div className="chart-item">
+              <span className="label">主星:</span>
+              <span className="value">
+                {data.ming_gong.main_stars?.join('、') || '空宮'}
+                {data.ming_gong.borrowed_palace && (
+                  <span className="borrowed-note">（借{data.ming_gong.borrowed_palace}）</span>
+                )}
+              </span>
+            </div>
+            {data.ming_gong.auxiliary_stars?.length > 0 && (
+              <div className="chart-item">
+                <span className="label">輔星:</span>
+                <span className="value">{data.ming_gong.auxiliary_stars.join('、')}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 基本命盤資訊 */}
+      <div className="detail-block">
+        <div className="detail-block-title">命盤基礎</div>
+        <div className="chart-grid">
+          {data.five_elements && (
+            <div className="chart-item">
+              <span className="label">五行局:</span>
+              <span className="value">{data.five_elements}</span>
+            </div>
+          )}
+          {data.ming_zhu && (
+            <div className="chart-item">
+              <span className="label">命主:</span>
+              <span className="value">{data.ming_zhu}</span>
+            </div>
+          )}
+          {data.shen_zhu && (
+            <div className="chart-item">
+              <span className="label">身主:</span>
+              <span className="value">{data.shen_zhu}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ========== 八字完整命盤 ========== */
+function BaziFullDetail({ data }) {
+  if (!data) return null
+
+  return (
+    <div className="full-detail-sections">
+      {/* 四柱 */}
+      {data.four_pillars && (
+        <div className="detail-block">
+          <div className="detail-block-title">四柱排盤</div>
+          <div className="bazi-pillars">
+            {['year', 'month', 'day', 'hour'].map(key => {
+              const labels = { year: '年柱', month: '月柱', day: '日柱', hour: '時柱' }
+              return (
+                <div className="pillar" key={key}>
+                  <div className="pillar-label">{labels[key]}</div>
+                  <div className="pillar-value">{data.four_pillars[key] || '—'}</div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* 日主與強弱 */}
+      <div className="detail-block">
+        <div className="detail-block-title">日主分析</div>
+        <div className="chart-grid">
+          {data.day_master && (
+            <div className="chart-item">
+              <span className="label">日主五行:</span>
+              <span className="value">{data.day_master}</span>
+            </div>
+          )}
+          {data.strength && (
+            <div className="chart-item">
+              <span className="label">身強/身弱:</span>
+              <span className="value">{data.strength}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ========== 西洋占星完整命盤 ========== */
+function AstrologyFullDetail({ data }) {
+  if (!data) return null
+
+  const planetNames = {
+    sun: '☀️ 太陽', moon: '🌙 月亮', mercury: '☿ 水星', venus: '♀ 金星',
+    mars: '♂ 火星', jupiter: '♃ 木星', saturn: '♄ 土星',
+    uranus: '♅ 天王星', neptune: '♆ 海王星', pluto: '♇ 冥王星',
+    ascendant: '⬆ 上升點', midheaven: 'MC 天頂'
+  }
+
+  return (
+    <div className="full-detail-sections">
+      {/* 主要三大星座 */}
+      <div className="detail-block">
+        <div className="detail-block-title">三大星座</div>
+        <div className="chart-grid">
+          {data.sun_sign && (
+            <div className="chart-item">
+              <span className="label">☀️ 太陽:</span>
+              <span className="value">{data.sun_sign}</span>
+            </div>
+          )}
+          {data.moon_sign && (
+            <div className="chart-item">
+              <span className="label">🌙 月亮:</span>
+              <span className="value">{data.moon_sign}</span>
+            </div>
+          )}
+          {data.rising_sign && (
+            <div className="chart-item">
+              <span className="label">⬆ 上升:</span>
+              <span className="value">{data.rising_sign}</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 所有行星 */}
+      {data.planets && Object.keys(data.planets).length > 0 && (
+        <div className="detail-block">
+          <div className="detail-block-title">行星位置</div>
+          <div className="chart-grid">
+            {Object.entries(data.planets).map(([key, planet]) => {
+              if (!planet || typeof planet !== 'object') return null
+              const name = planetNames[key] || key
+              const sign = planet.sign_zh || planet.sign || ''
+              const degree = planet.degree != null ? `${planet.degree.toFixed?.(1) ?? planet.degree}°` : ''
+              const house = planet.house ? `第${planet.house}宮` : ''
+              return (
+                <div className="chart-item" key={key}>
+                  <span className="label">{name}:</span>
+                  <span className="value">{sign} {degree} {house}</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ========== 通用展示（其他命理系統） ========== */
+function GenericFullDetail({ data }) {
+  if (!data) return null
+
+  const renderValue = (val) => {
+    if (val == null) return '—'
+    if (typeof val === 'string' || typeof val === 'number') return String(val)
+    if (Array.isArray(val)) return val.join('、')
+    if (typeof val === 'object') {
+      return (
+        <div className="nested-grid">
+          {Object.entries(val).map(([k, v]) => (
+            <div className="chart-item" key={k}>
+              <span className="label">{k}:</span>
+              <span className="value">{typeof v === 'object' ? JSON.stringify(v) : String(v)}</span>
+            </div>
+          ))}
+        </div>
+      )
+    }
+    return String(val)
+  }
+
+  return (
+    <div className="full-detail-sections">
+      <div className="detail-block">
+        <div className="detail-block-title">完整資料</div>
+        <div className="chart-grid">
+          {Object.entries(data).map(([key, val]) => (
+            <div className="chart-item" key={key}>
+              <span className="label">{key}:</span>
+              <span className="value">{renderValue(val)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }

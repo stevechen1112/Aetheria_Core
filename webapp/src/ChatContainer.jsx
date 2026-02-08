@@ -54,9 +54,10 @@ function ChatContainer({ apiBase, token, userId, embedded = false, sidebarCollap
         const resp = await fetch(`${apiBase}/api/chat/messages?session_id=${sessId}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         })
-        if (resp.status === 401) { localStorage.removeItem('aetheria_token'); return }
-        if (!resp.ok) return
+        if (resp.status === 401) { localStorage.removeItem('aetheria_token'); return false }
+        if (!resp.ok) return false
         const data = await resp.json()
+        if (data?.expired) return false
         if (data?.messages?.length) {
           setMessages(data.messages.map(m => ({
             id: m.id || `msg-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -70,12 +71,15 @@ function ChatContainer({ apiBase, token, userId, embedded = false, sidebarCollap
             confidence: m.confidence || 0,
             timestamp: m.created_at || new Date().toISOString()
           })))
+          return true
         }
+        return data?.messages?.length === 0
       } catch (err) {
         console.warn('Load messages failed:', err)
         // 嘗試從 localStorage 恢復
         const cached = localStorage.getItem(storageMessagesKey)
-        if (cached) { try { setMessages(JSON.parse(cached)) } catch {} }
+        if (cached) { try { setMessages(JSON.parse(cached)); return true } catch {} }
+        return false
       }
     }
 
@@ -84,7 +88,14 @@ function ChatContainer({ apiBase, token, userId, embedded = false, sidebarCollap
       const savedSession = localStorage.getItem(storageSessionKey)
       if (savedSession) {
         setCurrentSession(savedSession)
-        await loadMessages(savedSession)
+        const loaded = await loadMessages(savedSession)
+        if (!loaded) {
+          // session 已過期或被刪除，清除 stale 資料
+          localStorage.removeItem(storageSessionKey)
+          localStorage.removeItem(storageMessagesKey)
+          setCurrentSession(null)
+          setMessages([])
+        }
         setHistoryLoaded(true)
         return
       }

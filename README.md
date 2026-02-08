@@ -1,14 +1,15 @@
 ﻿# Aetheria Core 2.0 — Agent-Oriented AI 命理顧問
 
 > **六大命理系統**：紫微斗數 · 八字 · 西洋占星 · 靈數 · 姓名學 · 塔羅  
-> **AI 模型**：Gemini 2.0 Flash（Agent + 報告雙模式）  
-> **架構**：Chat-First UI ｜ 三層記憶 ｜ Tool Use ｜ SSE 串流 ｜ 情緒感知
+> **AI 模型**：Gemini 2.0 Flash（Agent + Tool Use 自主決策）  
+> **架構**：Chat-First UI ｜ 三層記憶 ｜ Function Calling ｜ SSE 串流 ｜ 情緒感知
 
 [![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/)
 [![Flask](https://img.shields.io/badge/Flask-3.0+-green.svg)](https://flask.palletsprojects.com/)
-[![React](https://img.shields.io/badge/React-19-61dafb.svg)](https://react.dev/)
+[![React](https://img.shields.io/badge/React-19.2-61dafb.svg)](https://react.dev/)
+[![Vite](https://img.shields.io/badge/Vite-7-646cff.svg)](https://vite.dev/)
 [![Gemini](https://img.shields.io/badge/Gemini-2.0%20Flash-orange.svg)](https://ai.google.dev/)
-[![Tests](https://img.shields.io/badge/Tests-247%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-187%20passed-brightgreen.svg)]()
 [![License](https://img.shields.io/badge/License-GPL%20v2-red.svg)]()
 
 ---
@@ -19,6 +20,7 @@
 - 無表單、無選單，全程自然語言對話
 - 訪客免註冊即可開始，自動建立匿名身份
 - 口語化命理解讀，取代冰冷的制式報告
+- **對話歷史側邊欄**：可收合、可切換、可刪除過去對話
 
 ### 🧠 三層記憶系統
 | 層級 | 內容 | 保留期限 |
@@ -36,6 +38,17 @@
 - **11 個工具**：六大排盤計算、塔羅抽牌、對話歷史搜尋、用戶畫像讀寫
 - **Gemini Function Calling**：AI 自主決定調用時機
 - **後台運算進度**：SSE 即時推播
+- **命盤 Widget**：排盤結果以結構化卡片嵌入對話（支援展開完整命盤）
+
+### 🔮 六大命理引擎
+| 系統 | 引擎 | 核心功能 |
+|------|------|----------|
+| 紫微斗數 | `iztro-py` + `sxtwl` | 十二宮排盤、四化、大限流年流月 |
+| 八字命理 | `sxtwl` 壽星天文曆 | 四柱排盤、十神、強弱、大運 |
+| 西洋占星 | `kerykeion` | 行星位置、宮位、相位、星座 |
+| 生命靈數 | 自研引擎 | 生命數、天賦數、流年數 |
+| 姓名學 | 康熙字典筆劃 | 五格剖象、三才五行 |
+| 塔羅占卜 | 78 張標準牌庫 | 牌陣抽牌、正逆位解讀 |
 
 ---
 
@@ -90,6 +103,8 @@ npm run dev
 |------|------|------|
 | `POST` | `/api/chat/consult-stream` | 主對話（SSE 串流） |
 | `GET`  | `/api/chat/sessions` | 會話列表 |
+| `GET`  | `/api/chat/messages` | 歷史訊息（`?session_id=xxx`） |
+| `DELETE` | `/api/chat/sessions/<id>` | 刪除會話 |
 | `POST` | `/api/chat/feedback` | 用戶回饋（👍👎） |
 
 ### 認證
@@ -132,19 +147,20 @@ Aetheria_Core/
 │
 ├── src/
 │   ├── api/
-│   │   ├── server.py                   # Flask API 主程式
+│   │   ├── server.py                   # Flask API 主程式（~10,000 行）
 │   │   ├── schemas.py                  # 請求/回應 Schema
-│   │   └── blueprints/                 # Auth Blueprint
+│   │   └── blueprints/
+│   │       └── auth.py                 # 認證 Blueprint
 │   │
 │   ├── calculators/                    # 六大命理計算引擎
-│   │   ├── bazi.py                     # 八字
-│   │   ├── astrology.py                # 西洋占星
-│   │   ├── numerology.py               # 靈數
-│   │   ├── name.py                     # 姓名學
-│   │   ├── tarot.py                    # 塔羅
-│   │   ├── ziwei_hard.py               # 紫微斗數
-│   │   ├── fortune.py                  # 綜合運勢
-│   │   ├── chart_extractor.py          # 命盤資料擷取
+│   │   ├── bazi.py                     # 八字（四柱、十神、大運）
+│   │   ├── astrology.py                # 西洋占星（行星、宮位、相位）
+│   │   ├── numerology.py               # 靈數（生命數、天賦數）
+│   │   ├── name.py                     # 姓名學（五格、三才）
+│   │   ├── tarot.py                    # 塔羅（78 牌、正逆位）
+│   │   ├── ziwei_hard.py               # 紫微斗數核心排盤
+│   │   ├── fortune.py                  # 運勢引擎（大限、流年、流月）
+│   │   ├── chart_extractor.py          # 命盤資料擷取器
 │   │   └── async_calculator.py         # 非同步排盤
 │   │
 │   ├── prompts/                        # Gemini 提示詞模板
@@ -152,11 +168,21 @@ Aetheria_Core/
 │   │   ├── intelligence_core.py        # 智慧核心（情緒感知）
 │   │   ├── strategic.py                # 策略諮詢
 │   │   ├── synastry.py                 # 合盤分析
+│   │   ├── integrated.py               # 跨系統整合
+│   │   ├── fortune.py                  # 運勢提示詞
+│   │   ├── date_selection.py           # 擇日提示詞
+│   │   ├── bazi.py / astrology.py      # 各系統專屬提示詞
+│   │   ├── name.py / numerology.py / tarot.py
 │   │   └── registry/                   # 提示詞註冊表
+│   │       ├── persona.py              # 人格設定
+│   │       ├── emotional_intelligence.py # 情緒智能
+│   │       ├── conversation_strategies.py # 對話策略
+│   │       └── safety_policy.py        # 安全政策
 │   │
 │   └── utils/
 │       ├── memory.py                   # 三層記憶管理器
-│       ├── conversation_summarizer.py  # 自動摘要
+│       ├── auto_summary.py             # 自動摘要引擎
+│       ├── conversation_summarizer.py  # 對話摘要
 │       ├── tools.py                    # Tool Use 定義 + 執行器
 │       ├── database.py                 # SQLite 資料庫
 │       ├── gemini_client.py            # Gemini API 客戶端
@@ -166,68 +192,70 @@ Aetheria_Core/
 │       ├── api_versioning.py           # API 版本管理
 │       ├── geonames_cache.py           # 地理資料快取
 │       ├── logger.py                   # 日誌系統
-│       └── errors.py                   # 錯誤處理
+│       └── errors.py                   # 統一錯誤處理
 │
-├── webapp/                             # React 19 前端
+├── webapp/                             # React 19 前端（Vite 7）
 │   ├── index.html
 │   ├── vite.config.js
 │   ├── package.json
 │   └── src/
-│       ├── App.jsx                     # 主應用（Chat-First）
-│       ├── App.css
-│       ├── ChatContainer.jsx           # 對話容器 + SSE 串流
-│       ├── ChatContainer.css
-│       ├── MessageRenderer.jsx         # 訊息渲染 + 回饋按鈕
-│       ├── MessageRenderer.css
+│       ├── App.jsx                     # 主應用（認證 + 佈局）
+│       ├── ChatContainer.jsx           # 對話容器（SSE 串流 + Tool Use 進度）
+│       ├── MessageRenderer.jsx         # 訊息渲染（Markdown + 回饋按鈕）
+│       ├── SessionSidebar.jsx          # 對話歷史側邊欄（切換/刪除/收合）
 │       ├── VoiceChat.jsx               # 語音對話（實驗性）
-│       ├── VoiceChat.css
-│       ├── index.css                   # 全域樣式（深色主題）
 │       ├── main.jsx                    # React 入口
 │       ├── contexts/
 │       │   └── AetheriaContext.jsx     # 全域狀態管理
 │       └── widgets/
-│           ├── ChartWidget.jsx         # 命盤卡片組件
+│           ├── ChartWidget.jsx         # 命盤卡片（紫微/八字/占星結構化呈現）
 │           └── ChartWidget.css
 │
-├── tests/                              # pytest 測試套件（247 cases）
+├── tests/                              # pytest 測試套件
 │   ├── conftest.py                     # 共用 fixtures
 │   ├── golden_set/                     # Golden Set 回歸驗證（6 模組）
-│   ├── test_bazi.py
-│   ├── test_astrology.py
-│   ├── test_ziwei.py
-│   ├── test_numerology.py
-│   ├── test_name.py
-│   ├── test_tarot.py
-│   ├── test_tool_use.py
-│   ├── test_sensitive_topics.py
-│   ├── test_memory_poc.py
-│   ├── test_api_versioning.py
-│   └── ...                             # 共 27 個測試模組
+│   ├── test_bazi.py                    # 八字計算驗證
+│   ├── test_astrology.py              # 占星計算驗證
+│   ├── test_ziwei.py                  # 紫微排盤驗證
+│   ├── test_ziwei_hard_reference.py   # 紫微參照驗證
+│   ├── test_numerology.py             # 靈數驗證
+│   ├── test_name.py                   # 姓名學驗證
+│   ├── test_tarot.py                  # 塔羅驗證
+│   ├── test_fortune.py                # 運勢驗證
+│   ├── test_tool_use.py               # Tool Use 驗證
+│   ├── test_sensitive_topics.py       # 敏感話題偵測
+│   ├── test_sensitive_api_intercept.py # API 層敏感攔截
+│   ├── test_memory_poc.py             # 記憶系統驗證
+│   ├── test_database.py               # 資料庫操作
+│   ├── test_api_errors.py             # API 錯誤處理
+│   ├── test_api_health.py             # 健康檢查
+│   ├── test_api_versioning.py         # API 版本管理
+│   └── ...                             # 共 24 個測試模組 + 6 Golden Set
 │
 ├── data/                               # 運行時資料
 │   ├── aetheria.db                     # SQLite 主資料庫
 │   ├── geonames_cache.db              # 地理資料快取
-│   ├── tarot_cards.json                # 塔羅牌資料
+│   ├── tarot_cards.json                # 塔羅牌資料（78 張）
 │   ├── numerology_data.json            # 靈數參照表
-│   └── name_analysis.json              # 姓名學字庫
-│
-├── scripts/                            # 工具腳本
-│   ├── start_api_and_test.sh           # API 啟動 + 測試
-│   └── test_database.py                # 資料庫驗證
+│   ├── name_analysis.json              # 姓名學字庫
+│   ├── kangxi_strokes.json             # 康熙字典筆劃表
+│   └── ziwei_reference_chen.json       # 紫微參照命盤
 │
 ├── docs/                               # 技術文檔（10 份）
-│   ├── 20_Agent_Transformation_Plan.md # Agent 2.0 轉型計畫（主文件）
 │   ├── STRATEGIC_API.md                # API 策略規範
 │   ├── 01_Technical_Whitepaper.md      # 技術架構白皮書
 │   ├── 02_UMF_Schema_Definition.md     # 統一命理格式
 │   ├── 03_AI_Workflow_Guidelines.md    # AI 工作流指引
-│   ├── 04_Architecture_Decision_LLM_First.md  # LLM-First 架構
+│   ├── 04_Architecture_Decision_LLM_First.md  # LLM-First 架構決策
 │   ├── 05_Gemini_Prompt_Templates.md   # 提示詞範本
-│   ├── 06_Chart_Locking_System.md      # 鎖盤系統
+│   ├── 06_Chart_Locking_System.md      # 命盤鎖定系統
 │   ├── 18_Tool_Use_Implementation.md   # Tool Use 實作
-│   └── 18_Widget_System_Implementation.md  # Widget 系統
+│   ├── 18_Widget_System_Implementation.md  # Widget 系統
+│   └── 20_Agent_Transformation_Plan.md # Agent 2.0 轉型計畫
 │
-└── logs/                               # 運行時日誌（gitignored）
+└── scripts/                            # 工具腳本
+    ├── start_api_and_test.sh           # API 啟動 + 測試
+    └── test_database.py                # 資料庫驗證
 ```
 
 ---
@@ -235,21 +263,21 @@ Aetheria_Core/
 ## 🧪 測試
 
 ```bash
-# 完整測試套件
-python -m pytest tests/ -v
+# 完整測試套件（排除 Golden Set，因其需要 Gemini API）
+python -m pytest tests/ --ignore=tests/golden_set -v
 
 # 快速驗證
-python -m pytest tests/ -q --tb=line
+python -m pytest tests/ --ignore=tests/golden_set -q --tb=line
 
 # 單一模組
 python -m pytest tests/test_bazi.py -v
 
-# Golden Set 回歸
+# Golden Set 回歸（需要 Gemini API Key）
 python -m pytest tests/golden_set/ -v
 ```
 
-**測試覆蓋**：247 項通過  
-六大命理計算 · Agent 狀態機 · Tool Use · 三層記憶 · 敏感話題 · API 版本管理 · Golden Set 回歸
+**測試結果**：187 通過 · 9 跳過 · 0 失敗  
+涵蓋：六大命理計算 · Agent 狀態機 · Tool Use · 三層記憶 · 敏感話題 · API 錯誤處理 · API 版本管理
 
 ---
 
@@ -257,12 +285,13 @@ python -m pytest tests/golden_set/ -v
 
 | 層級 | 技術 |
 |------|------|
-| AI 模型 | Gemini 2.0 Flash |
+| AI 模型 | Gemini 2.0 Flash（`google-genai` SDK） |
 | 後端 | Flask 3.0 · Python 3.9+ |
-| 前端 | React 19 · Vite 7 |
+| 前端 | React 19.2 · Vite 7 |
 | 資料庫 | SQLite（可擴展至 PostgreSQL） |
 | 串流 | Server-Sent Events (SSE) |
-| 測試 | pytest · 247 cases |
+| 命理引擎 | `sxtwl`（天文曆）· `iztro-py`（紫微）· `kerykeion`（占星） |
+| 測試 | pytest · 187+ cases |
 
 ---
 
@@ -275,7 +304,9 @@ python -m pytest tests/golden_set/ -v
 | [技術架構白皮書](docs/01_Technical_Whitepaper.md) | 系統架構 · 部署方式 |
 | [UMF Schema](docs/02_UMF_Schema_Definition.md) | 統一命理資料格式 |
 | [Tool Use 實作](docs/18_Tool_Use_Implementation.md) | 11 個工具 · Function Calling |
-| [Widget 系統](docs/18_Widget_System_Implementation.md) | 前端命盤卡片 · SSE 事件格式 |
+| [Widget 系統](docs/18_Widget_System_Implementation.md) | 命盤卡片 · SSE 事件格式 |
+| [命盤鎖定系統](docs/06_Chart_Locking_System.md) | 排盤快取 · 資料一致性 |
+| [LLM-First 架構](docs/04_Architecture_Decision_LLM_First.md) | 設計決策與取捨 |
 
 ---
 
