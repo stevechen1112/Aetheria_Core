@@ -1,10 +1,16 @@
 """
 八字排盘计算引擎
 基于寿星天文历库（sxtwl）
+
+v2.1 升級：
+- 大運起運歲數：使用節氣精算（取代寫死 2 歲）
+- 身強弱分析：四維度評分（得令/得地/得生/得助）
+- 用神分析：增加調候用神概念
 """
 
 import sxtwl
-from datetime import datetime
+import math
+from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional
 
 
@@ -132,14 +138,19 @@ class BaziCalculator:
         day_shishen = self._calculate_shishen(day_master, day_gz[0], day_gz[1])
         hour_shishen = self._calculate_shishen(day_master, hour_gz[0], hour_gz[1])
         
-        # 计算大运
-        dayun = self._calculate_dayun(year_gz, month_gz, gender, lunar_day)
+        # 计算大运（v2.1：傳入出生日期以精算起運歲數）
+        dayun = self._calculate_dayun(
+            year_gz, month_gz, gender, lunar_day,
+            year=year, month=month, day=day,
+            hour=hour, minute=corrected_minute if use_apparent_solar_time else minute
+        )
         
-        # 分析强弱
+        # 分析强弱（v2.1：四維度評分 + 天干分析）
         strength_analysis = self._analyze_strength(
             day_master,
             [month_gz[1], day_gz[1], hour_gz[1]],
-            lunar_day.getLunarMonth()
+            lunar_day.getLunarMonth(),
+            all_tiangan=[year_gz[0], month_gz[0], day_gz[0], hour_gz[0]]
         )
         
         # 用神分析
@@ -311,8 +322,16 @@ class BaziCalculator:
         
         return "未知"
     
-    def _calculate_dayun(self, year_gz: Tuple, month_gz: Tuple, gender: str, lunar_day) -> List[Dict]:
-        """计算大运"""
+    def _calculate_dayun(self, year_gz: Tuple, month_gz: Tuple, gender: str,
+                         lunar_day, year: int = None, month: int = None,
+                         day: int = None, hour: int = 0, minute: int = 0) -> List[Dict]:
+        """
+        计算大运（v2.1 升級：節氣精算起運歲數）
+        
+        起運歲數計算：
+        1. 陽年男 / 陰年女 → 順排 → 出生日到「下一個節」的天數 ÷ 3
+        2. 陰年男 / 陽年女 → 逆排 → 出生日到「上一個節」的天數 ÷ 3
+        """
         dayun_list = []
         
         # 判断顺逆（阳男阴女顺排，阴男阳女逆排）
@@ -322,8 +341,8 @@ class BaziCalculator:
         
         shun_pai = (is_yang_year and is_male) or (not is_yang_year and not is_male)
         
-        # 起运年龄计算（简化版，实际需要根据节气）
-        start_age = 2
+        # ===== v2.1: 節氣精算起運歲數 =====
+        start_age = self._calculate_start_age(year, month, day, hour, minute, shun_pai)
         
         # 月柱干支索引
         month_gan_idx = self.TIANGAN.index(month_gz[0])
@@ -347,12 +366,97 @@ class BaziCalculator:
             dayun_list.append({
                 "序号": i + 1,
                 "年龄": f"{age_start}-{age_end}岁",
+                "起运岁数": start_age,
                 "天干": dayun_gan,
                 "地支": dayun_zhi,
                 "纳音": self._get_nayin(dayun_gan, dayun_zhi)
             })
         
         return dayun_list
+    
+    # 24 節氣名稱（與 sxtwl 的 index 對應）
+    JIE_QI_NAMES = [
+        "小寒", "大寒", "立春", "雨水", "驚蟄", "春分",
+        "清明", "穀雨", "立夏", "小滿", "芒種", "夏至",
+        "小暑", "大暑", "立秋", "處暑", "白露", "秋分",
+        "寒露", "霜降", "立冬", "小雪", "大雪", "冬至"
+    ]
+    
+    def _calculate_start_age(self, year: int, month: int, day: int,
+                             hour: int, minute: int, shun_pai: bool) -> int:
+        """
+        根據節氣精算大運起運歲數
+        
+        算法：
+        - 順排：出生日到下一個「節」的天數 ÷ 3 = 起運虛歲
+        - 逆排：出生日到上一個「節」的天數 ÷ 3 = 起運虛歲
+        - 「節」= 偶數索引的節氣（小寒、立春、驚蟄、清明、立夏、芒種、小暑、立秋、白露、寒露、立冬、大雪）
+        - 餘數按四捨五入取整，最小 1 歲
+        
+        Args:
+            year, month, day, hour, minute: 出生時間（公曆）
+            shun_pai: True=順排, False=逆排
+            
+        Returns:
+            起運歲數（虛歲）
+        """
+        if year is None or month is None or day is None:
+            return 2  # fallback: 無法計算時返回安全預設值
+        
+        # 出生日的 Julian Day（精確到小時分鐘）
+        try:
+            birth_time = sxtwl.Time()
+            birth_time.setYear(int(year))
+            birth_time.setMonth(int(month))
+            birth_time.setDay(int(day))
+            birth_time.setHour(float(hour))
+            birth_time.setMour(float(minute))
+            birth_time.setSec(0.0)
+            birth_jd = sxtwl.toJD(birth_time)
+        except Exception:
+            return 2  # fallback
+        
+        # 取得出生年和前後一年的所有節氣
+        all_jie = []  # 只收集「節」（偶數索引）
+        for y in [year - 1, year, year + 1]:
+            try:
+                jq_list = sxtwl.getJieQiByYear(y)
+                for jq in jq_list:
+                    # 偶數索引才是「節」（月令分界）
+                    if jq.jqIndex % 2 == 0:
+                        all_jie.append(jq.jd)
+            except Exception:
+                continue
+        
+        if not all_jie:
+            return 2  # fallback
+        
+        all_jie.sort()
+        
+        if shun_pai:
+            # 順排：找出生日之後最近的「節」
+            next_jie = None
+            for jd in all_jie:
+                if jd > birth_jd:
+                    next_jie = jd
+                    break
+            if next_jie is None:
+                return 2
+            diff_days = next_jie - birth_jd
+        else:
+            # 逆排：找出生日之前最近的「節」
+            prev_jie = None
+            for jd in reversed(all_jie):
+                if jd < birth_jd:
+                    prev_jie = jd
+                    break
+            if prev_jie is None:
+                return 2
+            diff_days = birth_jd - prev_jie
+        
+        # 天數 ÷ 3 = 起運歲數，四捨五入，最小 1 歲
+        start_age = max(1, round(diff_days / 3))
+        return start_age
 
     def _normalize_gender(self, value: str) -> str:
         """統一性別格式為「男/女/未指定」"""
@@ -365,94 +469,202 @@ class BaziCalculator:
             return "女"
         return "未指定"
     
-    def _analyze_strength(self, day_master: str, dizhi_list: List[str], month: int) -> Dict:
-        """分析日主强弱"""
+    def _analyze_strength(self, day_master: str, dizhi_list: List[str],
+                          month: int, all_tiangan: List[str] = None) -> Dict:
+        """
+        分析日主强弱（v2.1 四維度評分）
+        
+        四維度：
+        1. 得令（月令旺相休囚死）：30 分
+        2. 得地（地支藏干生扶）：20 分
+        3. 得生（天干生助日主）：15 分
+        4. 得助（天干同行五行）：15 分
+        5. 剋泄（天干剋泄日主）：扣分
+        
+        Args:
+            day_master: 日干
+            dizhi_list: [月支, 日支, 時支]
+            month: 農曆月份
+            all_tiangan: [年干, 月干, 日干, 時干]（可選，用於天干分析）
+        """
         day_wuxing = self.WUXING[day_master]
-        
-        # 月令（占50%权重）
-        month_zhi = dizhi_list[0]
-        
-        # 简化判断：得令、得地、得势
         score = 0
         factors = []
         
-        # 春季（木旺）、夏季（火旺）、秋季（金旺）、冬季（水旺）
-        season_map = {
-            1: "水", 2: "水", 3: "木", 4: "木", 5: "木",
-            6: "火", 7: "火", 8: "土", 9: "金", 10: "金",
-            11: "水", 12: "水"
-        }
+        # ===== 維度 1: 得令（月令旺相休囚死）=====
+        # 月支藏干中的本氣（第一個元素）決定月令
+        month_zhi = dizhi_list[0]
+        month_canggan = self.CANGGAN[month_zhi]
+        month_benqi = month_canggan[0]  # 本氣
+        month_benqi_wuxing = self.WUXING[month_benqi]
         
-        # 使用农历月份
-        lunar_month = month  # 这里应该使用传入的农历月份
-        season_wuxing = season_map.get(lunar_month, "土")
+        # 月令旺相休囚死判定
+        # 旺（同行）= 30, 相（生我）= 20, 休（我生）= 5, 囚（剋我）= 0, 死（我剋）= 0
+        relation = self._get_wuxing_relation(day_wuxing, month_benqi_wuxing)
+        if day_wuxing == month_benqi_wuxing:
+            score += 30
+            factors.append(f"得月令（月支{month_zhi}本氣{month_benqi}={month_benqi_wuxing}，旺 +30）")
+        elif relation == "印":
+            # 月令五行生我
+            score += 20
+            factors.append(f"月令相生（月支{month_zhi}本氣{month_benqi}={month_benqi_wuxing}生{day_wuxing}，相 +20）")
+        elif relation == "食":
+            # 我生月令五行
+            score += 5
+            factors.append(f"月令洩氣（{day_wuxing}生{month_benqi_wuxing}，休 +5）")
+        elif relation == "官":
+            factors.append(f"月令剋我（{month_benqi_wuxing}剋{day_wuxing}，囚）")
+        elif relation == "财":
+            factors.append(f"月令被我剋（{day_wuxing}剋{month_benqi_wuxing}，死）")
         
-        if day_wuxing == season_wuxing:
-            score += 50
-            factors.append(f"得月令（{season_wuxing}旺）")
-        
-        # 地支支持
+        # ===== 維度 2: 得地（所有地支藏干生扶日主）=====
+        support_count = 0
+        drain_count = 0
         for zhi in dizhi_list:
-            if self.WUXING[zhi] == day_wuxing:
-                score += 10
-                factors.append(f"得地支{zhi}支持")
+            canggan = self.CANGGAN[zhi]
+            for i, gan in enumerate(canggan):
+                gan_wuxing = self.WUXING[gan]
+                # 本氣權重最高，中氣次之，餘氣最低
+                weight = [7, 3, 1][min(i, 2)]
+                if gan_wuxing == day_wuxing:
+                    # 同行 = 得助
+                    score += weight
+                    support_count += 1
+                    factors.append(f"得地支{zhi}藏{gan}（{gan_wuxing}同行 +{weight}）")
+                elif self._get_wuxing_relation(day_wuxing, gan_wuxing) == "印":
+                    # 藏干生我 = 得生
+                    score += weight
+                    support_count += 1
+                    factors.append(f"得地支{zhi}藏{gan}（{gan_wuxing}生{day_wuxing} +{weight}）")
+                elif self._get_wuxing_relation(day_wuxing, gan_wuxing) in ("官", "财"):
+                    drain_count += 1
         
-        # 判断强弱
-        if score >= 60:
+        # ===== 維度 3 & 4: 天干得生 / 得助 / 被剋泄 =====
+        if all_tiangan:
+            for i, gan in enumerate(all_tiangan):
+                if i == 2:  # 跳過日干自己
+                    continue
+                gan_wuxing = self.WUXING[gan]
+                position = ["年干", "月干", "日干", "時干"][i]
+                
+                if gan_wuxing == day_wuxing:
+                    # 得助（天干同行）
+                    score += 8
+                    factors.append(f"得{position}{gan}助力（{gan_wuxing}同行 +8）")
+                elif self._get_wuxing_relation(day_wuxing, gan_wuxing) == "印":
+                    # 得生（天干生我）
+                    score += 10
+                    factors.append(f"得{position}{gan}生扶（{gan_wuxing}生{day_wuxing} +10）")
+                elif self._get_wuxing_relation(day_wuxing, gan_wuxing) == "食":
+                    # 我生 = 泄氣
+                    score -= 5
+                    factors.append(f"{position}{gan}洩氣（{day_wuxing}生{gan_wuxing} -5）")
+                elif self._get_wuxing_relation(day_wuxing, gan_wuxing) == "官":
+                    # 剋我
+                    score -= 8
+                    factors.append(f"{position}{gan}剋制（{gan_wuxing}剋{day_wuxing} -8）")
+                elif self._get_wuxing_relation(day_wuxing, gan_wuxing) == "财":
+                    # 我剋 = 耗氣
+                    score -= 3
+                    factors.append(f"{position}{gan}耗氣（{day_wuxing}剋{gan_wuxing} -3）")
+        
+        # ===== 綜合判斷 =====
+        # 分數區間：理論最高約 100+，最低可能為負
+        # 標準化到 0-100 區間
+        normalized_score = max(0, min(100, score))
+        
+        if normalized_score >= 60:
             strength = "身旺"
-        elif score >= 40:
+        elif normalized_score >= 40:
+            strength = "中和偏旺"
+        elif normalized_score >= 25:
             strength = "中和"
+        elif normalized_score >= 15:
+            strength = "中和偏弱"
         else:
             strength = "身弱"
         
         return {
             "结论": strength,
-            "评分": score,
+            "评分": normalized_score,
+            "原始分": score,
             "因素": factors
         }
     
     def _analyze_yongshen(self, day_wuxing: str, strength: Dict) -> Dict:
-        """分析用神"""
+        """
+        分析用神（v2.1：加入調候用神概念）
+        
+        用神選取邏輯：
+        1. 身旺 → 用泄、用剋、用耗（食傷 > 官殺 > 財）
+        2. 身弱 → 用生、用助（印 > 比劫）
+        3. 中和 → 維持平衡，取最缺之五行
+        4. 調候用神：夏季火土日主喜水，冬季水木日主喜火
+        """
         strength_level = strength["结论"]
         
-        # 简化用神判断
-        wuxing_support = {
-            "木": ["水", "木"],
-            "火": ["木", "火"],
-            "土": ["火", "土"],
-            "金": ["土", "金"],
-            "水": ["金", "水"]
-        }
+        # 五行相生相剋映射
+        sheng_map = {"木": "火", "火": "土", "土": "金", "金": "水", "水": "木"}
+        ke_map = {"木": "土", "土": "水", "水": "火", "火": "金", "金": "木"}
         
-        wuxing_restrain = {
-            "木": ["金", "土"],
-            "火": ["水", "金"],
-            "土": ["木", "水"],
-            "金": ["火", "木"],
-            "水": ["土", "火"]
-        }
+        # 生我者
+        sheng_wo = {v: k for k, v in sheng_map.items()}[day_wuxing]
+        # 我生者
+        wo_sheng = sheng_map[day_wuxing]
+        # 剋我者
+        ke_wo = {v: k for k, v in ke_map.items()}[day_wuxing]
+        # 我剋者
+        wo_ke = ke_map[day_wuxing]
         
-        if strength_level == "身旺":
-            # 身旺喜克泄
-            yongshen = wuxing_restrain[day_wuxing]
-            xishen = []
-            jishen = wuxing_support[day_wuxing]
-        elif strength_level == "身弱":
-            # 身弱喜生扶
-            yongshen = wuxing_support[day_wuxing]
-            xishen = []
-            jishen = wuxing_restrain[day_wuxing]
+        if strength_level in ("身旺", "中和偏旺"):
+            # 身旺：用食傷泄秀，官殺制身，財星耗氣
+            yongshen = [wo_sheng]  # 食傷泄秀為第一用神
+            xishen = [wo_ke, ke_wo]  # 財星耗氣 + 官殺制身
+            jishen = [sheng_wo, day_wuxing]  # 忌印生、比劫助
+        elif strength_level in ("身弱", "中和偏弱"):
+            # 身弱：用印綬生身，比劫助力
+            yongshen = [sheng_wo]  # 印綬生身為第一用神
+            xishen = [day_wuxing]  # 比劫助力
+            jishen = [ke_wo, wo_sheng, wo_ke]  # 忌官殺、食傷、財星
         else:
-            # 中和需具体分析
-            yongshen = wuxing_support[day_wuxing][:1]
-            xishen = wuxing_restrain[day_wuxing][:1]
-            jishen = []
+            # 中和：維持平衡
+            yongshen = [sheng_wo]
+            xishen = [day_wuxing]
+            jishen = [ke_wo]
         
-        return {
+        # 調候用神修正提示（提供給 AI 做 Prompt 參考）
+        tiao_hou_note = ""
+        score = strength.get("评分", 50)
+        factors = strength.get("因素", [])
+        
+        # 檢查月令特徵（從因素中提取）
+        month_info = ""
+        for f in factors:
+            if "月令" in f or "月支" in f or "得月令" in f:
+                month_info = f
+                break
+        
+        # 夏月火土日主 → 調候用水
+        if "火旺" in month_info or "巳" in month_info or "午" in month_info or "未" in month_info:
+            if day_wuxing in ("火", "土"):
+                tiao_hou_note = f"調候：夏月{day_wuxing}日主，宜取水為調候用神"
+        # 冬月水木日主 → 調候用火
+        if "水旺" in month_info or "亥" in month_info or "子" in month_info or "丑" in month_info:
+            if day_wuxing in ("水", "木"):
+                tiao_hou_note = f"調候：冬月{day_wuxing}日主，宜取火為調候用神"
+        
+        result = {
             "用神": yongshen,
-            "喜神": xishen if xishen else yongshen,
-            "忌神": jishen
+            "喜神": xishen,
+            "忌神": jishen,
+            "身强弱": strength_level,
+            "评分": score
         }
+        
+        if tiao_hou_note:
+            result["调候"] = tiao_hou_note
+        
+        return result
     
     def _get_nayin(self, gan: str, zhi: str) -> str:
         """获取纳音五行"""

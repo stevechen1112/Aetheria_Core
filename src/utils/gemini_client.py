@@ -117,6 +117,24 @@ class GeminiClient:
         except Exception as e:
             raise Exception(f"Gemini API 呼叫失敗: {str(e)}")
     
+    def _build_tools_config(self, tools: Optional[list]):
+        """共用：將工具定義清單轉成 Gemini SDK 格式"""
+        if not tools:
+            return None
+        function_declarations = []
+        for tool in tools:
+            if isinstance(tool, dict):
+                function_declarations.append(
+                    types.FunctionDeclaration(
+                        name=tool.get("name"),
+                        description=tool.get("description"),
+                        parameters=tool.get("parameters")
+                    )
+                )
+            else:
+                function_declarations.append(tool)
+        return [types.Tool(function_declarations=function_declarations)]
+
     def generate_content_stream(
         self,
         prompt: str,
@@ -130,7 +148,7 @@ class GeminiClient:
         生成內容（Streaming 模式，支援 Function Calling）
         
         Args:
-            prompt: 提示詞
+            prompt: 提示詞（字串或 contents 列表）
             system_instruction: 系統指令
             temperature: 覆蓋預設溫度
             max_output_tokens: 覆蓋預設最大 Token 數
@@ -143,21 +161,7 @@ class GeminiClient:
         Raises:
             Exception: API 呼叫失敗
         """
-        tools_config = None
-        if tools:
-            function_declarations = []
-            for tool in tools:
-                if isinstance(tool, dict):
-                    function_declarations.append(
-                        types.FunctionDeclaration(
-                            name=tool.get("name"),
-                            description=tool.get("description"),
-                            parameters=tool.get("parameters")
-                        )
-                    )
-                else:
-                    function_declarations.append(tool)
-            tools_config = [types.Tool(function_declarations=function_declarations)]
+        tools_config = self._build_tools_config(tools)
         
         config = types.GenerateContentConfig(
             temperature=temperature or self.default_config['temperature'],
@@ -178,6 +182,47 @@ class GeminiClient:
                 
         except Exception as e:
             raise Exception(f"Gemini API Streaming 失敗: {str(e)}")
+
+    def generate_non_stream_with_contents(
+        self,
+        contents,
+        system_instruction: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_output_tokens: Optional[int] = None,
+        model_name: Optional[str] = None,
+        tools: Optional[list] = None
+    ):
+        """
+        非串流生成（接受 contents 列表，支援 multi-turn Function Calling）
+        
+        用於 Tool Use 迴圈：每次迭代收集完整 response 再決定是否繼續。
+        
+        Args:
+            contents: Gemini Contents 列表（支援 user / model / tool role）
+            system_instruction: 系統指令
+            tools: Function Calling 工具定義列表
+            
+        Returns:
+            完整 response 對象
+        """
+        tools_config = self._build_tools_config(tools)
+        
+        config = types.GenerateContentConfig(
+            temperature=temperature or self.default_config['temperature'],
+            max_output_tokens=max_output_tokens or self.default_config['max_output_tokens'],
+            system_instruction=system_instruction,
+            tools=tools_config
+        )
+        
+        try:
+            response = self.client.models.generate_content(
+                model=model_name or self.model_name,
+                contents=contents,
+                config=config
+            )
+            return response
+        except Exception as e:
+            raise Exception(f"Gemini API (multi-turn) 失敗: {str(e)}")
     
     def generate_with_config(
         self,

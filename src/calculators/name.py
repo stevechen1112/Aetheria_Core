@@ -143,7 +143,7 @@ class NameCalculator:
     }
     
     def __init__(self):
-        """初始化計算器"""
+        """初始化計算器（v2.1：載入外部康熙筆畫資料庫）"""
         root_dir = Path(__file__).parent.parent.parent
         data_file = root_dir / "data" / "name_analysis.json"
         with open(data_file, 'r', encoding='utf-8') as f:
@@ -152,6 +152,20 @@ class NameCalculator:
         self.eighty_one = self.data["eighty_one_numbers"]
         self.three_talents_data = self.data["three_talents"]
         self.number_to_element = self.data["number_to_element"]
+        
+        # v2.1: 載入外部康熙筆畫資料庫
+        kangxi_file = root_dir / "data" / "kangxi_strokes.json"
+        self._external_kangxi = {}
+        try:
+            if kangxi_file.exists():
+                with open(kangxi_file, 'r', encoding='utf-8') as f:
+                    self._external_kangxi = json.load(f)
+                # 合併到 KANGXI_STROKES（外部資料庫優先級低於類定義的硬編碼值）
+                for char, strokes in self._external_kangxi.items():
+                    if char not in self.KANGXI_STROKES:
+                        self.KANGXI_STROKES[char] = strokes
+        except Exception:
+            pass  # 外部檔案不存在時使用內建表
     
     def get_stroke_count(self, char: str) -> int:
         """取得單一字的康熙筆畫數"""

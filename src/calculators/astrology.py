@@ -412,6 +412,136 @@ class AstrologyCalculator:
         
         return ruler_map.get(asc_sign, "未知")
     
+    def calculate_transit(self, natal_chart: Dict[str, Any],
+                          target_year: int = None,
+                          target_month: int = None,
+                          target_day: int = None) -> Dict[str, Any]:
+        """
+        計算行運（Transit）相位（v2.1 新增）
+        
+        使用 Kerykeion 的 SynastryAspects 計算行運行星與本命行星的相位。
+        Transit chart 是指定日期的天體位置，與 natal chart 做交叉相位比對。
+        
+        Args:
+            natal_chart: calculate_natal_chart() 的返回值
+            target_year: 行運年份（預設今年）
+            target_month: 行運月份（預設當月）
+            target_day: 行運日期（預設今天）
+            
+        Returns:
+            {
+                'transit_date': '2026-01-25',
+                'transit_planets': {...},
+                'aspects': [...],
+                'summary_text': '...'
+            }
+        """
+        try:
+            from kerykeion import SynastryAspects
+        except ImportError:
+            logger.warning("SynastryAspects 無法匯入，行運計算不可用")
+            return {'error': 'SynastryAspects 不可用', 'aspects': []}
+        
+        now = datetime.now()
+        year = target_year or now.year
+        month = target_month or now.month
+        day = target_day or now.day
+        
+        # 取得本命盤的基本參數
+        birth_info = natal_chart.get('birth_info', {})
+        lat = birth_info.get('latitude', 24.08)
+        lon = birth_info.get('longitude', 120.52)
+        tz = birth_info.get('timezone', 'Asia/Taipei')
+        
+        # 建立本命盤 subject
+        natal_subject = AstrologicalSubject(
+            name=birth_info.get('name', 'User'),
+            year=birth_info.get('year', 1979),
+            month=birth_info.get('month', 1),
+            day=birth_info.get('day', 1),
+            hour=birth_info.get('hour', 0),
+            minute=birth_info.get('minute', 0),
+            lat=lat, lng=lon,
+            tz_str=tz,
+            geonames_username=os.environ.get("GEONAMES_USERNAME", "demo")
+        )
+        
+        # 建立 Transit subject（指定日期正午 12:00）
+        transit_subject = AstrologicalSubject(
+            name="Transit",
+            year=year, month=month, day=day,
+            hour=12, minute=0,
+            lat=lat, lng=lon,
+            tz_str=tz,
+            geonames_username=os.environ.get("GEONAMES_USERNAME", "demo")
+        )
+        
+        # 計算交叉相位
+        try:
+            synastry = SynastryAspects(natal_subject, transit_subject)
+            raw_aspects = synastry.all_aspects
+        except Exception as e:
+            logger.error(f"行運相位計算失敗: {e}")
+            return {'error': str(e), 'aspects': []}
+        
+        # 提取 Transit 行星位置
+        transit_planets = self._extract_planets(transit_subject)
+        
+        # 格式化相位
+        aspects = []
+        for asp in raw_aspects:
+            try:
+                natal_planet = asp.get('p1_name', '') if isinstance(asp, dict) else getattr(asp, 'p1_name', '')
+                transit_planet = asp.get('p2_name', '') if isinstance(asp, dict) else getattr(asp, 'p2_name', '')
+                aspect_type = asp.get('aspect', '') if isinstance(asp, dict) else getattr(asp, 'aspect', '')
+                orbit = asp.get('orbit', 0) if isinstance(asp, dict) else getattr(asp, 'orbit', 0)
+                
+                # 只保留主要行星的相位
+                main_planets = {'Sun', 'Moon', 'Mercury', 'Venus', 'Mars', 
+                               'Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Pluto'}
+                if natal_planet not in main_planets or transit_planet not in main_planets:
+                    continue
+                
+                natal_zh = self.PLANET_NAMES_ZH.get(natal_planet, natal_planet)
+                transit_zh = self.PLANET_NAMES_ZH.get(transit_planet, transit_planet)
+                
+                aspect_zh_map = {
+                    'conjunction': '合相 (0°)',
+                    'opposition': '對相 (180°)',
+                    'trine': '三分相 (120°)',
+                    'square': '四分相 (90°)',
+                    'sextile': '六分相 (60°)'
+                }
+                aspect_zh = aspect_zh_map.get(str(aspect_type).lower(), str(aspect_type))
+                
+                aspects.append({
+                    'natal_planet': natal_planet,
+                    'natal_planet_zh': natal_zh,
+                    'transit_planet': transit_planet,
+                    'transit_planet_zh': transit_zh,
+                    'aspect': str(aspect_type),
+                    'aspect_zh': aspect_zh,
+                    'orbit': round(float(orbit), 2) if orbit else 0
+                })
+            except Exception:
+                continue
+        
+        # 生成摘要文本
+        summary_lines = [f"【行運分析】{year}/{month}/{day}"]
+        for a in aspects[:15]:  # 最多 15 條
+            summary_lines.append(
+                f"  行運{a['transit_planet_zh']} {a['aspect_zh']} 本命{a['natal_planet_zh']}（容許度 {a['orbit']}°）"
+            )
+        if not aspects:
+            summary_lines.append("  當日無顯著行運相位")
+        
+        return {
+            'transit_date': f"{year}-{month:02d}-{day:02d}",
+            'transit_planets': transit_planets,
+            'aspects': aspects,
+            'summary_text': '\n'.join(summary_lines)
+        }
+    
     def format_for_gemini(self, natal_chart: Dict[str, Any]) -> str:
         """
         將本命盤數據格式化為適合 Gemini 分析的文本

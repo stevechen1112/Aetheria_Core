@@ -114,7 +114,9 @@ import src.utils.auth_utils as auth_utils
 from src.prompts.intelligence_core import (
     get_intelligence_core,
     IntelligenceContext,
-    AIIntelligenceCore
+    AIIntelligenceCore,
+    format_memory_context,
+    detect_off_topic
 )
 from src.prompts.registry.conversation_strategies import UserState
 
@@ -1464,6 +1466,40 @@ def get_user_birth_info(user: Dict) -> Optional[Dict[str, int]]:
     if parsed:
         return {'year': parsed[0], 'month': parsed[1], 'day': parsed[2]}
     return None
+
+
+def build_fortune_params(lock: Dict) -> Dict:
+    """
+    從鎖定命盤中提取 FortuneTeller 所需的新參數 (v2.1)
+    
+    Returns:
+        {
+            'five_elements_class': '火六局' or None,
+            'palace_branch_map': {'午': '財帛宮', ...} or {}
+        }
+    """
+    result = {
+        'five_elements_class': None,
+        'palace_branch_map': {}
+    }
+    
+    if not lock or not lock.get('chart_structure'):
+        return result
+    
+    structure = lock['chart_structure']
+    
+    # 取得五行局
+    result['five_elements_class'] = structure.get('五行局')
+    
+    # 建立宮位地支映射表（地支 → 宮名）
+    shi_er_gong = structure.get('十二宮', {})
+    for palace_name, palace_info in shi_er_gong.items():
+        if isinstance(palace_info, dict):
+            branch = palace_info.get('宮位')
+            if branch:
+                result['palace_branch_map'][branch] = palace_name
+    
+    return result
 
 # 啟動時嘗試遷移舊版 JSON 資料
 migrate_json_to_sqlite()
@@ -4301,74 +4337,92 @@ def chat_consult():
         include_persona=True
     )
     
-    # 建構記憶提示文字
-    memory_hints = []
+    # Gap 4 修復：使用統一的記憶格式化函式
+    memory_context_text = format_memory_context(memory_context)
     
-    # Layer 1: 短期記憶（檢查是否有系統事件）
-    system_events = [m for m in memory_context['short_term'] if m['role'] == 'system_event']
-    if system_events:
-        memory_hints.append("【系統事件】")
-        for evt in system_events[-3:]:  # 最近 3 個事件
-            try:
-                evt_data = json.loads(evt['content'])
-                evt_type = evt_data.get('type', 'unknown')
-                memory_hints.append(f"- {evt_type}: {evt_data.get('data', {})}")
-            except:
-                pass
-    
-    # Layer 2: 摘要記憶（過往重要討論）
-    episodic_summaries = memory_context.get('episodic', [])
-    if episodic_summaries:
-        memory_hints.append("\n【過往討論摘要】")
-        for summary in episodic_summaries[:3]:  # 最近 3 筆
-            topic = summary.get('topic', 'general')
-            key_points = summary.get('key_points', '')
-            memory_hints.append(f"- [{topic}] {key_points}")
-    
-    # Layer 3: 使用者畫像（深層特質）
-    persona = memory_context.get('persona')
-    if persona:
-        tags = persona.get('personality_tags', [])
-        prefs = persona.get('preferences', {})
-        if tags or prefs:
-            memory_hints.append("\n【使用者特質】")
-            if tags:
-                normalized_tags = []
-                for t in tags[:5]:
-                    if isinstance(t, str):
-                        normalized_tags.append(t)
-                    elif isinstance(t, dict):
-                        label = t.get('content') or t.get('tag') or t.get('label')
-                        if label:
-                            normalized_tags.append(str(label))
-                if normalized_tags:
-                    memory_hints.append(f"- 性格標籤: {', '.join(normalized_tags)}")
-            if prefs:
-                tone = prefs.get('tone')
-                if tone:
-                    memory_hints.append(f"- 偏好語氣: {tone}")
-    
-    memory_context_text = "\n".join(memory_hints) if memory_hints else "（無歷史記憶）"
-    if len(memory_context_text) > 1200:
-        memory_context_text = memory_context_text[:1200] + "...（已截斷）"
-    
-    # ==================== Agent 人設整合 ====================
-    # 導入 Agent 人設與行為準則
+    # ==================== Gap 2+6 修復：統一使用 Intelligence Core ====================
     from src.prompts.agent_persona import build_agent_system_prompt, choose_strategy
     
-    # §5.1.2 對話狀態機 — 動態策略選擇
-    conversation_stage = choose_strategy(
-        turn_count=len([m for m in history_msgs if m.get('role') == 'user']),
-        has_birth_data=has_birth_date,
-        has_chart=bool(memory_context and memory_context.get('episodic')),
-        emotional_signals=None  # 未來可整合情緒偵測
+    intelligence_core = get_intelligence_core()
+    
+    # 建構使用者狀態
+    user_state = UserState(
+        is_first_visit=(len(history_msgs) == 0),
+        has_complete_birth_info=has_birth_date,
+        conversation_count=len([m for m in history_msgs if m.get('role') == 'user']),
+        preferred_communication_style=None,
+        emotional_state=None
     )
     
-    # 構建完整 Agent System Prompt（包含三層記憶、人設、倫理邊界）
+    # 分析使用者輸入（情緒、意圖、策略）
+    intelligence_context = intelligence_core.analyze_user_input(
+        user_message=message,
+        user_state=user_state,
+        conversation_history=[{
+            'role': m.get('role'),
+            'content': m.get('content')
+        } for m in history_msgs]
+    )
+    
+    # 檢查是否需要阻擋回應（例如自殺風險）
+    should_block, override_response = intelligence_core.should_block_response(intelligence_context)
+    if should_block and override_response:
+        db.add_chat_message(session_id, 'user', message)
+        db.add_chat_message(session_id, 'assistant', override_response)
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'reply': override_response,
+                'session_id': session_id,
+                'safety_intervention': True
+            }
+        })
+    
+    # Gap 3 修復：將情緒信號傳入 choose_strategy
+    emotional_signals = {
+        'distress': intelligence_context.emotional_signal.distress_level > 0.7,
+        'curiosity': intelligence_context.emotional_signal.emotion == 'excited',
+        'closing': any(kw in message for kw in ['掰掰', '再見', '拜拜', '謝謝', '結束', '好了', '就這樣'])
+    }
+    
+    conversation_stage = choose_strategy(
+        turn_count=user_state.conversation_count,
+        has_birth_data=has_birth_date,
+        has_chart=bool(memory_context and memory_context.get('episodic')),
+        emotional_signals=emotional_signals
+    )
+    
+    # Gap 5 修復：離題偵測與引導
+    _consecutive_off = 0
+    for _m in reversed(history_msgs):
+        if _m.get('role') == 'user':
+            _prev_check = detect_off_topic(_m.get('content', ''), [], has_birth_date, 0)
+            if _prev_check['is_off_topic']:
+                _consecutive_off += 1
+            else:
+                break
+    off_topic_result = detect_off_topic(message, history_msgs, has_birth_date, _consecutive_off)
+    
+    # 構建完整 Agent System Prompt（包含三層記憶、人設、倫理邊界 + 情緒/策略提示）
     agent_system_prompt = build_agent_system_prompt(
         user_context=memory_context,
         conversation_stage=conversation_stage
     )
+    
+    # 注入 Intelligence Core 的情緒/策略提示
+    enhanced_hints = intelligence_core.build_enhanced_system_prompt(
+        intelligence_context=intelligence_context,
+        include_strategy_hints=True
+    )
+    # 只取 enhanced 部分（base prompt 已由 build_agent_system_prompt 提供）
+    from src.prompts.registry.persona import get_persona_system_prompt
+    _base = get_persona_system_prompt()
+    extra_hints = enhanced_hints[len(_base):] if enhanced_hints.startswith(_base) else ""
+    agent_system_prompt += extra_hints
+    
+    # 注入離題引導提示
+    if off_topic_result['should_steer'] and off_topic_result['steering_hint']:
+        agent_system_prompt += f"\n\n{off_topic_result['steering_hint']}"
     
     # 語音模式 vs 文字模式：不同的 prompt 風格
     if voice_mode:
@@ -5351,7 +5405,27 @@ def chat_consult_stream():
                 include_strategy_hints=True
             )
             
-            # 結合原有的命盤上下文
+            # Gap 4 修復：統一記憶格式化（用 format_memory_context 取代 json.dumps）
+            memory_context_text = format_memory_context(memory_context)
+            
+            # Gap 5 修復：離題偵測與引導
+            # 計算連續離題次數（從最近歷史倒推）
+            _consecutive_off = 0
+            for _m in reversed(history_msgs):
+                if _m.get('role') == 'user':
+                    _prev_check = detect_off_topic(_m.get('content', ''), [], bool(chart_context), 0)
+                    if _prev_check['is_off_topic']:
+                        _consecutive_off += 1
+                    else:
+                        break
+            off_topic_result = detect_off_topic(
+                message, history_msgs, bool(chart_context), _consecutive_off
+            )
+            steering_hint = ""
+            if off_topic_result['should_steer'] and off_topic_result['steering_hint']:
+                steering_hint = f"\n\n{off_topic_result['steering_hint']}"
+            
+            # 結合命盤上下文 + 格式化記憶 + 引導提示
             consult_system = enhanced_prompt + f"""
 
 【可用命盤系統】
@@ -5361,11 +5435,11 @@ def chat_consult_stream():
 {chart_context or '（尚未提供生辰資料）'}
 
 【記憶上下文】
-{json.dumps(memory_context, ensure_ascii=False) if memory_context else '（無歷史記憶）'}
+{memory_context_text}
 
 【參考事實】
 {chr(10).join(f'• {fact}' for fact in facts[:15]) if facts else '（無）'}
-"""
+{steering_hint}"""
             
             # Build user prompt
             prompt = f"""
@@ -5379,110 +5453,142 @@ def chat_consult_stream():
 {chart_context or '（無命盤）'}
 """
             
-            # Call Gemini with streaming
+            # ===== Gap 1 修復：多輪 Tool Use 迴圈（取代單一 pass）=====
             accumulated_text = ""
             tool_calls_made = []
             widget_count = 0
+            MAX_TOOL_ITERATIONS = 5
             
-            # 使用 Gemini streaming API
             gemini_tools = get_tool_definitions()
-            response = gemini_client.generate_content_stream(
-                prompt=prompt,
-                system_instruction=consult_system,
-                tools=gemini_tools if gemini_tools else None
-            )
             
-            for chunk in response:
-                # Handle tool calls
-                if hasattr(chunk, 'candidates') and chunk.candidates:
-                    for part in chunk.candidates[0].content.parts:
-                        if hasattr(part, 'function_call') and part.function_call:
-                            func_call = part.function_call
-                            tool_name = func_call.name
-                            tool_args = dict(func_call.args) if func_call.args else {}
-                            
-                            # 發送 tool executing 事件
-                            tool_data = json.dumps({
-                                'status': 'executing',
-                                'name': tool_name,
-                                'args': tool_args
-                            }, ensure_ascii=False)
-                            yield f"event: tool\ndata: {tool_data}\n\n"
-                            
-                            # 執行工具
-                            try:
-                                result = execute_tool(tool_name, tool_args)
-                                tool_calls_made.append({
-                                    'name': tool_name,
-                                    'args': tool_args,
-                                    'result': result
-                                })
-                                
-                                # 發送 tool completed 事件
-                                tool_data = json.dumps({
-                                    'status': 'completed',
-                                    'name': tool_name,
-                                    'result': result
-                                }, ensure_ascii=False)
-                                yield f"event: tool\ndata: {tool_data}\n\n"
-                                
-                                # 如果是命盤工具，注入 widget
-                                if tool_name in ['calculate_ziwei', 'calculate_bazi', 'calculate_astrology']:
-                                    widget_data = _build_chart_widget_from_tool_result(tool_name, result)
-                                    if widget_data:
-                                        widget_json = json.dumps(widget_data, ensure_ascii=False)
-                                        yield f"event: widget\ndata: {widget_json}\n\n"
-                                        widget_count += 1
-                                
-                            except Exception as e:
-                                logger.error(f"Tool execution failed: {tool_name}, {e}")
-                                tool_data = json.dumps({
-                                    'status': 'error',
-                                    'name': tool_name,
-                                    'error': str(e)
-                                }, ensure_ascii=False)
-                                yield f"event: tool\ndata: {tool_data}\n\n"
-                        
-                        # Handle text streaming
-                        elif hasattr(part, 'text') and part.text:
-                            text_chunk = part.text
-                            accumulated_text += text_chunk
-                            
-                            # 逐字推送
-                            event_data = json.dumps({'chunk': text_chunk}, ensure_ascii=False)
-                            yield f"event: text\ndata: {event_data}\n\n"
-                            time.sleep(0.02)  # 打字延遲
+            # 構建 multi-turn contents 列表
+            contents = [types.Content(role="user", parts=[types.Part(text=prompt)])]
             
-            # 若有工具調用但未產生足夠回覆，使用工具結果進行第二輪生成
-            if tool_calls_made and len(accumulated_text.strip()) < 20:
-                tool_results_text = json.dumps([{
-                    'name': call.get('name'),
-                    'args': call.get('args'),
-                    'result': call.get('result')
-                } for call in tool_calls_made], ensure_ascii=False)
-
-                followup_prompt = (
-                    f"{prompt}\n\n"
-                    "【工具執行結果】\n"
-                    f"{tool_results_text}\n\n"
-                    "請根據工具結果提供具體解讀與建議。"
-                )
-
-                followup_stream = gemini_client.generate_content_stream(
-                    prompt=followup_prompt,
-                    system_instruction=consult_system,
-                    tools=None
-                )
-
-                for chunk in followup_stream:
-                    if hasattr(chunk, 'candidates') and chunk.candidates:
-                        for part in chunk.candidates[0].content.parts:
-                            if hasattr(part, 'text') and part.text:
+            for _tool_iter in range(MAX_TOOL_ITERATIONS):
+                # 第一輪用 streaming（給使用者即時回饋），
+                # 後續迭代用非 streaming（效率 + 避免中斷 SSE）
+                if _tool_iter == 0:
+                    # 第一輪：streaming 模式
+                    response = gemini_client.generate_content_stream(
+                        prompt=contents,
+                        system_instruction=consult_system,
+                        tools=gemini_tools if gemini_tools else None
+                    )
+                    
+                    _iter_function_calls = []
+                    
+                    for chunk in response:
+                        if hasattr(chunk, 'candidates') and chunk.candidates:
+                            for part in chunk.candidates[0].content.parts:
+                                if hasattr(part, 'function_call') and part.function_call:
+                                    _iter_function_calls.append(part.function_call)
+                                elif hasattr(part, 'text') and part.text:
+                                    text_chunk = part.text
+                                    accumulated_text += text_chunk
+                                    event_data = json.dumps({'chunk': text_chunk}, ensure_ascii=False)
+                                    yield f"event: text\ndata: {event_data}\n\n"
+                                    time.sleep(0.02)
+                else:
+                    # 後續迭代：非 streaming 模式（tool response → AI 解讀）
+                    response = gemini_client.generate_non_stream_with_contents(
+                        contents=contents,
+                        system_instruction=consult_system,
+                        tools=gemini_tools if gemini_tools else None
+                    )
+                    
+                    _iter_function_calls = []
+                    if hasattr(response, 'candidates') and response.candidates:
+                        for part in response.candidates[0].content.parts:
+                            if hasattr(part, 'function_call') and part.function_call:
+                                _iter_function_calls.append(part.function_call)
+                            elif hasattr(part, 'text') and part.text:
                                 text_chunk = part.text
                                 accumulated_text += text_chunk
                                 event_data = json.dumps({'chunk': text_chunk}, ensure_ascii=False)
                                 yield f"event: text\ndata: {event_data}\n\n"
                                 time.sleep(0.02)
+                
+                # 若有 function_call → 執行工具，加入 contents，continue 迴圈
+                if _iter_function_calls:
+                    # 將 model 的回覆（含 function_call）加入 contents
+                    model_parts = []
+                    for fc in _iter_function_calls:
+                        model_parts.append(types.Part(function_call=fc))
+                    contents.append(types.Content(role="model", parts=model_parts))
+                    
+                    # 執行每個工具
+                    tool_response_parts = []
+                    for fc in _iter_function_calls:
+                        tool_name = fc.name
+                        tool_args = dict(fc.args) if fc.args else {}
+                        
+                        # SSE: 工具開始
+                        tool_data = json.dumps({
+                            'status': 'executing',
+                            'name': tool_name,
+                            'args': tool_args
+                        }, ensure_ascii=False)
+                        yield f"event: tool\ndata: {tool_data}\n\n"
+                        
+                        try:
+                            result = execute_tool(tool_name, tool_args)
+                            tool_calls_made.append({
+                                'name': tool_name,
+                                'args': tool_args,
+                                'result': result
+                            })
+                            
+                            # SSE: 工具完成
+                            tool_data = json.dumps({
+                                'status': 'completed',
+                                'name': tool_name,
+                                'result': result
+                            }, ensure_ascii=False)
+                            yield f"event: tool\ndata: {tool_data}\n\n"
+                            
+                            # Widget 注入
+                            if tool_name in ['calculate_ziwei', 'calculate_bazi', 'calculate_astrology']:
+                                widget_data = _build_chart_widget_from_tool_result(tool_name, result)
+                                if widget_data:
+                                    widget_json = json.dumps(widget_data, ensure_ascii=False)
+                                    yield f"event: widget\ndata: {widget_json}\n\n"
+                                    widget_count += 1
+                            
+                            # 加入 FunctionResponse
+                            tool_response_parts.append(
+                                types.Part(
+                                    function_response=types.FunctionResponse(
+                                        name=tool_name,
+                                        response=result
+                                    )
+                                )
+                            )
+                        except Exception as e:
+                            logger.error(f"Tool execution failed: {tool_name}, {e}")
+                            tool_data = json.dumps({
+                                'status': 'error',
+                                'name': tool_name,
+                                'error': str(e)
+                            }, ensure_ascii=False)
+                            yield f"event: tool\ndata: {tool_data}\n\n"
+                            
+                            tool_response_parts.append(
+                                types.Part(
+                                    function_response=types.FunctionResponse(
+                                        name=tool_name,
+                                        response={"status": "error", "error": str(e)}
+                                    )
+                                )
+                            )
+                    
+                    # 將 tool responses 加入 contents
+                    contents.append(types.Content(role="tool", parts=tool_response_parts))
+                    
+                    # 繼續下一輪迭代，讓 AI 根據工具結果生成回覆或調用更多工具
+                    continue
+                else:
+                    # 無 function_call → AI 已產生文字回覆，跳出迴圈
+                    break
 
             # 儲存 AI 回覆
             if accumulated_text:
@@ -6037,14 +6143,17 @@ def fortune_annual():
         if not birth_info:
             raise InvalidParameterException('birth_date', '用戶缺少可解析的出生日期')
         
-        # 創建流年計算器
+        # 創建流年計算器（v2.1：傳入五行局和宮位映射）
         ming_gong_branch = lock['chart_structure']['命宮']['宮位']
+        fortune_params = build_fortune_params(lock)
         teller = FortuneTeller(
             birth_year=birth_info['year'],
             birth_month=birth_info['month'],
             birth_day=birth_info['day'],
             gender=normalize_gender(user.get('gender')),
-            ming_gong_branch=ming_gong_branch
+            ming_gong_branch=ming_gong_branch,
+            five_elements_class=fortune_params['five_elements_class'],
+            palace_branch_map=fortune_params['palace_branch_map']
         )
         
         # 計算流年運勢
@@ -6111,8 +6220,9 @@ def fortune_monthly():
         if not lock or not lock.get('is_active'):
             raise ChartNotLockedException(user_id)
         
-        # 計算流月
+        # 計算流月（v2.1：傳入五行局和宮位映射）
         ming_gong_branch = lock['chart_structure']['命宮']['宮位']
+        fortune_params = build_fortune_params(lock)
         
         user = get_user(user_id)
         birth_info = get_user_birth_info(user)
@@ -6124,7 +6234,9 @@ def fortune_monthly():
             birth_month=birth_info['month'],
             birth_day=birth_info['day'],
             gender=normalize_gender(user.get('gender')),
-            ming_gong_branch=ming_gong_branch
+            ming_gong_branch=ming_gong_branch,
+            five_elements_class=fortune_params['five_elements_class'],
+            palace_branch_map=fortune_params['palace_branch_map']
         )
         
         fortune_data = teller.get_fortune_summary(target_year, target_month)
@@ -6187,8 +6299,9 @@ def fortune_question():
         if not lock or not lock.get('is_active'):
             raise ChartNotLockedException(user_id)
         
-        # 計算當前流年
+        # 計算當前流年（v2.1：傳入五行局和宮位映射）
         ming_gong_branch = lock['chart_structure']['命宮']['宮位']
+        fortune_params = build_fortune_params(lock)
         
         user = get_user(user_id)
         birth_info = get_user_birth_info(user)
@@ -6200,7 +6313,9 @@ def fortune_question():
             birth_month=birth_info['month'],
             birth_day=birth_info['day'],
             gender=normalize_gender(user.get('gender')),
-            ming_gong_branch=ming_gong_branch
+            ming_gong_branch=ming_gong_branch,
+            five_elements_class=fortune_params['five_elements_class'],
+            palace_branch_map=fortune_params['palace_branch_map']
         )
         
         fortune_data = teller.get_fortune_summary()
@@ -6494,28 +6609,33 @@ def date_selection_marriage():
         groom = get_user(groom_id)
         bride = get_user(bride_id)
         
-        # 計算流年資訊（簡化版，實際需要從出生資料計算）
-        # 這裡使用 FortuneTeller 計算
-        birth_year_groom = 1979  # 需要從 birth_date 解析
-        birth_year_bride = 1980  # 需要從 birth_date 解析
+        # 計算流年資訊（v2.1：從 birth_date 解析 + 傳入五行局）
+        groom_birth_info = get_user_birth_info(groom)
+        bride_birth_info = get_user_birth_info(bride)
         
         ming_gong_groom = lock_groom['chart_structure']['命宮']['宮位']
         ming_gong_bride = lock_bride['chart_structure']['命宮']['宮位']
+        fortune_params_groom = build_fortune_params(lock_groom)
+        fortune_params_bride = build_fortune_params(lock_bride)
         
         teller_groom = FortuneTeller(
-            birth_year=birth_year_groom,
-            birth_month=9,
-            birth_day=23,
+            birth_year=groom_birth_info['year'] if groom_birth_info else 1979,
+            birth_month=groom_birth_info['month'] if groom_birth_info else 1,
+            birth_day=groom_birth_info['day'] if groom_birth_info else 1,
             gender=groom.get('gender', '男'),
-            ming_gong_branch=ming_gong_groom
+            ming_gong_branch=ming_gong_groom,
+            five_elements_class=fortune_params_groom['five_elements_class'],
+            palace_branch_map=fortune_params_groom['palace_branch_map']
         )
         
         teller_bride = FortuneTeller(
-            birth_year=birth_year_bride,
-            birth_month=5,
-            birth_day=15,
+            birth_year=bride_birth_info['year'] if bride_birth_info else 1980,
+            birth_month=bride_birth_info['month'] if bride_birth_info else 1,
+            birth_day=bride_birth_info['day'] if bride_birth_info else 1,
             gender=bride.get('gender', '女'),
-            ming_gong_branch=ming_gong_bride
+            ming_gong_branch=ming_gong_bride,
+            five_elements_class=fortune_params_bride['five_elements_class'],
+            palace_branch_map=fortune_params_bride['palace_branch_map']
         )
         
         da_xian_groom = teller_groom.calculate_da_xian(target_year)
@@ -6607,16 +6727,19 @@ def date_selection_business():
         
         owner = get_user(owner_id)
         
-        # 計算流年資訊
-        birth_year = 1979  # 需要從 birth_date 解析
+        # 計算流年資訊（v2.1：從 birth_date 解析 + 傳入五行局）
+        owner_birth_info = get_user_birth_info(owner)
         ming_gong = lock_owner['chart_structure']['命宮']['宮位']
+        fortune_params = build_fortune_params(lock_owner)
         
         teller = FortuneTeller(
-            birth_year=birth_year,
-            birth_month=9,
-            birth_day=23,
+            birth_year=owner_birth_info['year'] if owner_birth_info else 1979,
+            birth_month=owner_birth_info['month'] if owner_birth_info else 1,
+            birth_day=owner_birth_info['day'] if owner_birth_info else 1,
             gender=owner.get('gender', '男'),
-            ming_gong_branch=ming_gong
+            ming_gong_branch=ming_gong,
+            five_elements_class=fortune_params['five_elements_class'],
+            palace_branch_map=fortune_params['palace_branch_map']
         )
         
         da_xian = teller.calculate_da_xian(target_year)
@@ -6703,16 +6826,19 @@ def date_selection_moving():
         
         owner = get_user(owner_id)
         
-        # 計算流年資訊
-        birth_year = 1979
+        # 計算流年資訊（v2.1：從 birth_date 解析 + 傳入五行局）
+        owner_birth_info = get_user_birth_info(owner)
         ming_gong = lock_owner['chart_structure']['命宮']['宮位']
+        fortune_params = build_fortune_params(lock_owner)
         
         teller = FortuneTeller(
-            birth_year=birth_year,
-            birth_month=9,
-            birth_day=23,
+            birth_year=owner_birth_info['year'] if owner_birth_info else 1979,
+            birth_month=owner_birth_info['month'] if owner_birth_info else 1,
+            birth_day=owner_birth_info['day'] if owner_birth_info else 1,
             gender=owner.get('gender', '男'),
-            ming_gong_branch=ming_gong
+            ming_gong_branch=ming_gong,
+            five_elements_class=fortune_params['five_elements_class'],
+            palace_branch_map=fortune_params['palace_branch_map']
         )
         
         da_xian = teller.calculate_da_xian(target_year)

@@ -74,12 +74,77 @@ class NumerologyCalculator:
     MASTER_NUMBERS = {11, 22, 33}
     KARMIC_DEBT_NUMBERS = {13, 14, 16, 19}
     
+    # v2.1: 標準母音集合（不含 Y）
+    STRICT_VOWELS = set('AEIOU')
+    
     def __init__(self):
         """初始化計算器，載入資料庫"""
         root_dir = Path(__file__).parent.parent.parent
         data_file = root_dir / "data" / "numerology_data.json"
         with open(data_file, 'r', encoding='utf-8') as f:
             self.data = json.load(f)
+    
+    def _classify_y(self, name_upper: str, position: int) -> str:
+        """
+        根據上下文判斷 Y 是母音還是子音（v2.1 新增）
+        
+        畢達哥拉斯靈數學規則：
+        - Y 在名字開頭且後接母音 → 子音（例：Yolanda 的 Y）
+        - Y 在兩個子音之間 → 母音（例：Lynn 的 Y）
+        - Y 在母音之後 → 子音（例：Day 的 Y，按發音仍可為母音—看門派）
+        - Y 是名字中唯一的「母音發音」 → 母音（例：Glynis, Bryn）
+        - 否則 → 子音
+        
+        Returns:
+            'vowel' 或 'consonant'
+        """
+        if position < 0 or position >= len(name_upper):
+            return 'consonant'
+        
+        char = name_upper[position]
+        if char != 'Y':
+            return 'vowel' if char in self.STRICT_VOWELS else 'consonant'
+        
+        # 取得前後字元（僅看字母）
+        prev_char = None
+        next_char = None
+        
+        for i in range(position - 1, -1, -1):
+            if name_upper[i].isalpha():
+                prev_char = name_upper[i]
+                break
+        
+        for i in range(position + 1, len(name_upper)):
+            if name_upper[i].isalpha():
+                next_char = name_upper[i]
+                break
+        
+        # 規則 1：開頭 + 後面是母音 → 子音
+        if prev_char is None and next_char in self.STRICT_VOWELS:
+            return 'consonant'
+        
+        # 規則 2：前後都是子音（或邊界） → 母音
+        prev_is_consonant = prev_char is not None and prev_char not in self.STRICT_VOWELS
+        next_is_consonant = next_char is not None and next_char not in self.STRICT_VOWELS
+        
+        if prev_is_consonant and (next_is_consonant or next_char is None):
+            return 'vowel'
+        
+        # 規則 3：名字中沒有其他母音 → 母音
+        # 找到當前名字片段（以空格分隔）
+        words = name_upper.split()
+        cum = 0
+        for word in words:
+            if cum <= position < cum + len(word):
+                # 這個 word 中除了 Y 以外有沒有母音
+                other_vowels = [c for i, c in enumerate(word) if c in self.STRICT_VOWELS]
+                if not other_vowels:
+                    return 'vowel'
+                break
+            cum += len(word) + 1  # +1 for space
+        
+        # 預設：子音
+        return 'consonant'
     
     def reduce_number(self, num: int, keep_master: bool = True) -> Tuple[int, bool]:
         """
@@ -175,17 +240,23 @@ class NumerologyCalculator:
         計算靈魂渴望數/心靈數
         
         靈魂渴望數揭示內心深處的渴望
-        計算方式：將姓名中所有元音（A, E, I, O, U）對應的數字相加
+        計算方式：將姓名中所有元音（A, E, I, O, U + 視情境的 Y）對應的數字相加
+        v2.1: Y 的分類現在依據上下文判定
         """
         name_upper = full_name.upper()
         vowel_values = []
         total = 0
         
-        for char in name_upper:
-            if char in self.VOWELS and char in self.LETTER_VALUES:
-                value = self.LETTER_VALUES[char]
-                vowel_values.append((char, value))
-                total += value
+        for i, char in enumerate(name_upper):
+            if char in self.LETTER_VALUES:
+                if char in self.STRICT_VOWELS:
+                    value = self.LETTER_VALUES[char]
+                    vowel_values.append((char, value))
+                    total += value
+                elif char == 'Y' and self._classify_y(name_upper, i) == 'vowel':
+                    value = self.LETTER_VALUES[char]
+                    vowel_values.append((char, value, 'Y作母音'))
+                    total += value
         
         soul_urge, is_master = self.reduce_number(total, keep_master=True)
         
@@ -205,16 +276,26 @@ class NumerologyCalculator:
         
         人格數揭示外在形象與他人的第一印象
         計算方式：將姓名中所有輔音對應的數字相加
+        v2.1: Y 的分類現在依據上下文判定
         """
         name_upper = full_name.upper()
         consonant_values = []
         total = 0
         
-        for char in name_upper:
-            if char in self.LETTER_VALUES and char not in self.VOWELS:
-                value = self.LETTER_VALUES[char]
-                consonant_values.append((char, value))
-                total += value
+        for i, char in enumerate(name_upper):
+            if char in self.LETTER_VALUES:
+                if char in self.STRICT_VOWELS:
+                    continue  # 跳過標準母音
+                elif char == 'Y':
+                    if self._classify_y(name_upper, i) == 'consonant':
+                        value = self.LETTER_VALUES[char]
+                        consonant_values.append((char, value))
+                        total += value
+                    # Y 作母音時跳過
+                else:
+                    value = self.LETTER_VALUES[char]
+                    consonant_values.append((char, value))
+                    total += value
         
         personality, is_master = self.reduce_number(total, keep_master=True)
         

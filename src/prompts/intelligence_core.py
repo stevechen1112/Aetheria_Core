@@ -1,11 +1,12 @@
 """
 AI 智慧核心 (AI Intelligence Core)
-整合人設、安全政策、對話策略、情緒感知
+整合人設、安全政策、對話策略、情緒感知、記憶格式化、離題偵測
 
-版本: v1.0.0
-最後更新: 2026-02-05
+版本: v1.1.0
+最後更新: 2026-02-08
 """
 
+import json
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, asdict
 
@@ -237,3 +238,216 @@ def get_intelligence_core() -> AIIntelligenceCore:
     if _intelligence_core_instance is None:
         _intelligence_core_instance = AIIntelligenceCore()
     return _intelligence_core_instance
+
+
+# ==================== 共用記憶格式化（Gap 4 修復）====================
+
+def format_memory_context(memory_context: Dict, max_length: int = 1200) -> str:
+    """
+    將三層記憶 dict 格式化成人類可讀的提示文字。
+    
+    此函式統一了串流與非串流端點的記憶注入格式，
+    確保 Gemini 收到結構化、好理解的記憶內容。
+    
+    Args:
+        memory_context: MemoryManager.build_context_for_ai() 的回傳值
+        max_length: 最大輸出字元數（超過則截斷）
+    
+    Returns:
+        格式化的記憶提示文字
+    """
+    if not memory_context:
+        return "（無歷史記憶）"
+    
+    hints: List[str] = []
+    
+    # Layer 1: 短期記憶 — 檢查系統事件
+    short_term = memory_context.get('short_term', [])
+    system_events = [m for m in short_term if m.get('role') == 'system_event']
+    if system_events:
+        hints.append("【系統事件】")
+        for evt in system_events[-3:]:
+            try:
+                evt_data = json.loads(evt.get('content', '{}'))
+                evt_type = evt_data.get('type', 'unknown')
+                hints.append(f"- {evt_type}: {evt_data.get('data', {})}")
+            except Exception:
+                pass
+    
+    # Layer 2: 摘要記憶 — 過往重要討論
+    episodic_summaries = memory_context.get('episodic', [])
+    if episodic_summaries:
+        hints.append("\n【過往討論摘要】")
+        for summary in episodic_summaries[:3]:
+            topic = summary.get('topic', 'general')
+            key_points = summary.get('key_points', '')
+            summary_date = summary.get('summary_date', '')
+            date_prefix = f"({summary_date}) " if summary_date else ""
+            hints.append(f"- {date_prefix}[{topic}] {key_points}")
+    
+    # Layer 3: 使用者畫像 — 深層特質
+    persona = memory_context.get('persona')
+    if persona:
+        tags = persona.get('personality_tags', [])
+        prefs = persona.get('preferences', {})
+        if tags or prefs:
+            hints.append("\n【使用者特質】")
+            if tags:
+                normalized_tags = []
+                for t in tags[:5]:
+                    if isinstance(t, str):
+                        normalized_tags.append(t)
+                    elif isinstance(t, dict):
+                        label = t.get('content') or t.get('tag') or t.get('label')
+                        if label:
+                            normalized_tags.append(str(label))
+                if normalized_tags:
+                    hints.append(f"- 性格標籤: {', '.join(normalized_tags)}")
+            if prefs:
+                tone = prefs.get('tone')
+                if tone:
+                    hints.append(f"- 偏好語氣: {tone}")
+                topics = prefs.get('topics')
+                if topics and isinstance(topics, list):
+                    hints.append(f"- 關注議題: {', '.join(topics[:5])}")
+    
+    text = "\n".join(hints) if hints else "（無歷史記憶）"
+    if len(text) > max_length:
+        text = text[:max_length] + "...（已截斷）"
+    return text
+
+
+# ==================== 離題偵測與引導（Gap 5 修復）====================
+
+# 命理相關關鍵詞（廣義）
+_FORTUNE_KEYWORDS = [
+    # 命理系統
+    "紫微", "八字", "占星", "星盤", "塔羅", "靈數", "姓名學", "命盤", "排盤",
+    # 運勢議題
+    "運勢", "流年", "流月", "大運", "命運", "命格", "格局", "吉凶",
+    # 生活議題（命理可以回應的）
+    "事業", "工作", "感情", "愛情", "婚姻", "健康", "財運", "人際", "學業",
+    "轉職", "創業", "投資", "桃花", "結婚", "離婚", "考試",
+    # 命理諮詢慣用語
+    "幫我看", "算一下", "怎麼樣", "適不適合", "會不會", "有沒有機會",
+    "什麼時候", "好不好", "該不該", "能不能",
+    # 情緒/生活（命理師可以回應的範圍）
+    "迷惘", "困惑", "煩惱", "不安", "擔心", "焦慮", "壓力",
+    # 出生資訊
+    "出生", "生日", "生辰", "時辰", "農曆", "國曆",
+]
+
+# 明確離題的關鍵詞
+_OFF_TOPIC_KEYWORDS = [
+    "寫程式", "coding", "python", "javascript", "程式碼", "debug",
+    "食譜", "怎麼煮", "料理", "菜單",
+    "翻譯", "translate", "幫我翻",
+    "數學題", "方程式", "微積分",
+    "寫文章", "寫作業", "幫我寫報告",
+    "天氣", "幾度", "會下雨嗎",
+]
+
+
+def detect_off_topic(
+    message: str,
+    history_msgs: List[Dict],
+    has_birth_data: bool = False,
+    consecutive_off_topic_count: int = 0
+) -> Dict:
+    """
+    偵測使用者是否偏離命理諮詢主題，並判斷是否需要引導。
+    
+    策略：
+    - 1-2 句離題 → 不干預（維持友善自然感）
+    - 3+ 句連續離題 → 溫和引導回命理
+    - 明確離題請求 → 委婉告知並引導
+    
+    Args:
+        message: 當前使用者訊息
+        history_msgs: 近期對話歷史
+        has_birth_data: 是否已有生辰資料
+        consecutive_off_topic_count: 連續離題計數
+    
+    Returns:
+        {
+            "is_off_topic": bool,
+            "confidence": float,
+            "consecutive_count": int,
+            "should_steer": bool,
+            "steering_hint": str | None
+        }
+    """
+    msg_lower = message.lower().strip()
+    
+    # 短訊息（< 3 字）或問候語不算離題
+    if len(msg_lower) < 3 or msg_lower in ["嗯", "好", "ok", "嗯嗯", "好的", "謝謝", "掰掰", "再見"]:
+        return {
+            "is_off_topic": False,
+            "confidence": 0.0,
+            "consecutive_count": 0,
+            "should_steer": False,
+            "steering_hint": None
+        }
+    
+    # 檢查是否命理相關
+    is_fortune_related = any(kw in msg_lower for kw in _FORTUNE_KEYWORDS)
+    
+    # 檢查是否明確離題
+    is_clearly_off_topic = any(kw in msg_lower for kw in _OFF_TOPIC_KEYWORDS)
+    
+    if is_fortune_related:
+        return {
+            "is_off_topic": False,
+            "confidence": 0.0,
+            "consecutive_count": 0,
+            "should_steer": False,
+            "steering_hint": None
+        }
+    
+    # 計算信心度
+    if is_clearly_off_topic:
+        confidence = 0.9
+    elif len(msg_lower) > 10 and not is_fortune_related:
+        confidence = 0.5
+    else:
+        confidence = 0.3
+    
+    new_count = consecutive_off_topic_count + 1
+    
+    # 判斷是否需要引導
+    should_steer = False
+    steering_hint = None
+    
+    if is_clearly_off_topic:
+        should_steer = True
+        steering_hint = (
+            "【對話引導提示】\n"
+            "使用者的問題不在命理諮詢範圍內。請用自然友善的方式回應，"
+            "但溫和地引導話題回到命理方向。\n"
+            "範例：「這個問題我可能幫不上忙，不過我很擅長從命理角度"
+            "看你現在的運勢或方向，要不要聊聊？」"
+        )
+    elif new_count >= 3:
+        should_steer = True
+        if has_birth_data:
+            steering_hint = (
+                "【對話引導提示】\n"
+                "使用者已連續 3+ 輪偏離命理話題。你已有他的命盤資料。\n"
+                "請自然地引導回命理：「對了，說到這個，你的命盤裡有個"
+                "有趣的地方剛好跟這相關，要不要聽聽看？」"
+            )
+        else:
+            steering_hint = (
+                "【對話引導提示】\n"
+                "使用者已連續 3+ 輪偏離命理話題。尚未取得生辰資料。\n"
+                "請自然地引導：「聊了這麼多，我越來越好奇你的命盤了。"
+                "方便告訴我你的出生年月日嗎？我幫你看看。」"
+            )
+    
+    return {
+        "is_off_topic": confidence > 0.4,
+        "confidence": confidence,
+        "consecutive_count": new_count,
+        "should_steer": should_steer,
+        "steering_hint": steering_hint
+    }
