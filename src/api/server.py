@@ -1356,6 +1356,33 @@ def get_all_chart_locks(user_id: str) -> Dict[str, Dict]:
             }
     return locks
 
+def _safe_get_ming_gong_branch(lock: Dict) -> str:
+    """安全取得命宮地支，若結構缺失則拋出友善例外"""
+    structure = lock.get('chart_structure') or {}
+    ming_gong = structure.get('命宮') or {}
+    branch = ming_gong.get('宮位')
+    if not branch:
+        raise InvalidParameterException('chart_structure', '鎖定命盤缺少命宮宮位資訊，請重新定盤')
+    return branch
+
+def _safe_format_structure_text(lock: Dict, include_twelve: bool = False) -> str:
+    """安全格式化命盤結構文字"""
+    structure = lock.get('chart_structure') or {}
+    ming_gong = structure.get('命宮') or {}
+    main_stars = ming_gong.get('主星') or []
+    main_stars_text = ', '.join(main_stars) if main_stars else '空宮'
+    position = ming_gong.get('宮位', '未知')
+    patterns = structure.get('格局') or []
+    pattern_text = ', '.join(patterns) if patterns else '未提及'
+    text = f"""\n命宮：{main_stars_text} ({position}宮)\n格局：{pattern_text}\n"""
+    if include_twelve:
+        text += "\n十二宮配置：\n"
+        for palace, info in structure.get('十二宮', {}).items():
+            if isinstance(info, dict):
+                stars = ', '.join(info.get('主星', [])) if info.get('主星') else '空宮'
+                text += f"- {palace} ({info.get('宮位', '?')}宮): {stars}\n"
+    return text
+
 def save_chart_lock(user_id: str, lock_data: Dict):
     """儲存鎖定命盤"""
     chart_type = lock_data.get('chart_type') or 'ziwei'
@@ -5781,7 +5808,7 @@ def get_lock():
         
         return jsonify({
             'locked': True,
-            'chart_structure': lock['chart_structure'],
+            'chart_structure': lock.get('chart_structure', {}),
             'locked_at': lock.get('confirmed_at'),
             'original_analysis': lock.get('original_analysis', '')[:500] + '...'
         })
@@ -6164,7 +6191,7 @@ def fortune_annual():
             raise InvalidParameterException('birth_date', '用戶缺少可解析的出生日期')
         
         # 創建流年計算器（v2.1：傳入五行局和宮位映射）
-        ming_gong_branch = lock['chart_structure']['命宮']['宮位']
+        ming_gong_branch = _safe_get_ming_gong_branch(lock)
         fortune_params = build_fortune_params(lock)
         teller = FortuneTeller(
             birth_year=birth_info['year'],
@@ -6181,11 +6208,7 @@ def fortune_annual():
         fortune_text = teller.format_fortune_text(fortune_data)
         
         # 格式化命盤結構
-        structure = lock['chart_structure']
-        structure_text = f"""
-命宮：{', '.join(structure['命宮']['主星'])} ({structure['命宮']['宮位']}宮)
-格局：{', '.join(structure['格局'])}
-"""
+        structure_text = _safe_format_structure_text(lock)
         
         # 組合 Prompt
         prompt = FORTUNE_ANNUAL_ANALYSIS.format(
@@ -6241,7 +6264,7 @@ def fortune_monthly():
             raise ChartNotLockedException(user_id)
         
         # 計算流月（v2.1：傳入五行局和宮位映射）
-        ming_gong_branch = lock['chart_structure']['命宮']['宮位']
+        ming_gong_branch = _safe_get_ming_gong_branch(lock)
         fortune_params = build_fortune_params(lock)
         
         user = get_user(user_id)
@@ -6263,11 +6286,7 @@ def fortune_monthly():
         fortune_text = teller.format_fortune_text(fortune_data)
         
         # 格式化命盤結構
-        structure = lock['chart_structure']
-        structure_text = f"""
-命宮：{', '.join(structure['命宮']['主星'])} ({structure['命宮']['宮位']}宮)
-格局：{', '.join(structure['格局'])}
-"""
+        structure_text = _safe_format_structure_text(lock)
         
         # 組合 Prompt
         prompt = FORTUNE_MONTHLY_ANALYSIS.format(
@@ -6320,7 +6339,7 @@ def fortune_question():
             raise ChartNotLockedException(user_id)
         
         # 計算當前流年（v2.1：傳入五行局和宮位映射）
-        ming_gong_branch = lock['chart_structure']['命宮']['宮位']
+        ming_gong_branch = _safe_get_ming_gong_branch(lock)
         fortune_params = build_fortune_params(lock)
         
         user = get_user(user_id)
@@ -6342,16 +6361,7 @@ def fortune_question():
         fortune_text = teller.format_fortune_text(fortune_data)
         
         # 格式化命盤結構
-        structure = lock['chart_structure']
-        structure_text = f"""
-命宮：{', '.join(structure['命宮']['主星'])} ({structure['命宮']['宮位']}宮)
-格局：{', '.join(structure['格局'])}
-
-十二宮配置：
-"""
-        for palace, info in structure.get('十二宮', {}).items():
-            stars = ', '.join(info['主星']) if info['主星'] else '空宮'
-            structure_text += f"- {palace} ({info['宮位']}宮): {stars}\n"
+        structure_text = _safe_format_structure_text(lock, include_twelve=True)
         
         # 組合 Prompt
         prompt = FORTUNE_QUESTION_ANALYSIS.format(
@@ -6419,8 +6429,8 @@ def synastry_marriage():
 """
         
         # 格式化命盤結構
-        chart_a = json.dumps(lock_a['chart_structure'], ensure_ascii=False, indent=2)
-        chart_b = json.dumps(lock_b['chart_structure'], ensure_ascii=False, indent=2)
+        chart_a = json.dumps(lock_a.get('chart_structure', {}), ensure_ascii=False, indent=2)
+        chart_b = json.dumps(lock_b.get('chart_structure', {}), ensure_ascii=False, indent=2)
         
         # 組合 Prompt
         prompt = SYNASTRY_MARRIAGE_ANALYSIS.format(
@@ -6489,8 +6499,8 @@ def synastry_partnership():
 """
         
         # 格式化命盤結構
-        chart_a = json.dumps(lock_a['chart_structure'], ensure_ascii=False, indent=2)
-        chart_b = json.dumps(lock_b['chart_structure'], ensure_ascii=False, indent=2)
+        chart_a = json.dumps(lock_a.get('chart_structure', {}), ensure_ascii=False, indent=2)
+        chart_b = json.dumps(lock_b.get('chart_structure', {}), ensure_ascii=False, indent=2)
         
         # 組合 Prompt
         prompt = SYNASTRY_PARTNERSHIP_ANALYSIS.format(
@@ -6548,11 +6558,13 @@ def synastry_quick():
         user_b = get_user(user_b_id)
         
         # 提取關鍵資訊
-        chart_a = lock_a['chart_structure']
-        chart_b = lock_b['chart_structure']
+        chart_a = lock_a.get('chart_structure') or {}
+        chart_b = lock_b.get('chart_structure') or {}
         
-        ming_gong_a = f"{', '.join(chart_a['命宮']['主星'])} ({chart_a['命宮']['宮位']}宮)"
-        ming_gong_b = f"{', '.join(chart_b['命宮']['主星'])} ({chart_b['命宮']['宮位']}宮)"
+        mg_a = chart_a.get('命宮') or {}
+        mg_b = chart_b.get('命宮') or {}
+        ming_gong_a = f"{', '.join(mg_a.get('主星') or ['未知'])} ({mg_a.get('宮位', '?')}宮)"
+        ming_gong_b = f"{', '.join(mg_b.get('主星') or ['未知'])} ({mg_b.get('宮位', '?')}宮)"
         
         # 根據分析類型選擇關鍵宮位
         if analysis_type == '婚配':
@@ -6633,8 +6645,8 @@ def date_selection_marriage():
         groom_birth_info = get_user_birth_info(groom)
         bride_birth_info = get_user_birth_info(bride)
         
-        ming_gong_groom = lock_groom['chart_structure']['命宮']['宮位']
-        ming_gong_bride = lock_bride['chart_structure']['命宮']['宮位']
+        ming_gong_groom = _safe_get_ming_gong_branch(lock_groom)
+        ming_gong_bride = _safe_get_ming_gong_branch(lock_bride)
         fortune_params_groom = build_fortune_params(lock_groom)
         fortune_params_bride = build_fortune_params(lock_bride)
         
@@ -6677,8 +6689,8 @@ def date_selection_marriage():
 性別：{bride.get('gender', 'N/A')}
 """
         
-        groom_chart = json.dumps(lock_groom['chart_structure'], ensure_ascii=False, indent=2)
-        bride_chart = json.dumps(lock_bride['chart_structure'], ensure_ascii=False, indent=2)
+        groom_chart = json.dumps(lock_groom.get('chart_structure', {}), ensure_ascii=False, indent=2)
+        bride_chart = json.dumps(lock_bride.get('chart_structure', {}), ensure_ascii=False, indent=2)
         
         groom_da_xian_str = f"第{da_xian_groom['da_xian_number']}大限 ({da_xian_groom['age_range'][0]}-{da_xian_groom['age_range'][1]}歲) {da_xian_groom['palace_name']}"
         bride_da_xian_str = f"第{da_xian_bride['da_xian_number']}大限 ({da_xian_bride['age_range'][0]}-{da_xian_bride['age_range'][1]}歲) {da_xian_bride['palace_name']}"
@@ -6749,7 +6761,7 @@ def date_selection_business():
         
         # 計算流年資訊（v2.1：從 birth_date 解析 + 傳入五行局）
         owner_birth_info = get_user_birth_info(owner)
-        ming_gong = lock_owner['chart_structure']['命宮']['宮位']
+        ming_gong = _safe_get_ming_gong_branch(lock_owner)
         fortune_params = build_fortune_params(lock_owner)
         
         teller = FortuneTeller(
@@ -6772,7 +6784,7 @@ def date_selection_business():
 性別：{owner.get('gender', 'N/A')}
 """
         
-        owner_chart = json.dumps(lock_owner['chart_structure'], ensure_ascii=False, indent=2)
+        owner_chart = json.dumps(lock_owner.get('chart_structure', {}), ensure_ascii=False, indent=2)
         
         da_xian_str = f"第{da_xian['da_xian_number']}大限 ({da_xian['age_range'][0]}-{da_xian['age_range'][1]}歲) {da_xian['palace_name']}"
         liu_nian_str = f"{liu_nian['year']}年 {liu_nian['gan_zhi']} {liu_nian['palace_name']}"
@@ -6782,7 +6794,7 @@ def date_selection_business():
         if partner_id:
             lock_partner = get_chart_lock(partner_id)
             if lock_partner:
-                partner_chart_str = json.dumps(lock_partner['chart_structure'], ensure_ascii=False, indent=2)
+                partner_chart_str = json.dumps(lock_partner.get('chart_structure', {}), ensure_ascii=False, indent=2)
         
         # 組合 Prompt
         prompt = DATE_SELECTION_BUSINESS.format(
@@ -6848,7 +6860,7 @@ def date_selection_moving():
         
         # 計算流年資訊（v2.1：從 birth_date 解析 + 傳入五行局）
         owner_birth_info = get_user_birth_info(owner)
-        ming_gong = lock_owner['chart_structure']['命宮']['宮位']
+        ming_gong = _safe_get_ming_gong_branch(lock_owner)
         fortune_params = build_fortune_params(lock_owner)
         
         teller = FortuneTeller(
@@ -6871,7 +6883,7 @@ def date_selection_moving():
 性別：{owner.get('gender', 'N/A')}
 """
         
-        owner_chart = json.dumps(lock_owner['chart_structure'], ensure_ascii=False, indent=2)
+        owner_chart = json.dumps(lock_owner.get('chart_structure', {}), ensure_ascii=False, indent=2)
         
         da_xian_str = f"第{da_xian['da_xian_number']}大限 ({da_xian['age_range'][0]}-{da_xian['age_range'][1]}歲) {da_xian['palace_name']}"
         liu_nian_str = f"{liu_nian['year']}年 {liu_nian['gan_zhi']} {liu_nian['palace_name']}"
