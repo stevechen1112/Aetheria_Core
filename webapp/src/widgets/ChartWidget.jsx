@@ -31,6 +31,7 @@ function normalizeChartData(raw) {
 
 function ChartWidget({ data, compact = true }) {
   const [expanded, setExpanded] = useState(!compact)
+  const [showFullChart, setShowFullChart] = useState(false)
 
   const normalized = normalizeChartData(data)
 
@@ -117,12 +118,46 @@ function ChartWidget({ data, compact = true }) {
           <div className="chart-grid">
             <div className="chart-item">
               <span className="label">命宮位置:</span>
-              <span className="value">{chart_data.ming_gong.position}</span>
+              <span className="value">{chart_data.ming_gong.position || '—'}</span>
             </div>
-            {chart_data.ming_gong.main_stars && (
+            {chart_data.ming_gong.main_stars?.length > 0 ? (
               <div className="chart-item">
                 <span className="label">主星:</span>
-                <span className="value">{chart_data.ming_gong.main_stars.join('、')}</span>
+                <span className="value">
+                  {chart_data.ming_gong.main_stars.join('、')}
+                  {chart_data.ming_gong.borrowed_palace && (
+                    <span className="borrowed-note">（借{chart_data.ming_gong.borrowed_palace}）</span>
+                  )}
+                </span>
+              </div>
+            ) : (
+              <div className="chart-item">
+                <span className="label">主星:</span>
+                <span className="value">空宮</span>
+              </div>
+            )}
+            {chart_data.ming_gong.auxiliary_stars?.length > 0 && (
+              <div className="chart-item">
+                <span className="label">輔星:</span>
+                <span className="value">{chart_data.ming_gong.auxiliary_stars.join('、')}</span>
+              </div>
+            )}
+            {chart_data.five_elements && (
+              <div className="chart-item">
+                <span className="label">五行局:</span>
+                <span className="value">{chart_data.five_elements}</span>
+              </div>
+            )}
+            {chart_data.ming_zhu && (
+              <div className="chart-item">
+                <span className="label">命主:</span>
+                <span className="value">{chart_data.ming_zhu}</span>
+              </div>
+            )}
+            {chart_data.shen_zhu && (
+              <div className="chart-item">
+                <span className="label">身主:</span>
+                <span className="value">{chart_data.shen_zhu}</span>
               </div>
             )}
           </div>
@@ -202,12 +237,20 @@ function ChartWidget({ data, compact = true }) {
       {/* 查看完整命盤按鈕 */}
       <div className="chart-actions">
         <button className="btn-view-full" onClick={() => {
-          // TODO: 觸發父組件開啟完整命盤 Modal
-          console.log('Open full chart for', system)
+          setShowFullChart(prev => !prev)
         }}>
-          查看完整命盤 →
+          {showFullChart ? '收起完整命盤 ▲' : '查看完整命盤 →'}
         </button>
       </div>
+
+      {/* 完整命盤展開區 */}
+      {showFullChart && (
+        <div className="chart-full-detail">
+          <pre className="chart-json">
+            {JSON.stringify(chart_data, null, 2)}
+          </pre>
+        </div>
+      )}
     </div>
   )
 }

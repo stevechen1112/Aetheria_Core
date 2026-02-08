@@ -238,6 +238,33 @@
   box-shadow: 0 4px 12px rgba(100, 150, 255, 0.4);
 }
 
+/* 完整命盤展開區 */
+.chart-full-detail {
+  padding: 12px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.chart-json {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: #ccc;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+}
+
+/* 借宮標記 */
+.borrowed-note {
+  color: #f0a050;
+  font-size: 0.85em;
+  margin-left: 4px;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .chart-grid {

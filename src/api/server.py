@@ -4974,8 +4974,8 @@ def _format_pillar_text(pillar: Any) -> str:
     if not pillar:
         return ''
     if isinstance(pillar, dict):
-        stem = pillar.get('heavenly_stem') or pillar.get('stem') or pillar.get('gan') or ''
-        branch = pillar.get('earthly_branch') or pillar.get('branch') or pillar.get('zhi') or ''
+        stem = pillar.get('天干') or pillar.get('heavenly_stem') or pillar.get('stem') or pillar.get('gan') or ''
+        branch = pillar.get('地支') or pillar.get('earthly_branch') or pillar.get('branch') or pillar.get('zhi') or ''
         label = pillar.get('label') or pillar.get('name') or ''
         text = f"{stem}{branch}".strip()
         return text or label
@@ -4985,73 +4985,93 @@ def _format_pillar_text(pillar: Any) -> str:
 def _build_chart_widget_from_tool_result(tool_name: str, result: dict) -> Optional[dict]:
     """從工具結果建構 widget 數據
     
-    Args:
-        tool_name: 工具名稱
-        result: 工具執行結果
-    
-    Returns:
-        Widget 數據或 None
+    實際資料結構：
+    - ziwei: result['data'] = {'五行局', '命主', '身主', '十二宮': {'命宮': {'宮位', '主星', '輔星', '借宮', '借宮主星'}, ...}, '四化'}
+    - bazi:  result['data'] = {'四柱': {'年柱': {'天干', '地支', ...}, ...}, '日主': {'天干', '五行'}, '强弱': {...}, ...}
+    - astrology: result['data'] = {'basic_info', 'planets': {'sun': {'sign_zh', ...}, ...}, ...}
     """
     if result.get('status') != 'success':
         return None
     
+    data = result.get('data', {})
     chart_data = {}
     analysis_summary = ''
     birth_info = result.get('birth_info') or {}
     user_name = result.get('user_name') or result.get('name')
     
     if tool_name == 'calculate_ziwei':
-        report = result.get('report', {})
-        chart_structure = report.get('chart_structure', {})
+        palaces = data.get('十二宮', {})
+        ming_gong = palaces.get('命宮', {})
         
-        ming_gong = chart_structure.get('命宮', {})
+        # 主星：若命宮空宮則使用借宮主星
+        main_stars = ming_gong.get('主星', [])
+        borrowed = ming_gong.get('借宮主星', [])
+        display_stars = main_stars if main_stars else borrowed
+        star_label = ', '.join(display_stars) if display_stars else '空宮'
+        borrow_note = f"（借{ming_gong.get('借宮', '')}）" if not main_stars and borrowed else ''
+        
         chart_data = {
             'ming_gong': {
-                'main_stars': ming_gong.get('主星', []),
+                'main_stars': display_stars,
                 'position': ming_gong.get('宮位', ''),
-                'heavenly_stems': ming_gong.get('天干', ''),
-                'earthly_branch': ming_gong.get('地支', '')
+                'auxiliary_stars': ming_gong.get('輔星', []),
+                'borrowed_palace': ming_gong.get('借宮', ''),
             },
-            'pattern': chart_structure.get('格局', []),
-            'five_elements': chart_structure.get('五行局', '')
+            'five_elements': data.get('五行局', ''),
+            'ming_zhu': data.get('命主', ''),
+            'shen_zhu': data.get('身主', ''),
+            'si_hua': data.get('四化', []),
         }
-        analysis_summary = f"命宮：{', '.join(ming_gong.get('主星', []))} ({ming_gong.get('宮位', '')}宮)"
+        analysis_summary = f"命宮：{star_label}{borrow_note} ({ming_gong.get('宮位', '')}宮) ｜ {data.get('五行局', '')}"
     
     elif tool_name == 'calculate_bazi':
-        report = result.get('report', {})
-        bazi_chart = report.get('bazi_chart', {})
+        pillars = data.get('四柱', {})
+        day_master = data.get('日主', {})
+        strength = data.get('强弱') or data.get('強弱', {})
         
-        pillars = bazi_chart.get('four_pillars', {})
         chart_data = {
             'four_pillars': {
-                'year': _format_pillar_text(pillars.get('year_pillar')),
-                'month': _format_pillar_text(pillars.get('month_pillar')),
-                'day': _format_pillar_text(pillars.get('day_pillar')),
-                'hour': _format_pillar_text(pillars.get('hour_pillar'))
+                'year': _format_pillar_text(pillars.get('年柱')),
+                'month': _format_pillar_text(pillars.get('月柱')),
+                'day': _format_pillar_text(pillars.get('日柱')),
+                'hour': _format_pillar_text(pillars.get('時柱') or pillars.get('时柱'))
             },
-            'day_master': bazi_chart.get('day_master_element', ''),
-            'strength': bazi_chart.get('day_master_strength', '')
+            'day_master': day_master.get('五行', '') if isinstance(day_master, dict) else str(day_master),
+            'strength': strength.get('结论') or strength.get('結論', '') if isinstance(strength, dict) else str(strength)
         }
-        analysis_summary = f"日主：{_format_pillar_text(pillars.get('day_pillar'))} ({bazi_chart.get('day_master_element', '')})"
+        day_text = _format_pillar_text(pillars.get('日柱'))
+        dm_element = day_master.get('五行', '') if isinstance(day_master, dict) else ''
+        analysis_summary = f"日主：{day_text} ({dm_element})"
     
     elif tool_name == 'calculate_astrology':
-        report = result.get('report', {})
-        natal_chart = report.get('natal_chart', {})
+        planets = data.get('planets', {})
+        basic_info = data.get('basic_info', {})
         
-        sun = natal_chart.get('sun', {})
-        moon = natal_chart.get('moon', {})
-        rising = natal_chart.get('rising', {})
+        sun = planets.get('sun', {})
+        moon = planets.get('moon', {})
+        rising = planets.get('ascendant', {})
+        
+        sun_sign = sun.get('sign_zh') or sun.get('sign', '')
+        moon_sign = moon.get('sign_zh') or moon.get('sign', '')
+        rising_sign = rising.get('sign_zh') or rising.get('sign', '')
         
         chart_data = {
-            'sun_sign': sun.get('sign', ''),
-            'moon_sign': moon.get('sign', ''),
-            'rising_sign': rising.get('sign', ''),
+            'sun_sign': sun_sign,
+            'moon_sign': moon_sign,
+            'rising_sign': rising_sign,
             'sun': sun,
             'moon': moon,
             'rising': rising,
-            'planets': natal_chart.get('planets', {})
+            'planets': planets
         }
-        analysis_summary = f"太陽：{sun.get('sign', '')} | 月亮：{moon.get('sign', '')} | 上升：{rising.get('sign', '')}"
+        # 從 basic_info 填充 birth_info
+        if basic_info and not birth_info:
+            birth_info = {
+                'birth_date': basic_info.get('birth_date', ''),
+                'birth_time': basic_info.get('birth_time', ''),
+                'location': basic_info.get('location', '')
+            }
+        analysis_summary = f"太陽：{sun_sign} | 月亮：{moon_sign} | 上升：{rising_sign}"
     
     if not chart_data:
         return None
