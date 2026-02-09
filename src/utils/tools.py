@@ -299,6 +299,26 @@ TOOL_DEFINITIONS = [
 # Tool Execution Functions
 # ============================================================================
 
+def _ensure_json_serializable(value: Any) -> Any:
+    """Convert values to JSON-serializable structures (fallback to string)."""
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        return {str(k): _ensure_json_serializable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_ensure_json_serializable(v) for v in value]
+    if hasattr(value, "model_dump"):
+        try:
+            return _ensure_json_serializable(value.model_dump())
+        except Exception:
+            pass
+    if hasattr(value, "__dict__"):
+        try:
+            return _ensure_json_serializable(value.__dict__)
+        except Exception:
+            pass
+    return str(value)
+
 def execute_calculate_ziwei(birth_date: str, birth_time: str, gender: str, birth_location: str) -> Dict[str, Any]:
     """执行紫微斗数排盘"""
     try:
@@ -309,6 +329,7 @@ def execute_calculate_ziwei(birth_date: str, birth_time: str, gender: str, birth
             gender=gender,
             birth_location=birth_location
         )
+        chart = _ensure_json_serializable(chart)
         return {
             "status": "success",
             "system": "ziwei",

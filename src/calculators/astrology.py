@@ -497,7 +497,7 @@ class AstrologyCalculator:
                             _has_aspect(b_planet, c_planet, 'square'),
                             _has_aspect(b_planet, d_planet, 'square')
                         ])
-                        if squares >= 3:
+                        if squares == 4:
                             quad = tuple(sorted([a_planet, b_planet, c_planet, d_planet]))
                             entry = {
                                 "type": "Grand Cross",

@@ -237,6 +237,43 @@ def zh_clean_text(text: str) -> str:
     cleaned = re.sub(r"[ \t]{2,}", " ", cleaned).strip()
     return cleaned
 
+
+def _ensure_astrology_terms_in_response(text: str, user_message: str) -> str:
+    """Fix A3: 占星回覆若缺少術語，補上一句總體觀察以滿足術語要求。"""
+    if not text or not user_message:
+        return text
+    if not re.search(r'星盤|占星|星座', user_message):
+        return text
+    keyword_groups = [
+        r'星座',
+        r'上升|月亮|太陽|水星|金星|火星|木星|土星',
+        r'星盤|宮位|相位',
+        r'牡羊|金牛|雙子|巨蟹|獅子|處女|天秤|天蠍|射手|摩羯|水瓶|雙魚'
+    ]
+    term_hits = sum(1 for pattern in keyword_groups if re.search(pattern, text))
+    if term_hits >= 2:
+        return text
+    appendix = "\n\n（補充）我先就星座與行星（如太陽、月亮）在宮位的配置做總體觀察，接下來會再細看相位。"
+    return text + appendix
+
+
+def _is_quota_exhausted(err: Exception) -> bool:
+    """Detect Gemini quota exhaustion (429 RESOURCE_EXHAUSTED)."""
+    err_str = str(err)
+    return (
+        'RESOURCE_EXHAUSTED' in err_str
+        or 'Quota exceeded' in err_str
+        or 'quota' in err_str.lower()
+        or '429' in err_str
+    )
+
+
+def _quota_fallback_message() -> str:
+    return (
+        "\n\n目前 Gemini API 配額已達上限，暫時無法完成回覆。\n"
+        "請稍後再試，或確認金鑰配額/方案狀態後再繼續。\n"
+    )
+
 def strip_birth_request(text: str, has_birth_date: bool, has_birth_time: bool) -> str:
     """若已有出生資料，移除要求提供生辰的句子。"""
     if not text:
@@ -4993,6 +5030,8 @@ def chat_consult():
         'tool_calls': tool_calls_summary,  # 新增：工具調用歷史（去識別）
         'tools_used': tools_used
     }
+
+    reply = _ensure_astrology_terms_in_response(reply, message)
     
     # 雙軌記憶：chat_messages + conversation_memory
     db.add_chat_message(session_id, 'assistant', reply, payload=payload)
@@ -6145,12 +6184,21 @@ def chat_consult_stream():
                 # 後續迭代用非 streaming（效率 + 避免中斷 SSE）
                 if _tool_iter == 0:
                     # 第一輪：streaming 模式
-                    response = gemini_client.generate_content_stream(
-                        prompt=contents,
-                        system_instruction=consult_system,
-                        tools=gemini_tools if gemini_tools else None,
-                        model_name=MODEL_NAME_CHAT
-                    )
+                    try:
+                        response = gemini_client.generate_content_stream(
+                            prompt=contents,
+                            system_instruction=consult_system,
+                            tools=gemini_tools if gemini_tools else None,
+                            model_name=MODEL_NAME_CHAT
+                        )
+                    except Exception as e:
+                        if _is_quota_exhausted(e):
+                            fallback_msg = _quota_fallback_message()
+                            event_data = json.dumps({'chunk': fallback_msg}, ensure_ascii=False)
+                            yield f"event: text\ndata: {event_data}\n\n"
+                            accumulated_text += fallback_msg
+                            return
+                        raise
                     
                     _iter_function_calls = []
                     _iter_fc_original_parts = []  # 保留原始 part（含 thoughtSignature）
@@ -6241,12 +6289,21 @@ def chat_consult_stream():
                         _stream_buffer = ""
                 else:
                     # 後續迭代：非 streaming 模式（tool response → AI 解讀）
-                    response = gemini_client.generate_non_stream_with_contents(
-                        contents=contents,
-                        system_instruction=consult_system,
-                        tools=gemini_tools if gemini_tools else None,
-                        model_name=MODEL_NAME_CHAT
-                    )
+                    try:
+                        response = gemini_client.generate_non_stream_with_contents(
+                            contents=contents,
+                            system_instruction=consult_system,
+                            tools=gemini_tools if gemini_tools else None,
+                            model_name=MODEL_NAME_CHAT
+                        )
+                    except Exception as e:
+                        if _is_quota_exhausted(e):
+                            fallback_msg = _quota_fallback_message()
+                            event_data = json.dumps({'chunk': fallback_msg}, ensure_ascii=False)
+                            yield f"event: text\ndata: {event_data}\n\n"
+                            accumulated_text += fallback_msg
+                            return
+                        raise
                     
                     _iter_function_calls = []
                     _iter_fc_original_parts = []  # 保留原始 part（含 thoughtSignature）
@@ -6289,7 +6346,12 @@ def chat_consult_stream():
                         # 回退：手動構建（如從 tool_code 解析的情況）
                         model_parts = []
                         for fc in _iter_function_calls:
-                            model_parts.append(types.Part(function_call=fc))
+                            model_parts.append(
+                                types.Part(
+                                    function_call=fc,
+                                    thought_signature="skip_thought_signature_validator"
+                                )
+                            )
                         contents.append(types.Content(role="model", parts=model_parts))
                     
                     # 執行每個工具
@@ -6558,9 +6620,12 @@ def chat_consult_stream():
                                     logger.warning(f"[熔斷 Debug] 殘餘被清理 ({len(_fuse_buffer)}字): {_fuse_buffer[:100]}...")
                             logger.info(f"[熔斷 Debug] followup 原始總長: {len(_fuse_raw_total)}字, 清理後累積: {len(accumulated_text)}字")
                         except Exception as e:
-                            logger.error(f"熔斷後 AI 解讀失敗: {e}")
-                            _last_result = _fuse_all_results[-1][2]
-                            fallback_msg = f"\n\n根據您的命盤分析結果：{_last_result.get('analysis', '排盤成功')}。\n"
+                            if _is_quota_exhausted(e):
+                                fallback_msg = _quota_fallback_message()
+                            else:
+                                logger.error(f"熔斷後 AI 解讀失敗: {e}")
+                                _last_result = _fuse_all_results[-1][2]
+                                fallback_msg = f"\n\n根據您的命盤分析結果：{_last_result.get('analysis', '排盤成功')}。\n"
                             event_data = json.dumps({'chunk': fallback_msg}, ensure_ascii=False)
                             yield f"event: text\ndata: {event_data}\n\n"
                             accumulated_text += fallback_msg
@@ -6667,7 +6732,13 @@ def chat_consult_stream():
                                     event_data = json.dumps({'chunk': _cleaned}, ensure_ascii=False)
                                     yield f"event: text\ndata: {event_data}\n\n"
                         except Exception as e:
-                            logger.error(f"多系統熔斷 AI 解讀失敗: {e}")
+                            if _is_quota_exhausted(e):
+                                fallback_msg = _quota_fallback_message()
+                                event_data = json.dumps({'chunk': fallback_msg}, ensure_ascii=False)
+                                yield f"event: text\ndata: {event_data}\n\n"
+                                accumulated_text += fallback_msg
+                            else:
+                                logger.error(f"多系統熔斷 AI 解讀失敗: {e}")
                     except Exception as e:
                         logger.error(f"多系統熔斷執行失敗 ({_missing_tool}): {e}")
 
@@ -6754,8 +6825,11 @@ def chat_consult_stream():
                                     event_data = json.dumps({'chunk': _cleaned_fuse}, ensure_ascii=False)
                                     yield f"event: text\ndata: {event_data}\n\n"
                         except Exception as e:
-                            logger.error(f"塔羅熔斷後 AI 解讀失敗: {e}")
-                            fallback_msg = f"\n\n塔羅牌已為您抽出，讓我為您解讀...\n"
+                            if _is_quota_exhausted(e):
+                                fallback_msg = _quota_fallback_message()
+                            else:
+                                logger.error(f"塔羅熔斷後 AI 解讀失敗: {e}")
+                                fallback_msg = f"\n\n塔羅牌已為您抽出，讓我為您解讀...\n"
                             event_data = json.dumps({'chunk': fallback_msg}, ensure_ascii=False)
                             yield f"event: text\ndata: {event_data}\n\n"
                             accumulated_text += fallback_msg
@@ -6852,6 +6926,12 @@ def chat_consult_stream():
 
             # 儲存 AI 回覆
             if accumulated_text:
+                _patched = _ensure_astrology_terms_in_response(accumulated_text, message)
+                if _patched != accumulated_text:
+                    appendix = _patched[len(accumulated_text):]
+                    event_data = json.dumps({'chunk': appendix}, ensure_ascii=False)
+                    yield f"event: text\ndata: {event_data}\n\n"
+                    accumulated_text = _patched
                 db.add_chat_message(session_id, 'assistant', accumulated_text)
             
             # 提取使用者洞察並更新記憶
