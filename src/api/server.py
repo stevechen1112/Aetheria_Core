@@ -120,6 +120,13 @@ from src.prompts.intelligence_core import (
 )
 from src.prompts.registry.conversation_strategies import UserState
 
+# Fix A: 導入 agent_persona 模組以統一 System Prompt 架構
+from src.prompts.agent_persona import (
+    choose_strategy,
+    build_agent_system_prompt,
+    TOOL_USE_GUIDELINES
+)
+
 # API Schemas
 from src.api.schemas import (
     ChatConsultRequest,
@@ -2053,6 +2060,27 @@ def _extract_birth_date_from_message(message: str) -> Optional[str]:
 
 
 def _extract_birth_time_from_message(message: str) -> Optional[str]:
+    # Fix H: 支援中文時間表述（早上X點Y分、下午X點等）
+    # 優先匹配中文格式
+    cn_match = re.search(
+        r'(凌晨|早上|上午|中午|下午|晚上|半夜)?\s*(\d{1,2})\s*[點时時]\s*(?:(\d{1,2})\s*分)?',
+        message
+    )
+    if cn_match:
+        period, hour_str, minute_str = cn_match.groups()
+        hour = int(hour_str)
+        minute = int(minute_str) if minute_str else 0
+        # 12→24 小時轉換
+        if period in ('下午', '晚上') and hour < 12:
+            hour += 12
+        elif period in ('凌晨', '半夜') and hour == 12:
+            hour = 0
+        elif period in ('中午',) and hour == 12:
+            pass  # 12 點就是 12
+        elif period in ('早上', '上午') and hour == 12:
+            hour = 0
+        return f"{hour:02d}:{minute:02d}"
+    # 回退：匹配 HH:MM 格式
     match = re.search(r'(\d{1,2})[:：](\d{2})', message)
     if not match:
         return None
@@ -2098,11 +2126,29 @@ def _extract_user_profile_from_message(message: str) -> Dict[str, Any]:
     return profile
 
 
-def _build_tool_args(tool_name: str, message: str, user_data: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+def _build_tool_args(tool_name: str, message: str, user_data: Optional[Dict[str, Any]], allow_defaults: bool = True) -> Optional[Dict[str, Any]]:
     birth_date = _extract_birth_date_from_message(message) or (user_data or {}).get('birth_date') or (user_data or {}).get('gregorian_birth_date')
     birth_time = _extract_birth_time_from_message(message) or (user_data or {}).get('birth_time')
-    birth_location = _extract_location_from_message(message) or (user_data or {}).get('birth_location') or '台北'
-    gender = (user_data or {}).get('gender') or '男'
+    birth_location = _extract_location_from_message(message) or (user_data or {}).get('birth_location')
+    gender = (user_data or {}).get('gender')
+    
+    # 從訊息中提取性別
+    if not gender:
+        has_male = bool(re.search(r'(男性|男生|男)', message))
+        has_female = bool(re.search(r'(女性|女生|女)', message))
+        if has_male and not has_female:
+            gender = '男'
+        elif has_female and not has_male:
+            gender = '女'
+    
+    # 熔斷模式允許使用預設值（確保排盤不因缺資訊而失敗）
+    if allow_defaults:
+        if not gender:
+            gender = '男'
+        if not birth_location:
+            birth_location = '台北'
+        if not birth_time:
+            birth_time = '12:00'  # 預設中午（不知出生時間時的合理預設）
 
     if tool_name == 'calculate_ziwei':
         if birth_date and birth_time:
@@ -2151,6 +2197,8 @@ def _build_tool_args(tool_name: str, message: str, user_data: Optional[Dict[str,
         }
 
     if tool_name == 'analyze_name':
+        # 多種姓名格式匹配
+        # 格式 1: "我叫陳美玲"
         name_match = re.search(r'我叫([\u4e00-\u9fff]{2,4})', message)
         if name_match:
             full_name = name_match.group(1)
@@ -2158,6 +2206,29 @@ def _build_tool_args(tool_name: str, message: str, user_data: Optional[Dict[str,
                 'surname': full_name[0],
                 'given_name': full_name[1:]
             }
+        # 格式 2: "我姓陳，名字叫美玲" / "我姓陳，名字是美玲" / "姓陳名美玲"
+        name_match2 = re.search(r'(?:我)?姓([\u4e00-\u9fff])[\s，,]*(?:名字?(?:叫|是)|名)([\u4e00-\u9fff]{1,3})', message)
+        if name_match2:
+            return {
+                'surname': name_match2.group(1),
+                'given_name': name_match2.group(2)
+            }
+        # 格式 3: "我的名字叫陳美玲" / "我的名字是陳美玲"
+        name_match3 = re.search(r'名字(?:叫|是)([\u4e00-\u9fff]{2,4})', message)
+        if name_match3:
+            full_name = name_match3.group(1)
+            return {
+                'surname': full_name[0],
+                'given_name': full_name[1:]
+            }
+        # 格式 4: 從 user_data 取得
+        if user_data:
+            _ud_name = user_data.get('name') or user_data.get('full_name') or ''
+            if len(_ud_name) >= 2:
+                return {
+                    'surname': _ud_name[0],
+                    'given_name': _ud_name[1:]
+                }
         return None
 
     if tool_name == 'draw_tarot':
@@ -2771,6 +2842,49 @@ def build_fortune_facts_from_reports(reports: Dict[str, Dict]) -> Dict[str, Any]
                     content = f"地支：{branch}；主星：{'、'.join(main)}；輔星：{'、'.join(aux)}"
                     add_fact(f'ziwei:{palace}', 'ziwei', palace, content, f'ziwei.chart_structure.十二宮.{palace}')
 
+            # v2.2: 三方四正（命宮三方四正摘要）
+            sfsc = structure.get('三方四正') or {}
+            if isinstance(sfsc, dict):
+                ming_sfsc = sfsc.get('命宮') or {}
+                if isinstance(ming_sfsc, dict):
+                    parts = []
+                    for pos, info in ming_sfsc.items():
+                        if isinstance(info, dict):
+                            stars = info.get('主星', [])
+                            if stars:
+                                parts.append(f"{pos}({info.get('宮名','')})：{'、'.join(stars[:3])}")
+                    if parts:
+                        add_fact('ziwei:三方四正', 'ziwei', '命宮三方四正', '；'.join(parts), 'ziwei.chart_structure.三方四正.命宮')
+
+            # v2.2: 煞星
+            sha = structure.get('煞星') or {}
+            if isinstance(sha, dict):
+                ming_sha = sha.get('命宮煞星') or []
+                sha_dist = sha.get('煞星分佈') or {}
+                hua_ji = sha.get('化忌', '')
+                parts = []
+                if ming_sha:
+                    parts.append(f"命宮煞星：{'、'.join(ming_sha)}")
+                if sha_dist:
+                    parts.append(f"煞星分佈：{'、'.join([f'{s}在{p}' for s, p in list(sha_dist.items())[:4]])}")
+                if hua_ji:
+                    parts.append(hua_ji)
+                if parts:
+                    add_fact('ziwei:煞星', 'ziwei', '煞星分佈', '；'.join(parts), 'ziwei.chart_structure.煞星')
+
+            # v2.3: 大限流年
+            dxln = structure.get('大限流年') or {}
+            if isinstance(dxln, dict):
+                dx_parts = []
+                dx = dxln.get('大限') or {}
+                if isinstance(dx, dict) and dx.get('宮位'):
+                    dx_parts.append(f"大限：{dx.get('年齡範圍', '')} {dx.get('天干地支', '')} 在{dx.get('宮位', '')}")
+                ln = dxln.get('流年') or {}
+                if isinstance(ln, dict) and ln.get('宮位'):
+                    dx_parts.append(f"流年：{ln.get('年份', '')} 在{ln.get('宮位', '')}")
+                if dx_parts:
+                    add_fact('ziwei:大限流年', 'ziwei', '大限流年', '；'.join(dx_parts), 'ziwei.chart_structure.大限流年')
+
     # Bazi
     bazi = (reports.get('bazi') or {}).get('report') or {}
     bazi_chart = bazi.get('bazi_chart') if isinstance(bazi, dict) else None
@@ -2799,6 +2913,20 @@ def build_fortune_facts_from_reports(reports: Dict[str, Dict]) -> Dict[str, Any]
                 f"時{pillar_text(pillars.get('時柱') or pillars.get('时柱'))}",
             ]).strip()
             add_fact('bazi:四柱', 'bazi', '四柱', content, 'bazi.bazi_chart.四柱')
+        # v2.2: 格局
+        pattern = bazi_chart.get('格局') or {}
+        if isinstance(pattern, dict) and pattern.get('格局名稱'):
+            add_fact('bazi:格局', 'bazi', '格局', f"{pattern['格局名稱']}：{pattern.get('格局特點', '')[:80]}", 'bazi.bazi_chart.格局')
+        # v2.2: 合沖刑害摘要
+        interactions = bazi_chart.get('合冲刑害') or {}
+        if isinstance(interactions, dict):
+            parts = []
+            for cat in ['六合', '六沖', '三合', '三刑', '六害']:
+                items = interactions.get(cat, [])
+                if items:
+                    parts.append(f"{cat}：{'；'.join(items[:2])}")
+            if parts:
+                add_fact('bazi:合沖刑害', 'bazi', '合沖刑害', '；'.join(parts), 'bazi.bazi_chart.合冲刑害')
 
     # Numerology
     numerology = (reports.get('numerology') or {}).get('report') or {}
@@ -2834,7 +2962,22 @@ def build_fortune_facts_from_reports(reports: Dict[str, Dict]) -> Dict[str, Any]
             add_fact('name:五格', 'name', '五格數理', content, 'name.five_grids.five_grids')
         three = five_grids.get('three_talents') or {}
         if isinstance(three, dict) and three.get('combination'):
-            add_fact('name:三才', 'name', '三才配置', f"{three.get('combination')}（{three.get('fortune') or ''}）", 'name.five_grids.three_talents')
+            add_fact('name:三才', 'name', '三才配置', f"{three.get('combination')}（{three.get('fortune') or ''}）：{three.get('description', '')[:80]}", 'name.five_grids.three_talents')
+        # v2.2: 加入各格吉凶摘要
+        grid_analyses = five_grids.get('grid_analyses') or {}
+        if isinstance(grid_analyses, dict) and grid_analyses:
+            key_grids = ['人格', '地格', '總格']
+            for gname in key_grids:
+                g = grid_analyses.get(gname) or {}
+                if isinstance(g, dict) and g.get('fortune'):
+                    add_fact(f'name:{gname}', 'name', f'{gname}數理',
+                             f"{g.get('number','')}畫（{g.get('element','')}{g.get('fortune','')}）{g.get('number_name','')}",
+                             f'name.five_grids.grid_analyses.{gname}')
+        # v2.2: 加入建議
+        recommendations = five_grids.get('recommendations') or []
+        if isinstance(recommendations, list) and recommendations:
+            recs_text = '；'.join(recommendations[:3])
+            add_fact('name:建議', 'name', '姓名學建議', recs_text, 'name.five_grids.recommendations')
 
     # Astrology
     astrology = (reports.get('astrology') or {}).get('report') or {}
@@ -2855,6 +2998,15 @@ def build_fortune_facts_from_reports(reports: Dict[str, Dict]) -> Dict[str, Any]
             add_fact('astrology:命主星', 'astrology', '命主星（Chart Ruler）', str(natal.get('chart_ruler')), 'astrology.natal_chart.chart_ruler')
         if natal.get('dominant_element'):
             add_fact('astrology:主元素', 'astrology', '主導元素', str(natal.get('dominant_element')), 'astrology.natal_chart.dominant_element')
+        # v2.3: 相位組型
+        aspect_patterns = natal.get('aspect_patterns', [])
+        if aspect_patterns:
+            pattern_parts = []
+            for pat in aspect_patterns[:3]:  # 最多3個
+                planets_str = '、'.join(pat.get('planets', []))
+                pattern_parts.append(f"{pat.get('type_zh', pat.get('type', ''))}（{planets_str}）")
+            if pattern_parts:
+                add_fact('astrology:相位組型', 'astrology', '特殊相位組型', '；'.join(pattern_parts), 'astrology.natal_chart.aspect_patterns')
 
     # Meta profile（供模型抓跨系統一致性，但仍需 cite facts）
     meta_profile = build_meta_profile(
@@ -5014,6 +5166,190 @@ def _format_pillar_text(pillar: Any) -> str:
     return str(pillar)
 
 
+def _detect_repetition(text: str, min_phrase_len: int = 3, max_phrase_len: int = 20, threshold: int = 3) -> Optional[str]:
+    """Fix U: 偵測文字中是否有短語連續重複 threshold 次以上
+    
+    用於捕捉 Gemini 生成迴圈（如 "乙酉大運，乙酉大運，乙酉大運..." 重複 36 次）。
+    
+    Args:
+        text: 要檢查的文字
+        min_phrase_len: 最短短語長度（字元數）
+        max_phrase_len: 最長短語長度（字元數）
+        threshold: 連續重複幾次算偵測到
+    
+    Returns:
+        重複的短語（若偵測到），否則 None
+    """
+    if not text or len(text) < min_phrase_len * threshold:
+        return None
+    import re as _re
+    # 策略：尋找任意 min~max 長度的子字串連續出現 threshold 次
+    for phrase_len in range(min_phrase_len, min(max_phrase_len + 1, len(text) // threshold + 1)):
+        for start in range(0, len(text) - phrase_len * threshold + 1):
+            phrase = text[start:start + phrase_len]
+            # 跳過純空白/標點
+            if not _re.search(r'[\u4e00-\u9fffA-Za-z]', phrase):
+                continue
+            # 檢查是否連續重複
+            repeated = phrase * threshold
+            if repeated in text:
+                return phrase
+    return None
+
+
+def _truncate_at_repetition(text: str, repeated_phrase: str, max_repeats: int = 2) -> str:
+    """Fix U: 在偵測到重複後，截斷文字到最多 max_repeats 次重複
+    
+    Args:
+        text: 原始文字
+        repeated_phrase: 被重複的短語
+        max_repeats: 最多保留幾次
+    
+    Returns:
+        截斷後的文字
+    """
+    if not text or not repeated_phrase:
+        return text
+    # 找到短語第 max_repeats+1 次出現的位置，截斷
+    pos = 0
+    count = 0
+    while True:
+        idx = text.find(repeated_phrase, pos)
+        if idx == -1:
+            break
+        count += 1
+        if count > max_repeats:
+            # 在這裡截斷，保留前面的內容
+            return text[:idx].rstrip('，、 ') + '……'
+        pos = idx + len(repeated_phrase)
+    return text
+
+
+def _stream_clean_chunk(text: str, strip_birth_ask: bool = False, has_gender: bool = False) -> str:
+    """Fix K: 統一的 streaming 文字清理函式
+    
+    在每個 SSE yield 之前呼叫，清理以下問題：
+    1. 移除 Cyrillic（俄文）字元
+    2. 移除其他非中英日韓常用字元
+    3. 移除殘留的 tool_code 片段
+    4. 清理多餘空白
+    5. Fix R: 移除重複詢問出生資料的句子（僅在 strip_birth_ask=True 時）
+    
+    Args:
+        text: 要清理的文字
+        strip_birth_ask: 是否移除詢問出生資料的句子（用戶已提供生辰時為 True）
+        has_gender: 是否已有性別資料（True 時才移除詢問性別的句子）
+    """
+    if not text:
+        return text
+    import re as _re
+    # 移除 tool_code 區塊（含 ``` 包裹的）
+    cleaned = _re.sub(r'```tool_code[\s\S]*?```', '', text)
+    # 移除散落的 default_api.xxx(...) 呼叫
+    cleaned = _re.sub(r'default_api\.\w+\([^)]*\)', '', cleaned)
+    # 移除 print(...) 包裹
+    cleaned = _re.sub(r'print\(default_api\.\w+\([^)]*\)\)', '', cleaned)
+    # Fix R: 已有出生資料時，移除 AI 重複詢問出生的句子
+    if strip_birth_ask:
+        # 性別只在已有性別時才移除（否則 AI 追問性別是正確行為）
+        _gender_kw = '|性別' if has_gender else ''
+        cleaned = _re.sub(rf'[^。！？\n]*(?:請提供|需要[您你]的|可以告訴我|方便告訴我|幫我確認|需要知道|我需要)[^。！？\n]*(?:出生|生辰|八字|幾點|時間{_gender_kw})[^。！？\n]*[。！？]?', '', cleaned)
+        cleaned = _re.sub(rf'[^。！？\n]*(?:還需要|麻煩你|如果方便|如果可以)[^。！？\n]*(?:出生|生辰|年份{_gender_kw}|出生地|幾點|時間)[^。！？\n]*[。！？]?', '', cleaned)
+    # 移除 Cyrillic 字元（俄文 U+0400-U+04FF）
+    cleaned = _re.sub(r'[\u0400-\u04FF]+', '', cleaned)
+    # Fix B1: 移除原始工具參數洩漏（如 ((year 1993 8 day 18 hour 14 男)) 或 year 1993 month 8 day 18...）
+    cleaned = _re.sub(r'\(\(\s*(?:year|birth|date|hour|gender|month|day)\s.*?\)\)', '', cleaned)
+    cleaned = _re.sub(r'\(\(.*?(?:year|birth_date|gender|hour|month|day).*?\)\)', '', cleaned)
+    # 額外捕捉沒有括號的原始參數格式 (如 "year 1993 8 day 18 hour 14 男")
+    cleaned = _re.sub(r'(?:year\s+\d{4}|birth_date\s*[=:]\s*"\d{4})[^。！？\n]*(?:gender|hour|day|男|女)[^。！？\n]*', '', cleaned)
+    # 捕捉 (( 任意內容 )) 格式的原始資料洩漏
+    cleaned = _re.sub(r'\(\(\s*\d{4}[^)]*\)\)', '', cleaned)
+    cleaned = _re.sub(r'\(\(\s*[^)]{5,60}\s*\)\)', '', cleaned)
+    # Fix C3: 移除原始命盤資料洩漏（如 data命宫三方四正事业宫四化...）
+    cleaned = _re.sub(r'(?:data|raw|output)?(?:命宫|命宮)(?:三方四正|主星|地支).{20,}(?:星曜|輔星|化忌|化禄|化權|化科)\s*', '', cleaned)
+    # 移除其他非常用字元（保留中日韓、英數、常用標點、換行）
+    cleaned = _re.sub(r'[^\u4e00-\u9fff\u3000-\u303f\uff00-\uffef\u3400-\u4dbf0-9A-Za-z，。！？、：；「」『』（）()\[\]【】《》\n\r\-—…\*\s]+', '', cleaned)
+    # Fix W: 移除孤立的英文單詞（非專有名詞/品牌名）
+    # 保留常見允許詞，其餘 5+ 字母的孤立英文詞移除
+    _allowed_english = {'Aetheria', 'Transit', 'Celtic', 'Cross', 'Taipei'}
+    def _remove_stray_english(m):
+        word = m.group(0)
+        return word if word in _allowed_english else ''
+    cleaned = _re.sub(r'\b[a-z]{5,}\b', _remove_stray_english, cleaned, flags=_re.IGNORECASE)
+    # Fix V+: 偵測並清理「空洞句」—— 移除字元後留下的骨架句子
+    # 模式 1: "的 和 ，" → "，"
+    cleaned = _re.sub(r'的\s+和\s*[，、]', '，', cleaned)
+    # 模式 1b: "和 。" "和 ，" — 「和」後面直接接標點（中間被刪除了內容）
+    cleaned = _re.sub(r'和\s*[。，、]', '，', cleaned)
+    # 模式 2: "，也有X的 和" → "，"
+    cleaned = _re.sub(r'[，、]\s*也有[^，。！？\n]{0,3}的\s+和\s*', '，', cleaned)
+    # 模式 3: 連續的「的」+標點（沒有實質內容）
+    cleaned = _re.sub(r'的\s*[，、。](\s*的\s*[，、。])+', '，', cleaned)
+    # 模式 4: 「你 ，」「會 ，」「內心 ，」等（形容詞被清除後的殘留空格+標點）
+    cleaned = _re.sub(r'([\u4e00-\u9fff])\s+([，、。！？])', r'\1\2', cleaned)
+    # 模式 5: 「代表你 有 能力」「比較 」等（詞語中間不該有空格）
+    # 需要多次套用因為 regex 一次只能匹配一對
+    for _ in range(3):
+        cleaned = _re.sub(r'([\u4e00-\u9fff])\s+([\u4e00-\u9fff])', r'\1\2', cleaned)
+    # 模式 6: 「讓人覺得你。」「你 」等句尾突然斷掉（中文字+空格+句號/結尾）
+    cleaned = _re.sub(r'([\u4e00-\u9fff])\s+([。！？])', r'\1\2', cleaned)
+    # 模式 8: 移除尾部只剩「，X 」的碎片（X是單個漢字+空白結尾，表示被截斷的殘餘）
+    # 注意：不能太激進，因為 streaming 時 chunk 本來就會在句中斷開
+    # 只處理：逗號+單字+空白結尾（如「比較有 ，你 」殘留）
+    cleaned = _re.sub(r'[，、]\s*[\u4e00-\u9fff]\s+$', '。', cleaned)
+    # 清理多餘空白（但保留換行）
+    cleaned = _re.sub(r'[ \t]{2,}', ' ', cleaned)
+    # 清理因移除文字產生的連續標點或空句
+    cleaned = _re.sub(r'(，|、)\s*(，|、)', '，', cleaned)
+    cleaned = _re.sub(r'\n{3,}', '\n\n', cleaned)
+    return cleaned.strip() if cleaned.strip() != text.strip() else text
+
+
+def _parse_tool_code_to_function_call(text_buffer: str):
+    """Fix G: 嘗試從 Gemini 輸出的 tool_code 文字中解析出真正的 function_call
+    
+    Gemini 2.0 Flash 有時會以 ```tool_code\nprint(default_api.calculate_bazi(...))``` 
+    的文字形式輸出工具呼叫，而非使用正規的 function_call API。
+    此函式嘗試從該文字中提取工具名稱和參數。
+    
+    Returns:
+        types.FunctionCall 對象，或 None（解析失敗時）
+    """
+    import re as _re
+    try:
+        # 匹配 default_api.tool_name(args...) 模式
+        match = _re.search(
+            r'default_api\.(calculate_\w+|analyze_\w+|draw_\w+|get_\w+)\s*\(([^)]*)\)',
+            text_buffer,
+            _re.DOTALL
+        )
+        if not match:
+            return None
+        
+        tool_name = match.group(1)
+        args_str = match.group(2)
+        
+        # 解析關鍵字參數
+        args = {}
+        for arg_match in _re.finditer(r'(\w+)\s*=\s*(?:"([^"]*)"|([\d.]+)|\'([^\']*)\')' , args_str):
+            key = arg_match.group(1)
+            value = arg_match.group(2) or arg_match.group(4)  # 字串值
+            if value is None and arg_match.group(3):
+                # 數字值
+                num_str = arg_match.group(3)
+                value = float(num_str) if '.' in num_str else int(num_str)
+            args[key] = value
+        
+        if not args:
+            return None
+        
+        logger.info(f"[Fix G] 從 tool_code 解析出: {tool_name}({args})")
+        return types.FunctionCall(name=tool_name, args=args)
+    except Exception as e:
+        logger.warning(f"[Fix G] tool_code 解析失敗: {e}")
+        return None
+
+
 def _build_chart_widget_from_tool_result(tool_name: str, result: dict) -> Optional[dict]:
     """從工具結果建構 widget 數據
     
@@ -5378,6 +5714,18 @@ def chat_consult_stream():
             
             # Build context
             chart_context = build_chart_context_from_locks(chart_locks, user_data)
+            # Fix C1: 若 chart_locks 為空但 system_reports 有資料，從 reports 建立摘要
+            if not chart_context and reports:
+                try:
+                    _report_locks = {}
+                    for _sys_name, _sys_data in reports.items():
+                        _rpt = _sys_data.get('report') if isinstance(_sys_data, dict) else _sys_data
+                        if isinstance(_rpt, dict):
+                            _report_locks[_sys_name] = {'chart_data': _rpt}
+                    if _report_locks:
+                        chart_context = build_chart_context_from_locks(_report_locks, user_data)
+                except Exception as _cc_err:
+                    logger.warning(f"[Fix C1] 從 reports 建構 chart_context 失敗: {_cc_err}")
             memory_context = memory_manager.build_context_for_ai(
                 user_id=user_id, 
                 session_id=session_id, 
@@ -5385,8 +5733,8 @@ def chat_consult_stream():
                 include_persona=True
             )
             
-            # History（最近 6 條）
-            history_msgs = db.get_chat_messages(session_id, limit=6)
+            # History（Fix D: 擴展視窗從 6 條增至 12 條，約 6 輪對話）
+            history_msgs = db.get_chat_messages(session_id, limit=12)
             history_text = "\n".join([
                 f"{'使用者' if m.get('role') == 'user' else '命理老師'}：{m.get('content')}" 
                 for m in history_msgs if m.get('content')
@@ -5395,10 +5743,27 @@ def chat_consult_stream():
             # ========== AI 智慧核心分析 ==========
             intelligence_core = get_intelligence_core()
             
+            # Fix A2: 統一狀態判定邏輯
+            # 判斷是否有生辰資料（任一來源）
+            has_birth_date = False
+            if user_data:
+                has_birth_date = bool(
+                    user_data.get('birth_date') or 
+                    user_data.get('gregorian_birth_date')
+                )
+            # 判斷是否已有性別資料（用於 strip_birth_ask 條件控制）
+            _has_gender_data = bool((user_data or {}).get('gender'))
+            
+            # 判斷是否已有命盤（命盤鎖定 OR 摘要記憶中有數據）
+            # Fix Q: 只根據實際命盤系統數據判斷，不用 episodic 記憶（可能是問候/離題）
+            has_chart = bool(chart_context and chart_context != '（尚未提供生辰資料）')
+            if not has_chart and available_systems:
+                has_chart = True  # 有計算結果就算有命盤
+            
             # 建構使用者狀態
             user_state = UserState(
                 is_first_visit=(len(history_msgs) == 0),
-                has_complete_birth_info=bool(chart_context),
+                has_complete_birth_info=has_birth_date,
                 conversation_count=len(history_msgs) // 2,  # 對話輪數
                 preferred_communication_style=None,
                 emotional_state=None
@@ -5412,6 +5777,32 @@ def chat_consult_stream():
                     'role': m.get('role'),
                     'content': m.get('content')
                 } for m in history_msgs]
+            )
+            
+            # Fix A: 使用 agent_persona 的狀態機選擇對話階段
+            emotional_signals = {
+                'distress': intelligence_context.emotional_signal.emotion in ['distress', 'anxiety'],
+                'curiosity': intelligence_context.emotional_signal.emotion == 'curious',
+                'closing': False  # 可根據訊息內容判斷
+            }
+            conversation_stage = choose_strategy(
+                turn_count=len(history_msgs) // 2,
+                has_birth_data=has_birth_date,
+                has_chart=has_chart,
+                emotional_signals=emotional_signals
+            )
+            
+            # Fix A: 使用 agent_persona 的狀態機選擇對話階段
+            emotional_signals = {
+                'distress': intelligence_context.emotional_signal.emotion in ['distress', 'anxiety'],
+                'curiosity': intelligence_context.emotional_signal.emotion == 'curious',
+                'closing': False  # 可根據訊息內容判斷
+            }
+            conversation_stage = choose_strategy(
+                turn_count=len(history_msgs) // 2,
+                has_birth_data=has_birth_date,
+                has_chart=has_chart,
+                emotional_signals=emotional_signals
             )
             
             # 檢查是否需要阻擋回應（例如自殺風險）
@@ -5451,10 +5842,18 @@ def chat_consult_stream():
                     f"嚴重度: {intelligence_context.safety_check['severity']}"
                 )
             
-            # Build enhanced system prompt（包含情緒和策略提示）
+            # Fix A: 使用統一的 Agent System Prompt（包含工具使用指引和對話階段）
+            # 先建構基礎 prompt
+            base_agent_prompt = build_agent_system_prompt(
+                user_context=memory_context,
+                conversation_stage=conversation_stage
+            )
+            
+            # 再加入 intelligence_core 的情緒和策略提示
             enhanced_prompt = intelligence_core.build_enhanced_system_prompt(
                 intelligence_context=intelligence_context,
-                include_strategy_hints=True
+                include_strategy_hints=True,
+                base_prompt=base_agent_prompt  # 使用 agent_persona 作為基礎
             )
             
             # Gap 4 修復：統一記憶格式化（用 format_memory_context 取代 json.dumps）
@@ -5490,17 +5889,199 @@ def chat_consult_stream():
             steering_hint = ""
             if off_topic_result['should_steer'] and off_topic_result['steering_hint']:
                 steering_hint = f"\n\n{off_topic_result['steering_hint']}"
+                logger.info(f"🚫 離題偵測觸發: should_steer=True, confidence={off_topic_result['confidence']}, msg='{message[:30]}'")
+            else:
+                logger.info(f"離題偵測: is_off_topic={off_topic_result['is_off_topic']}, confidence={off_topic_result['confidence']}, msg='{message[:30]}'")
             
-            # 結合命盤上下文 + 格式化記憶 + 引導提示
-            _dedup_hint = ""
+            # Fix B: 改進命盤數據提示，明確指示排盤時機
+            _chart_hint = ""
             if available_systems:
                 _existing = ', '.join(available_systems)
-                _dedup_hint = f"\n⚠️ 以下系統已有命盤數據，不要重複調用 calculate_ 工具：{_existing}"
+                # Fix C5: 回訪用戶身份提示 — 如果是新 session 但有已存命盤
+                _return_name = (user_data or {}).get('name') or (user_data or {}).get('full_name') or ''
+                _return_bd = (user_data or {}).get('birth_date') or (user_data or {}).get('gregorian_birth_date') or ''
+                _return_bt = (user_data or {}).get('birth_time') or ''
+                _return_gender = (user_data or {}).get('gender') or ''
+                if _return_name or _return_bd:
+                    _chart_hint = f"\n🔁 【重要】這是回訪用戶，你已經有他/她的完整資料！"
+                    if _return_name:
+                        _chart_hint += f"\n  - 姓名：{_return_name}"
+                    if _return_bd:
+                        _chart_hint += f"\n  - 出生日期：{_return_bd}"
+                    if _return_bt:
+                        _chart_hint += f"\n  - 出生時間：{_return_bt}"
+                    if _return_gender:
+                        _chart_hint += f"\n  - 性別：{_return_gender}"
+                    _chart_hint += f"\n📌 【強制規則】你記得這位用戶的所有資料。請直接稱呼他/她的名字，主動告訴用戶你記得他/她的命盤。"
+                    _chart_hint += f"\n📌 示範回應：「{_return_name}你好！我記得你的命盤資料，{_return_bd}出生的，之前幫你排過{_existing}。有什麼想繼續聊的嗎？」"
+                    _chart_hint += "\n⛔ 【絕對禁止】說「記不清」「需要重新確認」「請再提供一次」等！你有完整資料，不需要重新詢問！"
+                _chart_hint += f"\n✅ 已有命盤數據的系統：{_existing}"
+                _chart_hint += "\n⚠️ 這些系統不需要重新排盤，直接引用分析即可。"
+                _chart_hint += "\n⛔ 已排過盤的系統，【絕對不要】再詢問任何出生資料（年月日、時間、性別、地點）！用戶已提供過，命盤已經排好了。"
+                _chart_hint += "\n⛔ 如果用戶追問深度問題（四化、大運、流年等），直接根據已有命盤數據分析回答，不需要重新收集資料。"
+                # 如果用戶在此訊息中要求新的系統（尚未排過的），額外提供工具建議
+                if has_birth_date:
+                    _bd = user_data.get('birth_date') or user_data.get('gregorian_birth_date') or ''
+                    _bt = user_data.get('birth_time') or ''
+                    _bl = user_data.get('birth_location') or ''
+                    _gd = user_data.get('gender') or ''
+                    _new_systems = []
+                    if re.search(r'八字|四柱', message) and 'bazi' not in available_systems:
+                        _new_systems.append('bazi')
+                    if re.search(r'紫微|斗數', message) and 'ziwei' not in available_systems:
+                        _new_systems.append('ziwei')
+                    if re.search(r'星盤|占星|星座|上升', message) and 'astrology' not in available_systems:
+                        _new_systems.append('astrology')
+                    if re.search(r'靈數|生命數|命運數', message) and 'numerology' not in available_systems:
+                        _new_systems.append('numerology')
+                    if _new_systems and _bd and _bt:
+                        try:
+                            _y, _m, _d = _bd.split('-')
+                            _h, _min = (_bt or '12:00').split(':')
+                            _chart_hint += f"\n💡 用戶要求排新系統，請呼叫以下工具："
+                            for _ns in _new_systems:
+                                if _ns == 'bazi' and _gd:
+                                    _chart_hint += f"\n  - calculate_bazi(year={_y}, month={int(_m)}, day={int(_d)}, hour={int(_h)}, gender=\"{_gd}\")"
+                                elif _ns == 'ziwei' and _gd:
+                                    _chart_hint += f"\n  - calculate_ziwei(birth_date=\"{_bd}\", birth_time=\"{_bt}\", gender=\"{_gd}\", birth_location=\"{_bl}\")"
+                                elif _ns == 'astrology':
+                                    _chart_hint += f"\n  - calculate_astrology(year={_y}, month={int(_m)}, day={int(_d)}, hour={int(_h)}, minute={int(_min)}, city=\"{_bl}\")"
+                                elif _ns == 'numerology':
+                                    _chart_hint += f"\n  - calculate_numerology(birth_date=\"{_bd}\")"
+                        except Exception:
+                            pass
+            elif has_birth_date and not has_chart:
+                # Fix P: 提供具體參數範例，幫助 AI 正確呼叫工具
+                _bd = user_data.get('birth_date') or user_data.get('gregorian_birth_date') or ''
+                _bt = user_data.get('birth_time') or ''
+                _bl = user_data.get('birth_location') or ''
+                _gd = user_data.get('gender') or ''
+                
+                # 偵測用戶要求的系統（提前偵測，影響缺欄位判斷）
+                _user_wants_bazi = bool(re.search(r'八字|四柱', message))
+                _user_wants_ziwei = bool(re.search(r'紫微|斗數', message))
+                _user_wants_astrology = bool(re.search(r'星盤|占星|星座|上升', message))
+                _user_wants_numerology = bool(re.search(r'靈數|生命數|命運數', message))
+                _user_wants_name = bool(re.search(r'姓名|名字|五格', message))
+                _user_wants_tarot = bool(re.search(r'塔羅|抽牌|占卜', message))
+                # 判斷用戶是否只要不需要性別的系統（占星、靈數、姓名、塔羅）
+                _only_genderless_systems = (
+                    (_user_wants_astrology or _user_wants_numerology or _user_wants_name or _user_wants_tarot) and 
+                    not _user_wants_bazi and not _user_wants_ziwei
+                )
+                
+                # Fix T2: 先檢查缺少的欄位，決定是追問還是排盤
+                # 性別僅對八字/紫微是必要的，占星/靈數不需要
+                _missing_fields = []
+                if not _gd and not _only_genderless_systems:
+                    _missing_fields.append('性別（八字大運順逆行取決於性別，不能猜！）')
+                if not _bl and _user_wants_astrology:
+                    _missing_fields.append('出生地點（占星需要經緯度）')
+                if not _bt:
+                    _missing_fields.append('出生時間')
+                
+                # 即使有缺欄位，如果用戶要求的特定系統有足夠資料，就不要阻止排盤
+                _can_chart_astrology = _user_wants_astrology and _bd and _bt and _bl  # 占星不需性別
+                _can_chart_numerology = _user_wants_numerology and _bd  # 靈數只需日期
+                
+                if _missing_fields and not _can_chart_astrology and not _can_chart_numerology:
+                    # 有缺少的重要欄位 → 先追問，不要排盤
+                    _chart_hint = f"\n⚠️ 用戶已提供出生日期，但仍缺少：{', '.join(_missing_fields)}"
+                    _chart_hint += "\n⛔ 【強制規則】你現在【必須】先追問缺少的資訊！不能排盤、不能呼叫任何排盤工具！"
+                    _chart_hint += "\n⛔ 不要自行假設或使用預設值，必須由用戶親口告訴你。"
+                    _chart_hint += "\n✅ 用戶已提供的資料（出生日期等）不要再重複詢問。"
+                    # 但如果可以排占星/靈數，額外提示
+                    if _can_chart_astrology and _bt:
+                        try:
+                            _y, _m, _d = _bd.split('-')
+                            _h, _min = (_bt or '12:00').split(':')
+                            _chart_hint += f"\n💡 但占星不需要性別，可以先排星盤：calculate_astrology(year={_y}, month={int(_m)}, day={int(_d)}, hour={int(_h)}, minute={int(_min)}, city=\"{_bl}\")"
+                        except Exception:
+                            pass
+                else:
+                    # 所有資料齊全（或用戶要求的系統有足夠資料） → 排盤
+                    _chart_hint = f"\n⚠️ 用戶已提供完整生辰資料但尚未排盤！請立即調用排盤工具！"
+                    _chart_hint += f"\n📋 用戶資料：出生日期={_bd}, 出生時間={_bt}, 出生地={_bl}, 性別={_gd or '未提供'}"
+                    
+                    # 偵測用戶想要的系統，給出對應的工具建議
+                    # Fix B1: 先偵測多系統場景，再處理單系統
+                    _is_multi_system = bool(
+                        re.search(r'(同時|一起|都|全部|兩個|兩種|各).{0,6}(看|排|分析|算)', message) or
+                        (_user_wants_bazi and _user_wants_ziwei) or
+                        (_user_wants_bazi and _user_wants_astrology) or
+                        (_user_wants_ziwei and _user_wants_astrology) or
+                        re.search(r'(八字|紫微|占星).{0,4}(和|跟|與|還有).{0,4}(八字|紫微|占星)', message)
+                    )
+                    
+                    _requested_systems = []
+                    if _user_wants_bazi:
+                        _requested_systems.append('bazi')
+                    if _user_wants_ziwei:
+                        _requested_systems.append('ziwei')
+                    if _user_wants_astrology:
+                        _requested_systems.append('astrology')
+                    if _user_wants_numerology:
+                        _requested_systems.append('numerology')
+                    if _user_wants_name:
+                        _requested_systems.append('name')
+                    if _user_wants_tarot:
+                        _requested_systems.append('tarot')
+                    
+                    _requested_system = _requested_systems[0] if len(_requested_systems) == 1 else None
+                    
+                    if _bd and _bt:
+                        try:
+                            _y, _m, _d = _bd.split('-')
+                            _h, _min = (_bt or '12:00').split(':')
+                            
+                            if _is_multi_system or len(_requested_systems) >= 2:
+                                # 多系統場景：明確列出每個工具的呼叫方式
+                                _chart_hint += f"\n🔴 用戶要求多個系統！你【必須】依序調用以下所有工具（不能只調用一個）："
+                                _tool_idx = 1
+                                for _sys in _requested_systems:
+                                    if _sys == 'bazi':
+                                        _chart_hint += f"\n  {_tool_idx}. calculate_bazi(year={_y}, month={int(_m)}, day={int(_d)}, hour={int(_h)}, gender=\"{_gd}\")"
+                                        _tool_idx += 1
+                                    elif _sys == 'ziwei':
+                                        _chart_hint += f"\n  {_tool_idx}. calculate_ziwei(birth_date=\"{_bd}\", birth_time=\"{_bt}\", gender=\"{_gd}\", birth_location=\"{_bl}\")"
+                                        _tool_idx += 1
+                                    elif _sys == 'astrology':
+                                        _chart_hint += f"\n  {_tool_idx}. calculate_astrology(year={_y}, month={int(_m)}, day={int(_d)}, hour={int(_h)}, minute={int(_min)}, city=\"{_bl}\")"
+                                        _tool_idx += 1
+                                if _tool_idx == 1:
+                                    # 沒有具體指定哪些系統，但用了「同時」→ 默認八字+紫微
+                                    _chart_hint += f"\n  1. calculate_bazi(year={_y}, month={int(_m)}, day={int(_d)}, hour={int(_h)}, gender=\"{_gd}\")"
+                                    _chart_hint += f"\n  2. calculate_ziwei(birth_date=\"{_bd}\", birth_time=\"{_bt}\", gender=\"{_gd}\", birth_location=\"{_bl}\")"
+                                _chart_hint += f"\n⚠️ 每個工具都必須呼叫！調用完所有工具後，再整合分析結果給用戶。"
+                            elif _requested_system == 'ziwei':
+                                _chart_hint += f"\n💡 用戶要求紫微斗數！請呼叫 calculate_ziwei(birth_date=\"{_bd}\", birth_time=\"{_bt}\", gender=\"{_gd}\", birth_location=\"{_bl}\")"
+                            elif _requested_system == 'astrology':
+                                _chart_hint += f"\n💡 用戶要求占星！請呼叫 calculate_astrology(year={_y}, month={int(_m)}, day={int(_d)}, hour={int(_h)}, minute={int(_min)}, city=\"{_bl}\")"
+                            elif _requested_system == 'numerology':
+                                _chart_hint += f"\n💡 用戶要求生命靈數！請呼叫 calculate_numerology(birth_date=\"{_bd}\")"
+                            else:
+                                # 默認或明確要八字 → 八字優先，也可以同時排紫微
+                                _chart_hint += f"\n💡 建議呼叫 calculate_bazi(year={_y}, month={int(_m)}, day={int(_d)}, hour={int(_h)}, gender=\"{_gd}\")"
+                                _chart_hint += f"\n💡 或呼叫 calculate_ziwei(birth_date=\"{_bd}\", birth_time=\"{_bt}\", gender=\"{_gd}\", birth_location=\"{_bl}\")"
+                        except Exception:
+                            _chart_hint += "\n💡 請立即呼叫排盤工具。"
+            elif not has_birth_date:
+                _chart_hint = "\n💡 尚未取得完整生辰資料，可在自然對話中詢問。"
+            
+            # Fix T: 有生辰資料且所有欄位齊全時，禁止再詢問
+            if has_birth_date and not any('缺少' in _chart_hint for _ in [1]):
+                _has_all_fields = all([
+                    (user_data or {}).get('gender'),
+                    (user_data or {}).get('birth_location'),
+                    (user_data or {}).get('birth_time')
+                ])
+                if _has_all_fields:
+                    _chart_hint += "\n⛔ 用戶已提供完整的生辰資料（日期、時間、性別、地點），絕對不要再詢問任何出生資訊。直接排盤或引用已有數據分析。"
             
             consult_system = enhanced_prompt + f"""
-
+{steering_hint}
 【可用命盤系統】
-{', '.join(available_systems) if available_systems else '無'}{_dedup_hint}
+{', '.join(available_systems) if available_systems else '無'}{_chart_hint}
 
 【命盤摘要】
 {chart_context or '（尚未提供生辰資料）'}
@@ -5510,7 +6091,7 @@ def chat_consult_stream():
 
 【參考事實】
 {chr(10).join(f'• {fact}' for fact in facts[:15]) if facts else '（無）'}
-{steering_hint}"""
+"""
             
             # Build user prompt
             prompt = f"""
@@ -5530,10 +6111,34 @@ def chat_consult_stream():
             widget_count = 0
             MAX_TOOL_ITERATIONS = 5
             
+            # Fix U: 串流重複偵測 —— 偵測 Gemini 生成迴圈（同一短語連續出現 3+ 次）
+            _repetition_window = ""  # 滑動視窗，用於偵測最近的輸出片段
+            _repetition_detected = False  # 一旦偵測到就停止 yield 後續文字
+            
             gemini_tools = get_tool_definitions()
             
             # 構建 multi-turn contents 列表
             contents = [types.Content(role="user", parts=[types.Part(text=prompt)])]
+            
+            # Fix C5: 對回訪用戶注入歷史命盤記憶到對話流
+            # 這讓 AI 在新 session 中有明確的資料依據，不會說"記不清"
+            if available_systems and not history_msgs and chart_context:
+                _return_user_name = (user_data or {}).get('name') or ''
+                _return_user_bd = (user_data or {}).get('birth_date') or ''
+                if _return_user_name or _return_user_bd:
+                    _inject_msg = f"[系統資料庫查詢結果] 此用戶為回訪用戶。"
+                    if _return_user_name:
+                        _inject_msg += f" 姓名：{_return_user_name}。"
+                    if _return_user_bd:
+                        _inject_msg += f" 出生日期：{_return_user_bd}。"
+                    _inject_msg += f" 已有命盤系統：{', '.join(available_systems)}。"
+                    _inject_msg += f" 命盤摘要：{chart_context[:1500]}"
+                    # 以 model 回覆的形式注入，讓 AI 認為自己已經知道這些資訊
+                    contents = [
+                        types.Content(role="user", parts=[types.Part(text=f"[系統] 請確認此用戶的歷史資料。")]),
+                        types.Content(role="model", parts=[types.Part(text=_inject_msg)]),
+                        types.Content(role="user", parts=[types.Part(text=prompt)])
+                    ]
             
             for _tool_iter in range(MAX_TOOL_ITERATIONS):
                 # 第一輪用 streaming（給使用者即時回饋），
@@ -5543,49 +6148,149 @@ def chat_consult_stream():
                     response = gemini_client.generate_content_stream(
                         prompt=contents,
                         system_instruction=consult_system,
-                        tools=gemini_tools if gemini_tools else None
+                        tools=gemini_tools if gemini_tools else None,
+                        model_name=MODEL_NAME_CHAT
                     )
                     
                     _iter_function_calls = []
+                    _iter_fc_original_parts = []  # 保留原始 part（含 thoughtSignature）
+                    _stream_buffer = ""  # Fix K: 滑動緩衝，累積後再清理+flush
+                    _FLUSH_THRESHOLD = 60  # 累積超過此字數才 flush（避免跨 chunk 切割問題）
                     
                     for chunk in response:
                         if hasattr(chunk, 'candidates') and chunk.candidates:
                             for part in chunk.candidates[0].content.parts:
                                 if hasattr(part, 'function_call') and part.function_call:
                                     _iter_function_calls.append(part.function_call)
+                                    _iter_fc_original_parts.append(part)  # 保留含 thoughtSignature 的原始 part
                                 elif hasattr(part, 'text') and part.text:
-                                    text_chunk = part.text
-                                    accumulated_text += text_chunk
-                                    event_data = json.dumps({'chunk': text_chunk}, ensure_ascii=False)
-                                    yield f"event: text\ndata: {event_data}\n\n"
-                                    time.sleep(0.02)
+                                    _stream_buffer += part.text
+                                    
+                                    # Fix K+G+O: 檢查緩衝區中是否有 tool_code 起始標記
+                                    if '```tool_code' in _stream_buffer or 'default_api.' in _stream_buffer:
+                                        # 嘗試解析完整的 tool_code 區塊
+                                        _parsed_fc = _parse_tool_code_to_function_call(_stream_buffer)
+                                        if _parsed_fc:
+                                            _iter_function_calls.append(_parsed_fc)
+                                            logger.info(f"[Fix O] 從 streaming 緩衝解析出工具呼叫: {_parsed_fc.name}")
+                                        # 等待更多 chunks 或區塊結束
+                                        if '```' in _stream_buffer[_stream_buffer.find('```tool_code')+12:] or len(_stream_buffer) > 500:
+                                            # tool_code 區塊已結束或超長
+                                            # Fix O: 如果成功解析出 function_call，不 yield 殘留文字
+                                            if not _parsed_fc:
+                                                _cleaned = _stream_clean_chunk(_stream_buffer, strip_birth_ask=has_birth_date, has_gender=_has_gender_data)
+                                                if _cleaned.strip():
+                                                    accumulated_text += _cleaned
+                                                    event_data = json.dumps({'chunk': _cleaned}, ensure_ascii=False)
+                                                    yield f"event: text\ndata: {event_data}\n\n"
+                                                    time.sleep(0.02)
+                                            else:
+                                                logger.info(f"[Fix O] 已解析為工具呼叫，丟棄 tool_code 文字")
+                                            _stream_buffer = ""
+                                        continue
+                                    
+                                    # 正常文字：累積到閾值後 flush
+                                    if len(_stream_buffer) >= _FLUSH_THRESHOLD:
+                                        # Fix U: 重複偵測 —— 在 flush 前檢查滑動視窗
+                                        _repetition_window += _stream_buffer
+                                        if len(_repetition_window) > 300:
+                                            _rep_phrase = _detect_repetition(_repetition_window[-300:])
+                                            if _rep_phrase:
+                                                _repetition_detected = True
+                                                logger.warning(f"[Fix U] 偵測到重複生成迴圈: '{_rep_phrase}' 連續重複 3+ 次，截斷輸出")
+                                                # 截斷已累積的文字
+                                                _stream_buffer = _truncate_at_repetition(_stream_buffer, _rep_phrase, max_repeats=1)
+                                        
+                                        _cleaned = _stream_clean_chunk(_stream_buffer, strip_birth_ask=has_birth_date, has_gender=_has_gender_data)
+                                        if _cleaned.strip():
+                                            accumulated_text += _cleaned
+                                            event_data = json.dumps({'chunk': _cleaned}, ensure_ascii=False)
+                                            yield f"event: text\ndata: {event_data}\n\n"
+                                            time.sleep(0.02)
+                                        _stream_buffer = ""
+                                        
+                                        # Fix U: 如果已偵測到重複，跳過後續 chunks
+                                        if _repetition_detected:
+                                            break
+                        
+                        # Fix U: 外層也需要 break（跳出 candidates 迴圈）
+                        if _repetition_detected:
+                            break
+                    # Fix U: 最外層也 break（跳出 response chunks 迴圈）
+                    if _repetition_detected:
+                        logger.info(f"[Fix U] 已因重複偵測中斷串流讀取")
+                    
+                    # Fix K+O: flush 殘餘緩衝
+                    if _stream_buffer and not _repetition_detected:
+                        _parsed_fc = _parse_tool_code_to_function_call(_stream_buffer)
+                        if _parsed_fc:
+                            _iter_function_calls.append(_parsed_fc)
+                            logger.info(f"[Fix O] 從殘餘緩衝解析出工具呼叫: {_parsed_fc.name}，丟棄殘留文字")
+                        else:
+                            # Fix U: 殘餘緩衝也做重複偵測
+                            _rep_phrase = _detect_repetition(_stream_buffer)
+                            if _rep_phrase:
+                                _stream_buffer = _truncate_at_repetition(_stream_buffer, _rep_phrase, max_repeats=1)
+                                logger.warning(f"[Fix U] 殘餘緩衝偵測到重複: '{_rep_phrase}'")
+                            # 沒有 tool_code，正常 flush
+                            _cleaned = _stream_clean_chunk(_stream_buffer, strip_birth_ask=has_birth_date, has_gender=_has_gender_data)
+                            if _cleaned.strip():
+                                accumulated_text += _cleaned
+                                event_data = json.dumps({'chunk': _cleaned}, ensure_ascii=False)
+                                yield f"event: text\ndata: {event_data}\n\n"
+                        _stream_buffer = ""
                 else:
                     # 後續迭代：非 streaming 模式（tool response → AI 解讀）
                     response = gemini_client.generate_non_stream_with_contents(
                         contents=contents,
                         system_instruction=consult_system,
-                        tools=gemini_tools if gemini_tools else None
+                        tools=gemini_tools if gemini_tools else None,
+                        model_name=MODEL_NAME_CHAT
                     )
                     
                     _iter_function_calls = []
+                    _iter_fc_original_parts = []  # 保留原始 part（含 thoughtSignature）
                     if hasattr(response, 'candidates') and response.candidates:
+                        _ns_full_text = ""  # Fix K: 非串流整批收集後統一清理
                         for part in response.candidates[0].content.parts:
                             if hasattr(part, 'function_call') and part.function_call:
                                 _iter_function_calls.append(part.function_call)
+                                _iter_fc_original_parts.append(part)  # 保留含 thoughtSignature 的原始 part
                             elif hasattr(part, 'text') and part.text:
-                                text_chunk = part.text
-                                accumulated_text += text_chunk
-                                event_data = json.dumps({'chunk': text_chunk}, ensure_ascii=False)
-                                yield f"event: text\ndata: {event_data}\n\n"
-                                time.sleep(0.02)
+                                _ns_full_text += part.text
+                        
+                        # Fix K+O: 先嘗試解析 tool_code
+                        if _ns_full_text:
+                            _parsed_fc = _parse_tool_code_to_function_call(_ns_full_text)
+                            if _parsed_fc:
+                                _iter_function_calls.append(_parsed_fc)
+                                logger.info(f"[Fix O] 非串流解析出工具呼叫: {_parsed_fc.name}，丟棄殘留文字")
+                            else:
+                                # Fix U: 非串流路徑也做重複偵測
+                                _rep_phrase = _detect_repetition(_ns_full_text)
+                                if _rep_phrase:
+                                    _ns_full_text = _truncate_at_repetition(_ns_full_text, _rep_phrase, max_repeats=2)
+                                    logger.warning(f"[Fix U] 非串流偵測到重複: '{_rep_phrase}'")
+                                # 沒有 tool_code，正常清理後 yield
+                                _cleaned_ns = _stream_clean_chunk(_ns_full_text, strip_birth_ask=has_birth_date, has_gender=_has_gender_data)
+                                if _cleaned_ns.strip():
+                                    accumulated_text += _cleaned_ns
+                                    event_data = json.dumps({'chunk': _cleaned_ns}, ensure_ascii=False)
+                                    yield f"event: text\ndata: {event_data}\n\n"
+                                    time.sleep(0.02)
                 
                 # 若有 function_call → 執行工具，加入 contents，continue 迴圈
                 if _iter_function_calls:
-                    # 將 model 的回覆（含 function_call）加入 contents
-                    model_parts = []
-                    for fc in _iter_function_calls:
-                        model_parts.append(types.Part(function_call=fc))
-                    contents.append(types.Content(role="model", parts=model_parts))
+                    # 將 model 的回覆（含 function_call + thoughtSignature）加入 contents
+                    # Gemini 3 要求保留原始 part 中的 thoughtSignature
+                    if _iter_fc_original_parts:
+                        contents.append(types.Content(role="model", parts=_iter_fc_original_parts))
+                    else:
+                        # 回退：手動構建（如從 tool_code 解析的情況）
+                        model_parts = []
+                        for fc in _iter_function_calls:
+                            model_parts.append(types.Part(function_call=fc))
+                        contents.append(types.Content(role="model", parts=model_parts))
                     
                     # 執行每個工具
                     tool_response_parts = []
@@ -5660,6 +6365,490 @@ def chat_consult_stream():
                 else:
                     # 無 function_call → AI 已產生文字回覆，跳出迴圈
                     break
+
+            # ===== Fix C1: 自動儲存工具結果為系統報告 =====
+            # 確保後續訊息能看到已排過的命盤（available_systems 不為空）
+            _chart_tool_map = {
+                'calculate_bazi': ('bazi', 'bazi_chart'),
+                'calculate_ziwei': ('ziwei', 'chart_structure'),
+                'calculate_astrology': ('astrology', 'natal_chart'),
+                'calculate_numerology': ('numerology', 'profile'),
+                'analyze_name': ('name', 'five_grids')
+            }
+            _any_chart_saved = False
+            for _tc in tool_calls_made:
+                _tool_info = _chart_tool_map.get(_tc.get('name'))
+                if _tool_info and isinstance(_tc.get('result'), dict) and _tc['result'].get('status') != 'error':
+                    _sys_name, _data_key = _tool_info
+                    try:
+                        _tool_data = _tc['result'].get('data') or _tc['result']
+                        # 轉換為 save_system_report 預期的格式
+                        _report_data = {_data_key: _tool_data}
+                        db.save_system_report(user_id, _sys_name, _report_data)
+                        _any_chart_saved = True
+                        logger.info(f"[自動儲存] 對話中排盤結果已儲存: {_sys_name} (user={user_id})")
+                    except Exception as _save_err:
+                        logger.error(f"[自動儲存] 儲存排盤結果失敗: {_sys_name}, {_save_err}")
+            
+            # 使 fortune_profile 快取失效，讓下一則訊息能讀到新的 available_systems
+            if _any_chart_saved:
+                try:
+                    _new_reports = db.get_all_system_reports(user_id)
+                    _new_sig = compute_reports_signature(_new_reports)
+                    _new_fp = build_fortune_facts_from_reports(_new_reports)
+                    db.upsert_fortune_profile(user_id, _new_sig, _new_fp)
+                    logger.info(f"[自動儲存] fortune_profile 已更新 (user={user_id})")
+                except Exception as _fp_err:
+                    logger.error(f"[自動儲存] fortune_profile 更新失敗: {_fp_err}")
+
+            # ===== Fix F: 伺服器端熔斷機制 =====
+            # 條件：有生辰資料 + 無命盤 + AI 沒有調用任何排盤工具 + 沒有任何工具調用
+            # Fix T2: 缺性別時不要觸發熔斷（應該追問而非猜測）
+            # Fix A3: 占星、靈數不需要性別，可以直接排盤
+            fuse_triggered = False
+            _has_gender = bool((user_data or {}).get('gender') or re.search(r'(男性|男生|男|女性|女生|女)', message))
+            _fuse_wants_numerology = bool(re.search(r'靈數|生命數|命運數', message))
+            _fuse_wants_astrology = bool(re.search(r'星盤|占星|星座|上升', message))
+            _fuse_genderless_ok = _fuse_wants_numerology or _fuse_wants_astrology  # 這些系統不需要性別
+            if (
+                has_birth_date and 
+                not has_chart and 
+                not any(call['name'] in ['calculate_ziwei', 'calculate_bazi', 'calculate_astrology', 'calculate_numerology'] 
+                       for call in tool_calls_made) and
+                len(tool_calls_made) == 0 and  # AI 完全沒有調用任何工具
+                (_has_gender or _fuse_genderless_ok)  # 有性別資訊，或用戶要求不需要性別的系統
+            ):
+                logger.warning(
+                    f"[熔斷機制觸發] Session {session_id}: AI 未主動排盤，伺服器強制執行排盤"
+                )
+                
+                # 發送提示訊息給前端
+                fuse_message = "\n\n（正在為您排盤中...）\n\n"
+                event_data = json.dumps({'chunk': fuse_message}, ensure_ascii=False)
+                yield f"event: text\ndata: {event_data}\n\n"
+                accumulated_text += fuse_message
+                
+                # Fix N2+B1: 根據用戶訊息選擇排盤系統，支持多系統
+                # 先偵測是否為多系統請求
+                _fuse_is_multi = bool(
+                    re.search(r'(同時|一起|都|全部|兩個|兩種|各).{0,6}(看|排|分析|算)', message) or
+                    (re.search(r'八字|四柱', message) and re.search(r'紫微|斗數', message)) or
+                    (re.search(r'八字|四柱', message) and re.search(r'星盤|占星|星座', message)) or
+                    (re.search(r'紫微|斗數', message) and re.search(r'星盤|占星|星座', message)) or
+                    re.search(r'(八字|紫微|占星).{0,4}(和|跟|與|還有).{0,4}(八字|紫微|占星)', message)
+                )
+                
+                _fuse_all_tools = []
+                if re.search(r'八字|四柱', message):
+                    _fuse_all_tools.append('calculate_bazi')
+                if re.search(r'紫微|斗數', message):
+                    _fuse_all_tools.append('calculate_ziwei')
+                if re.search(r'星盤|占星|星座|上升', message):
+                    _fuse_all_tools.append('calculate_astrology')
+                if re.search(r'靈數|生命數|命運數', message):
+                    _fuse_all_tools.append('calculate_numerology')
+                
+                # 未明確指定 → 依序嘗試（八字→紫微→占星）
+                if not _fuse_all_tools:
+                    _fuse_all_tools = ['calculate_bazi', 'calculate_ziwei', 'calculate_astrology']
+                    _fuse_is_multi = False  # 未指定時只取第一個成功的
+                
+                # 收集要執行的工具列表
+                _fuse_execute_list = []
+                for _sys in _fuse_all_tools:
+                    _args = _build_tool_args(_sys, message, user_data)
+                    if _args:
+                        _fuse_execute_list.append((_sys, _args))
+                        if not _fuse_is_multi:
+                            break  # 非多系統模式只取第一個
+                
+                if not _fuse_execute_list:
+                    logger.error(f"[熔斷] 無法建構工具參數，user_data: {user_data}")
+                    # 跳過熔斷
+                else:
+                    # 逐一執行所有排盤工具，收集結果
+                    _fuse_all_results = []
+                    for _fuse_tool_name, _fuse_tool_args in _fuse_execute_list:
+                        try:
+                            # 發送工具執行事件
+                            tool_data = json.dumps({
+                                'status': 'executing',
+                                'name': _fuse_tool_name,
+                                'args': _fuse_tool_args,
+                                'fuse_triggered': True
+                            }, ensure_ascii=False)
+                            yield f"event: tool\ndata: {tool_data}\n\n"
+                        
+                            result = execute_tool(_fuse_tool_name, _fuse_tool_args)
+                            tool_calls_made.append({
+                                'name': _fuse_tool_name,
+                                'args': _fuse_tool_args,
+                                'result': result,
+                                'fuse_triggered': True
+                            })
+                            _fuse_all_results.append((_fuse_tool_name, _fuse_tool_args, result))
+                        
+                            # 發送工具完成事件
+                            tool_data = json.dumps({
+                                'status': 'completed',
+                                'name': _fuse_tool_name,
+                                'result': result,
+                                'fuse_triggered': True
+                            }, ensure_ascii=False)
+                            yield f"event: tool\ndata: {tool_data}\n\n"
+                        
+                            # Widget 注入
+                            widget_data = _build_chart_widget_from_tool_result(_fuse_tool_name, result)
+                            if widget_data:
+                                widget_json = json.dumps(widget_data, ensure_ascii=False)
+                                yield f"event: widget\ndata: {widget_json}\n\n"
+                                widget_count += 1
+                        
+                        except Exception as e:
+                            logger.error(f"[熔斷] 工具 {_fuse_tool_name} 執行失敗: {e}")
+                    
+                    # 所有工具執行完畢後，將結果一次送給 AI 解讀
+                    if _fuse_all_results:
+                        for _fn, _fa, _fr in _fuse_all_results:
+                            tool_response = types.Part(
+                                function_response=types.FunctionResponse(
+                                    name=_fn, response=_fr
+                                )
+                            )
+                            contents.append(types.Content(role="model", parts=[
+                                types.Part(function_call=types.FunctionCall(name=_fn, args=_fa), thought_signature="skip_thought_signature_validator")
+                            ]))
+                            contents.append(types.Content(role="tool", parts=[tool_response]))
+                    
+                        # 請求 AI 解讀工具結果（streaming 模式）
+                        try:
+                            followup_response = gemini_client.generate_content_stream(
+                                prompt=contents,
+                                system_instruction=consult_system,
+                                tools=None,  # 不再允許工具調用
+                                model_name=MODEL_NAME_CHAT
+                            )
+                        
+                            _fuse_buffer = ""  # Fix L: 熔斷 followup 也需要緩衝清理
+                            _fuse_raw_total = ""  # Debug: 追蹤熔斷 followup 原始輸出
+                            for chunk in followup_response:
+                                if hasattr(chunk, 'candidates') and chunk.candidates:
+                                    for part in chunk.candidates[0].content.parts:
+                                        if hasattr(part, 'text') and part.text:
+                                            _fuse_buffer += part.text
+                                            _fuse_raw_total += part.text
+                                            if len(_fuse_buffer) >= 60:
+                                                _cleaned_fuse = _stream_clean_chunk(_fuse_buffer, strip_birth_ask=has_birth_date, has_gender=_has_gender_data)
+                                                if _cleaned_fuse.strip():
+                                                    accumulated_text += _cleaned_fuse
+                                                    event_data = json.dumps({'chunk': _cleaned_fuse}, ensure_ascii=False)
+                                                    yield f"event: text\ndata: {event_data}\n\n"
+                                                    time.sleep(0.02)
+                                                else:
+                                                    logger.warning(f"[熔斷 Debug] 被清理掉的 chunk ({len(_fuse_buffer)}字): {_fuse_buffer[:100]}...")
+                                                _fuse_buffer = ""
+                            # Flush 殘餘
+                            if _fuse_buffer:
+                                _cleaned_fuse = _stream_clean_chunk(_fuse_buffer, strip_birth_ask=has_birth_date, has_gender=_has_gender_data)
+                                if _cleaned_fuse.strip():
+                                    accumulated_text += _cleaned_fuse
+                                    event_data = json.dumps({'chunk': _cleaned_fuse}, ensure_ascii=False)
+                                    yield f"event: text\ndata: {event_data}\n\n"
+                                else:
+                                    logger.warning(f"[熔斷 Debug] 殘餘被清理 ({len(_fuse_buffer)}字): {_fuse_buffer[:100]}...")
+                            logger.info(f"[熔斷 Debug] followup 原始總長: {len(_fuse_raw_total)}字, 清理後累積: {len(accumulated_text)}字")
+                        except Exception as e:
+                            logger.error(f"熔斷後 AI 解讀失敗: {e}")
+                            _last_result = _fuse_all_results[-1][2]
+                            fallback_msg = f"\n\n根據您的命盤分析結果：{_last_result.get('analysis', '排盤成功')}。\n"
+                            event_data = json.dumps({'chunk': fallback_msg}, ensure_ascii=False)
+                            yield f"event: text\ndata: {event_data}\n\n"
+                            accumulated_text += fallback_msg
+                    
+                        fuse_triggered = True
+
+            # ===== Fix B1: 多系統熔斷機制 =====
+            # 條件：用戶要求多個系統，但 AI 只呼叫了部分工具
+            _multi_sys_requested = []
+            if re.search(r'(同時|一起|都|全部|兩個|兩種|各).{0,6}(看|排|分析|算)', message) or \
+               (re.search(r'八字|四柱', message) and re.search(r'紫微|斗數', message)) or \
+               (re.search(r'八字|四柱', message) and re.search(r'星盤|占星|星座', message)) or \
+               (re.search(r'紫微|斗數', message) and re.search(r'星盤|占星|星座', message)) or \
+               re.search(r'(八字|紫微|占星).{0,4}(和|跟|與|還有).{0,4}(八字|紫微|占星)', message):
+                if re.search(r'八字|四柱', message):
+                    _multi_sys_requested.append('calculate_bazi')
+                if re.search(r'紫微|斗數', message):
+                    _multi_sys_requested.append('calculate_ziwei')
+                if re.search(r'星盤|占星|星座', message):
+                    _multi_sys_requested.append('calculate_astrology')
+                # 如果用了「同時看」但未指定具體系統，默認八字+紫微
+                if not _multi_sys_requested:
+                    _multi_sys_requested = ['calculate_bazi', 'calculate_ziwei']
+            
+            _tools_already_called = [call['name'] for call in tool_calls_made]
+            _multi_sys_missing = [t for t in _multi_sys_requested if t not in _tools_already_called]
+            
+            if _multi_sys_missing and len(tool_calls_made) > 0 and not fuse_triggered:
+                logger.warning(
+                    f"[多系統熔斷觸發] Session {session_id}: 用戶要求多系統 {_multi_sys_requested}，"
+                    f"AI 只呼叫了 {_tools_already_called}，補充呼叫 {_multi_sys_missing}"
+                )
+                for _missing_tool in _multi_sys_missing:
+                    _missing_args = _build_tool_args(_missing_tool, message, user_data)
+                    if not _missing_args:
+                        continue
+                    try:
+                        fuse_message = "\n\n（正在為您排盤中...）\n\n"
+                        event_data = json.dumps({'chunk': fuse_message}, ensure_ascii=False)
+                        yield f"event: text\ndata: {event_data}\n\n"
+                        accumulated_text += fuse_message
+                        
+                        tool_data = json.dumps({
+                            'status': 'executing', 'name': _missing_tool,
+                            'args': _missing_args, 'fuse_triggered': True
+                        }, ensure_ascii=False)
+                        yield f"event: tool\ndata: {tool_data}\n\n"
+                        
+                        result = execute_tool(_missing_tool, _missing_args)
+                        tool_calls_made.append({
+                            'name': _missing_tool, 'args': _missing_args,
+                            'result': result, 'fuse_triggered': True
+                        })
+                        
+                        tool_data = json.dumps({
+                            'status': 'completed', 'name': _missing_tool,
+                            'result': result, 'fuse_triggered': True
+                        }, ensure_ascii=False)
+                        yield f"event: tool\ndata: {tool_data}\n\n"
+                        
+                        # Widget 注入
+                        widget_data = _build_chart_widget_from_tool_result(_missing_tool, result)
+                        if widget_data:
+                            widget_json = json.dumps(widget_data, ensure_ascii=False)
+                            yield f"event: widget\ndata: {widget_json}\n\n"
+                            widget_count += 1
+                        
+                        # 讓 AI 解讀補充的工具結果
+                        tool_response = types.Part(
+                            function_response=types.FunctionResponse(
+                                name=_missing_tool, response=result
+                            )
+                        )
+                        contents.append(types.Content(role="model", parts=[
+                            types.Part(function_call=types.FunctionCall(name=_missing_tool, args=_missing_args), thought_signature="skip_thought_signature_validator")
+                        ]))
+                        contents.append(types.Content(role="tool", parts=[tool_response]))
+                        
+                        try:
+                            followup_response = gemini_client.generate_content_stream(
+                                prompt=contents,
+                                system_instruction=consult_system,
+                                tools=None,
+                                model_name=MODEL_NAME_CHAT
+                            )
+                            _ms_buffer = ""
+                            for chunk in followup_response:
+                                if hasattr(chunk, 'candidates') and chunk.candidates:
+                                    for part in chunk.candidates[0].content.parts:
+                                        if hasattr(part, 'text') and part.text:
+                                            _ms_buffer += part.text
+                                            if len(_ms_buffer) >= 60:
+                                                _cleaned = _stream_clean_chunk(_ms_buffer, strip_birth_ask=has_birth_date, has_gender=_has_gender_data)
+                                                if _cleaned.strip():
+                                                    accumulated_text += _cleaned
+                                                    event_data = json.dumps({'chunk': _cleaned}, ensure_ascii=False)
+                                                    yield f"event: text\ndata: {event_data}\n\n"
+                                                    time.sleep(0.02)
+                                                _ms_buffer = ""
+                            if _ms_buffer:
+                                _cleaned = _stream_clean_chunk(_ms_buffer, strip_birth_ask=has_birth_date, has_gender=_has_gender_data)
+                                if _cleaned.strip():
+                                    accumulated_text += _cleaned
+                                    event_data = json.dumps({'chunk': _cleaned}, ensure_ascii=False)
+                                    yield f"event: text\ndata: {event_data}\n\n"
+                        except Exception as e:
+                            logger.error(f"多系統熔斷 AI 解讀失敗: {e}")
+                    except Exception as e:
+                        logger.error(f"多系統熔斷執行失敗 ({_missing_tool}): {e}")
+
+            # ===== Fix X: 塔羅熔斷機制 =====
+            # 條件：使用者提到塔羅/抽牌 + AI 沒有呼叫 draw_tarot + 沒有已經觸發的熔斷
+            _tarot_keywords = ['塔羅', '塔罗', '抽牌', '牌陣', '牌阵', '占卜']
+            _user_wants_tarot = any(kw in message for kw in _tarot_keywords)
+            _ai_called_tarot = any(call['name'] == 'draw_tarot' for call in tool_calls_made)
+            if _user_wants_tarot and not _ai_called_tarot and not fuse_triggered:
+                logger.warning(
+                    f"[塔羅熔斷觸發] Session {session_id}: 使用者要求塔羅但 AI 未呼叫 draw_tarot，伺服器強制執行"
+                )
+                
+                # 建構 draw_tarot 參數
+                _tarot_args = _build_tool_args('draw_tarot', message, user_data)
+                if _tarot_args:
+                    try:
+                        fuse_message = "\n\n（正在為您抽牌中...）\n\n"
+                        event_data = json.dumps({'chunk': fuse_message}, ensure_ascii=False)
+                        yield f"event: text\ndata: {event_data}\n\n"
+                        accumulated_text += fuse_message
+                        
+                        # 執行 draw_tarot
+                        tool_data = json.dumps({
+                            'status': 'executing',
+                            'name': 'draw_tarot',
+                            'args': _tarot_args,
+                            'fuse_triggered': True
+                        }, ensure_ascii=False)
+                        yield f"event: tool\ndata: {tool_data}\n\n"
+                        
+                        result = execute_tool('draw_tarot', _tarot_args)
+                        tool_calls_made.append({
+                            'name': 'draw_tarot',
+                            'args': _tarot_args,
+                            'result': result,
+                            'fuse_triggered': True
+                        })
+                        
+                        tool_data = json.dumps({
+                            'status': 'completed',
+                            'name': 'draw_tarot',
+                            'result': result,
+                            'fuse_triggered': True
+                        }, ensure_ascii=False)
+                        yield f"event: tool\ndata: {tool_data}\n\n"
+                        
+                        # 讓 AI 根據牌面結果生成解讀
+                        contents.append(types.Content(role="model", parts=[
+                            types.Part(function_call=types.FunctionCall(name='draw_tarot', args=_tarot_args), thought_signature="skip_thought_signature_validator")
+                        ]))
+                        contents.append(types.Content(role="tool", parts=[
+                            types.Part(function_response=types.FunctionResponse(
+                                name='draw_tarot', response=result
+                            ))
+                        ]))
+                        
+                        try:
+                            followup_response = gemini_client.generate_content_stream(
+                                prompt=contents,
+                                system_instruction=consult_system,
+                                tools=None,
+                                model_name=MODEL_NAME_CHAT
+                            )
+                            
+                            _fuse_buffer = ""
+                            for chunk in followup_response:
+                                if hasattr(chunk, 'candidates') and chunk.candidates:
+                                    for part in chunk.candidates[0].content.parts:
+                                        if hasattr(part, 'text') and part.text:
+                                            _fuse_buffer += part.text
+                                            if len(_fuse_buffer) >= 60:
+                                                _cleaned_fuse = _stream_clean_chunk(_fuse_buffer, strip_birth_ask=has_birth_date, has_gender=_has_gender_data)
+                                                if _cleaned_fuse.strip():
+                                                    accumulated_text += _cleaned_fuse
+                                                    event_data = json.dumps({'chunk': _cleaned_fuse}, ensure_ascii=False)
+                                                    yield f"event: text\ndata: {event_data}\n\n"
+                                                    time.sleep(0.02)
+                                                _fuse_buffer = ""
+                            if _fuse_buffer:
+                                _cleaned_fuse = _stream_clean_chunk(_fuse_buffer, strip_birth_ask=has_birth_date, has_gender=_has_gender_data)
+                                if _cleaned_fuse.strip():
+                                    accumulated_text += _cleaned_fuse
+                                    event_data = json.dumps({'chunk': _cleaned_fuse}, ensure_ascii=False)
+                                    yield f"event: text\ndata: {event_data}\n\n"
+                        except Exception as e:
+                            logger.error(f"塔羅熔斷後 AI 解讀失敗: {e}")
+                            fallback_msg = f"\n\n塔羅牌已為您抽出，讓我為您解讀...\n"
+                            event_data = json.dumps({'chunk': fallback_msg}, ensure_ascii=False)
+                            yield f"event: text\ndata: {event_data}\n\n"
+                            accumulated_text += fallback_msg
+                        
+                        fuse_triggered = True
+                        
+                    except Exception as e:
+                        logger.error(f"塔羅熔斷機制執行失敗: {e}")
+
+            # ===== 姓名學熔斷機制 =====
+            _name_keywords = ['姓名', '名字', '取名', '改名', '姓名學']
+            _user_wants_name = any(kw in message for kw in _name_keywords)
+            _ai_called_name = any(call['name'] == 'analyze_name' for call in tool_calls_made)
+            if _user_wants_name and not _ai_called_name and not fuse_triggered:
+                _name_args = _build_tool_args('analyze_name', message, user_data)
+                if _name_args:
+                    logger.warning(
+                        f"[姓名學熔斷觸發] Session {session_id}: 使用者要求姓名分析但 AI 未呼叫 analyze_name，伺服器強制執行"
+                    )
+                    try:
+                        fuse_message = "\n\n（正在為您分析姓名中...）\n\n"
+                        event_data = json.dumps({'chunk': fuse_message}, ensure_ascii=False)
+                        yield f"event: text\ndata: {event_data}\n\n"
+                        accumulated_text += fuse_message
+                        
+                        tool_data = json.dumps({
+                            'status': 'executing',
+                            'name': 'analyze_name',
+                            'arguments': _name_args
+                        }, ensure_ascii=False)
+                        yield f"event: tool\ndata: {tool_data}\n\n"
+                        
+                        _name_result = execute_tool('analyze_name', _name_args)
+                        
+                        tool_calls_made.append({
+                            'name': 'analyze_name',
+                            'args': _name_args,
+                            'result': _name_result
+                        })
+                        
+                        tool_data = json.dumps({
+                            'status': 'completed',
+                            'name': 'analyze_name',
+                            'result': _name_result
+                        }, ensure_ascii=False)
+                        yield f"event: tool\ndata: {tool_data}\n\n"
+                        
+                        # 讓 AI 解讀姓名分析結果
+                        _name_result_text = json.dumps(_name_result, ensure_ascii=False, default=str)[:3000]
+                        contents.append(Content(role="user", parts=[Part.from_text(
+                            f"[系統] analyze_name 工具已完成。以下是姓名分析結果：\n{_name_result_text}\n\n"
+                            f"請用專業命理老師的角度，解讀「{_name_args.get('surname','')}{_name_args.get('given_name','')}」的姓名學分析結果。"
+                            f"包含五格（天格、人格、地格、外格、總格）的解讀和三才分析。"
+                        )]))
+                        
+                        try:
+                            followup_response = gemini_client.generate_stream_with_contents(
+                                contents=contents,
+                                system_instruction=consult_system,
+                                tools=tools_for_gemini if tools_for_gemini else None,
+                            )
+                            
+                            _fuse_buffer = ""
+                            for chunk in followup_response:
+                                if hasattr(chunk, 'candidates') and chunk.candidates:
+                                    for part in chunk.candidates[0].content.parts:
+                                        if hasattr(part, 'text') and part.text:
+                                            _fuse_buffer += part.text
+                                            if len(_fuse_buffer) >= 60:
+                                                _cleaned_fuse = _stream_clean_chunk(_fuse_buffer, strip_birth_ask=has_birth_date, has_gender=_has_gender_data)
+                                                if _cleaned_fuse.strip():
+                                                    accumulated_text += _cleaned_fuse
+                                                    event_data = json.dumps({'chunk': _cleaned_fuse}, ensure_ascii=False)
+                                                    yield f"event: text\ndata: {event_data}\n\n"
+                                                    time.sleep(0.02)
+                                                _fuse_buffer = ""
+                            if _fuse_buffer:
+                                _cleaned_fuse = _stream_clean_chunk(_fuse_buffer, strip_birth_ask=has_birth_date, has_gender=_has_gender_data)
+                                if _cleaned_fuse.strip():
+                                    accumulated_text += _cleaned_fuse
+                                    event_data = json.dumps({'chunk': _cleaned_fuse}, ensure_ascii=False)
+                                    yield f"event: text\ndata: {event_data}\n\n"
+                        except Exception as e:
+                            logger.error(f"姓名學熔斷後 AI 解讀失敗: {e}")
+                            fallback_msg = f"\n\n姓名分析已完成，讓我為您解讀...\n"
+                            event_data = json.dumps({'chunk': fallback_msg}, ensure_ascii=False)
+                            yield f"event: text\ndata: {event_data}\n\n"
+                            accumulated_text += fallback_msg
+                        
+                        fuse_triggered = True
+                        
+                    except Exception as e:
+                        logger.error(f"姓名學熔斷機制執行失敗: {e}")
 
             # 儲存 AI 回覆
             if accumulated_text:
@@ -7617,6 +8806,24 @@ def astrology_transit():
         
         chart_text = astrology_calc.format_for_gemini(natal_chart)
         
+        # v2.2: 計算 Transit 行星相位數據，注入到 prompt
+        transit_parts = transit_date.split('-')
+        transit_year = int(transit_parts[0])
+        transit_month = int(transit_parts[1]) if len(transit_parts) > 1 else 1
+        transit_day = int(transit_parts[2]) if len(transit_parts) > 2 else 1
+
+        transit_data = astrology_calc.calculate_transit(
+            natal_chart,
+            target_year=transit_year,
+            target_month=transit_month,
+            target_day=transit_day
+        )
+        transit_summary = transit_data.get('summary_text', '') if isinstance(transit_data, dict) else ''
+
+        # 將 transit 數據附加到 chart_text
+        if transit_summary:
+            chart_text += f"\n\n{transit_summary}"
+
         # 生成流年分析提示詞
         prompt = get_transit_analysis_prompt(chart_text, transit_date)
         

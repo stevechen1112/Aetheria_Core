@@ -23,7 +23,7 @@ def _get_gemini_client() -> GeminiClient:
         api_key = os.getenv('GEMINI_API_KEY')
         _gemini_client = GeminiClient(
             api_key=api_key,
-            model_name='gemini-2.0-flash-exp',
+            model_name=os.getenv('MODEL_NAME_CHAT', 'gemini-3-flash-preview'),
             temperature=0.4
         )
     return _gemini_client

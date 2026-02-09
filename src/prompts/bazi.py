@@ -38,6 +38,15 @@ BAZI_ANALYSIS_PROMPT = """你好，我是 Aetheria。身為一名精通命理的
 - 喜神：{xishen}
 - 忌神：{jishen}
 
+【格局】
+{pattern_info}
+
+【十神全圖】
+{shishen_chart}
+
+【地支合沖刑害】
+{dizhi_interactions}
+
 【大運資訊】
 当前大运：{current_dayun}
 未来大运：{future_dayun}
@@ -47,15 +56,21 @@ BAZI_ANALYSIS_PROMPT = """你好，我是 Aetheria。身為一名精通命理的
 请按照以下结构进行深度分析，每个部分要求详实、专业，结合传统命理理论与现代生活场景：
 
 一、命格總論（500-700字）
+- 先說明【格局】結論（何種格局、如何成格、格局高低）
 - 分析四柱组合的整体格局特点
 - 解读日主强弱及其对命运的影响
 - 说明八字中五行配置的优劣
 - 评估命格的层次高低
 - 总结性格特质的命理根源
 
-二、性格特質（400-600字）
-- 基于日主和十神配置分析性格倾向
-- 解读为人处世风格
+二、地支互動與力量分析（300-500字）
+- 解讀【地支合沖刑害】中的所有互動（六合、六沖、三合、三刑、六害）
+- 分析這些互動對命局的實際影響（增強或破壞某五行力量）
+- 若有沖刑，指出對哪些宮位（年月日時所代表的人事）的影響
+- 若無沖刑，說明命局地支平穩的優劣
+
+三、性格特質（400-600字）
+- 基于日主和十神配置分析性格倾向- 参考【十神全圖】解读十神分布的平衡性- 解读为人处世风格
 - 分析思维模式和决策习惯
 - 说明社交能力和人际关系特点
 - 指出性格中的优势与不足
@@ -376,7 +391,52 @@ def format_bazi_analysis_prompt(bazi_result: dict, gender: str,
             canggan_str = "、".join([f"{k}({v})" for k, v in zhi_canggan.items()])
             return f"{gan_shishen}，藏干：{canggan_str}"
         return gan_shishen
-    
+
+    # v2.2: 格式化十神全圖
+    def format_shishen_chart():
+        """生成十神全圖（橫向展示四柱十神分佈）"""
+        lines = []
+        lines.append(f"        年柱        月柱        日柱        時柱")
+        lines.append(f"天干：  {year_pillar['天干']}({year_pillar['十神'].get('天干','')})  "
+                     f"{month_pillar['天干']}({month_pillar['十神'].get('天干','')})  "
+                     f"{day_pillar['天干']}(日主)  "
+                     f"{hour_pillar['天干']}({hour_pillar['十神'].get('天干','')})")
+        lines.append(f"地支：  {year_pillar['地支']}        {month_pillar['地支']}        "
+                     f"{day_pillar['地支']}        {hour_pillar['地支']}")
+        # 藏干十神
+        def format_canggan_line(pillar):
+            cg = pillar['十神'].get('地支藏干', {})
+            return "、".join([f"{k}({v})" for k, v in cg.items()]) if cg else "—"
+        lines.append(f"藏干：  {format_canggan_line(year_pillar)}")
+        lines.append(f"        {format_canggan_line(month_pillar)}")
+        lines.append(f"        {format_canggan_line(day_pillar)}")
+        lines.append(f"        {format_canggan_line(hour_pillar)}")
+        return "\n".join(lines)
+
+    # v2.2: 格式化合沖刑害
+    def format_dizhi_interactions():
+        interactions = bazi_result.get("合冲刑害", {})
+        lines = []
+        for category in ["六合", "六沖", "三合", "三刑", "六害"]:
+            items = interactions.get(category, [])
+            if items:
+                lines.append(f"  {category}：{'；'.join(items)}")
+        if not lines:
+            lines.append("  四柱地支無明顯合沖刑害")
+        return "\n".join(lines)
+
+    # v2.2: 格式化格局
+    def format_pattern():
+        pattern = bazi_result.get("格局", {})
+        if isinstance(pattern, dict) and pattern.get("格局名稱"):
+            lines = [
+                f"  格局：{pattern['格局名稱']}",
+                f"  依據：{pattern.get('判定依據', '')}",
+                f"  特點：{pattern.get('格局特點', '')}",
+            ]
+            return "\n".join(lines)
+        return "  格局：待分析"
+
     return BAZI_ANALYSIS_PROMPT.format(
         # 四柱信息
         year_pillar_gan=year_pillar["天干"],
@@ -417,6 +477,11 @@ def format_bazi_analysis_prompt(bazi_result: dict, gender: str,
         xishen="、".join(yongshen_info["喜神"]),
         jishen="、".join(yongshen_info["忌神"]),
         
+        # v2.2: 格局、十神全圖、合沖刑害
+        pattern_info=format_pattern(),
+        shishen_chart=format_shishen_chart(),
+        dizhi_interactions=format_dizhi_interactions(),
+
         # 大运信息
         current_dayun=current_dayun,
         future_dayun=future_dayun

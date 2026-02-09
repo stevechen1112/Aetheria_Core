@@ -4,9 +4,13 @@ Gemini API 客戶端包裝器
 """
 
 import os
+import time
+import logging
 from typing import Optional, Dict, Any
 from google import genai
 from google.genai import types
+
+logger = logging.getLogger('aetheria')
 
 
 class GeminiClient:
@@ -15,7 +19,7 @@ class GeminiClient:
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model_name: str = "gemini-2.0-flash",
+        model_name: str = "gemini-3-flash-preview",
         temperature: float = 0.4,
         max_output_tokens: int = 8192
     ):
@@ -38,6 +42,18 @@ class GeminiClient:
             'temperature': temperature,
             'max_output_tokens': max_output_tokens,
         }
+        # 429 retry 設定
+        self.max_retries = 3
+        self.base_delay = 5  # 秒
+
+    def _is_rate_limit_error(self, e: Exception) -> bool:
+        """判斷是否為 429 rate limit 錯誤"""
+        err_str = str(e)
+        return '429' in err_str or 'RESOURCE_EXHAUSTED' in err_str
+
+    def _retry_delay(self, attempt: int) -> float:
+        """指數退避延遲：5s, 10s, 20s"""
+        return self.base_delay * (2 ** attempt)
     
     def generate(
         self,
@@ -89,11 +105,25 @@ class GeminiClient:
         )
         
         try:
-            response = self.client.models.generate_content(
-                model=model_name or self.model_name,
-                contents=prompt,
-                config=config
-            )
+            last_err = None
+            for attempt in range(self.max_retries + 1):
+                try:
+                    response = self.client.models.generate_content(
+                        model=model_name or self.model_name,
+                        contents=prompt,
+                        config=config
+                    )
+                    break  # 成功，跳出 retry
+                except Exception as inner_e:
+                    last_err = inner_e
+                    if self._is_rate_limit_error(inner_e) and attempt < self.max_retries:
+                        delay = self._retry_delay(attempt)
+                        logger.warning(f"[Gemini] 429 rate limit，{delay}s 後重試 ({attempt+1}/{self.max_retries})")
+                        time.sleep(delay)
+                    else:
+                        raise
+            else:
+                raise last_err
 
             
             # 若指定了 tools，返回完整 response 供後續處理
@@ -171,14 +201,28 @@ class GeminiClient:
         )
         
         try:
-            response_stream = self.client.models.generate_content_stream(
-                model=model_name or self.model_name,
-                contents=prompt,
-                config=config
-            )
-            
-            for chunk in response_stream:
-                yield chunk
+            last_err = None
+            for attempt in range(self.max_retries + 1):
+                try:
+                    response_stream = self.client.models.generate_content_stream(
+                        model=model_name or self.model_name,
+                        contents=prompt,
+                        config=config
+                    )
+                    
+                    for chunk in response_stream:
+                        yield chunk
+                    return  # 成功完成，直接結束
+                except Exception as inner_e:
+                    last_err = inner_e
+                    if self._is_rate_limit_error(inner_e) and attempt < self.max_retries:
+                        delay = self._retry_delay(attempt)
+                        logger.warning(f"[Gemini] Streaming 429 rate limit，{delay}s 後重試 ({attempt+1}/{self.max_retries})")
+                        time.sleep(delay)
+                    else:
+                        raise
+            if last_err:
+                raise last_err
                 
         except Exception as e:
             raise Exception(f"Gemini API Streaming 失敗: {str(e)}")
@@ -215,12 +259,24 @@ class GeminiClient:
         )
         
         try:
-            response = self.client.models.generate_content(
-                model=model_name or self.model_name,
-                contents=contents,
-                config=config
-            )
-            return response
+            last_err = None
+            for attempt in range(self.max_retries + 1):
+                try:
+                    response = self.client.models.generate_content(
+                        model=model_name or self.model_name,
+                        contents=contents,
+                        config=config
+                    )
+                    return response
+                except Exception as inner_e:
+                    last_err = inner_e
+                    if self._is_rate_limit_error(inner_e) and attempt < self.max_retries:
+                        delay = self._retry_delay(attempt)
+                        logger.warning(f"[Gemini] Multi-turn 429 rate limit，{delay}s 後重試 ({attempt+1}/{self.max_retries})")
+                        time.sleep(delay)
+                    else:
+                        raise
+            raise last_err
         except Exception as e:
             raise Exception(f"Gemini API (multi-turn) 失敗: {str(e)}")
     

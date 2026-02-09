@@ -39,6 +39,8 @@ cross_validation_*.txt
 *_analysis_*.txt
 *_fortune_*.txt
 *_reading_*.txt
+test_run*.txt
+test_*.txt
 
 # ===== 日誌 =====
 logs/*.txt

@@ -83,6 +83,52 @@ class AstrologyCalculator:
     def __init__(self):
         """初始化"""
         pass
+
+    # ===== v2.2: 行星廟旺落陷 (Essential Dignity) =====
+    # 格式：{sign_abbr: {planet_key: dignity_level}}
+    # 層級：Domicile(入廟) > Exaltation(旺) > Detriment(落) > Fall(陷)
+    DIGNITY_TABLE = {
+        'Ari': {'mars': 'Domicile', 'sun': 'Exaltation', 'venus': 'Detriment', 'saturn': 'Fall'},
+        'Tau': {'venus': 'Domicile', 'moon': 'Exaltation', 'mars': 'Detriment', 'uranus': 'Fall'},
+        'Gem': {'mercury': 'Domicile', 'jupiter': 'Detriment'},
+        'Can': {'moon': 'Domicile', 'jupiter': 'Exaltation', 'saturn': 'Detriment', 'mars': 'Fall'},
+        'Leo': {'sun': 'Domicile', 'saturn': 'Detriment', 'uranus': 'Detriment'},
+        'Vir': {'mercury': 'Domicile+Exaltation', 'jupiter': 'Detriment', 'venus': 'Fall', 'neptune': 'Detriment'},
+        'Lib': {'venus': 'Domicile', 'saturn': 'Exaltation', 'mars': 'Detriment', 'sun': 'Fall'},
+        'Sco': {'mars': 'Domicile', 'pluto': 'Domicile', 'venus': 'Detriment', 'moon': 'Fall'},
+        'Sag': {'jupiter': 'Domicile', 'mercury': 'Detriment'},
+        'Cap': {'saturn': 'Domicile', 'mars': 'Exaltation', 'moon': 'Detriment', 'jupiter': 'Fall'},
+        'Aqu': {'saturn': 'Domicile', 'uranus': 'Domicile', 'sun': 'Detriment'},
+        'Pis': {'jupiter': 'Domicile', 'neptune': 'Domicile', 'venus': 'Exaltation', 'mercury': 'Detriment+Fall'},
+    }
+
+    DIGNITY_ZH = {
+        'Domicile': '入廟（守護）',
+        'Exaltation': '旺（擢升）',
+        'Detriment': '落（不利）',
+        'Fall': '陷（衰弱）',
+    }
+
+    def _get_planet_dignity(self, planet_key: str, sign_abbr: str) -> Optional[str]:
+        """
+        查詢行星在特定星座的 Essential Dignity（v2.2 新增，v2.3 支援複合 dignity）
+
+        Args:
+            planet_key: 行星鍵（如 'sun', 'moon', 'mars'）
+            sign_abbr: 星座縮寫（如 'Ari', 'Leo'）
+
+        Returns:
+            Dignity 描述或 None
+        """
+        sign_data = self.DIGNITY_TABLE.get(sign_abbr, {})
+        dignity = sign_data.get(planet_key)
+        if dignity:
+            # v2.3: 支援複合格式如 'Domicile+Exaltation'
+            if '+' in dignity:
+                parts = [self.DIGNITY_ZH.get(d.strip(), d.strip()) for d in dignity.split('+')]
+                return '／'.join(parts)
+            return self.DIGNITY_ZH.get(dignity, dignity)
+        return None
     
     def calculate_natal_chart(
         self,
@@ -216,6 +262,9 @@ class AstrologyCalculator:
             'chart_ruler': self._get_chart_ruler(houses, planets)
         }
         
+        # v2.3: 自動偵測相位組型
+        natal_chart['aspect_patterns'] = self._detect_aspect_patterns(aspects, planets)
+        
         return natal_chart
     
     def _extract_planets(self, subject: AstrologicalSubject) -> Dict[str, Any]:
@@ -246,7 +295,8 @@ class AstrologyCalculator:
                     'longitude': planet_data.get('abs_pos', 0),    # 黃道經度
                     'latitude': planet_data.get('lat', 0),
                     'house': planet_data.get('house', ''),
-                    'retrograde': planet_data.get('retrograde', False)
+                    'retrograde': planet_data.get('retrograde', False),
+                    'dignity': self._get_planet_dignity(planet_attr, sign_abbr),  # v2.2
                 }
         
         # 添加上升點和天頂
@@ -328,6 +378,139 @@ class AstrologyCalculator:
         
         return aspects
     
+    # ===== v2.3: 相位組型自動偵測 =====
+
+    def _detect_aspect_patterns(self, aspects: List[Dict], planets: Dict) -> List[Dict]:
+        """
+        自動偵測星盤中的特殊相位組型（v2.3 新增）。
+        
+        偵測的組型：
+        - T-Square（T三角）：三顆行星 A-B 衝(180°) + A-C 刑(90°) + B-C 刑(90°)
+        - Grand Trine（大三角）：三顆行星兩兩拱(120°)
+        - Grand Cross（大十字）：四顆行星形成兩組衝 + 四組刑
+        
+        Returns:
+            [{"type": "T-Square", "type_zh": "T三角", "planets": ["火星", "土星", "月亮"], "description": "..."}]
+        """
+        patterns = []
+        
+        # Build adjacency: {(p1, p2): aspect_type}
+        aspect_map = {}
+        for a in aspects:
+            p1 = a.get('planet1', '')
+            p2 = a.get('planet2', '')
+            atype = a.get('aspect', '').lower()
+            if p1 and p2 and atype:
+                aspect_map[(p1, p2)] = atype
+                aspect_map[(p2, p1)] = atype
+        
+        # Get unique planet names involved in aspects
+        planet_names = set()
+        for a in aspects:
+            planet_names.add(a.get('planet1', ''))
+            planet_names.add(a.get('planet2', ''))
+        planet_names.discard('')
+        planet_list = sorted(planet_names)
+        
+        def _zh(name):
+            return self.PLANET_NAMES_ZH.get(name, name)
+        
+        def _has_aspect(p1, p2, atype):
+            return aspect_map.get((p1, p2), '') == atype
+        
+        # --- T-Square detection ---
+        for i, a_planet in enumerate(planet_list):
+            for j, b_planet in enumerate(planet_list):
+                if j <= i:
+                    continue
+                if not _has_aspect(a_planet, b_planet, 'opposition'):
+                    continue
+                for c_planet in planet_list:
+                    if c_planet in (a_planet, b_planet):
+                        continue
+                    if _has_aspect(a_planet, c_planet, 'square') and _has_aspect(b_planet, c_planet, 'square'):
+                        trio = tuple(sorted([a_planet, b_planet, c_planet]))
+                        entry = {
+                            "type": "T-Square",
+                            "type_zh": "T三角（T-Square）",
+                            "planets": [_zh(a_planet), _zh(b_planet), _zh(c_planet)],
+                            "planets_en": list(trio),
+                            "description": f"{_zh(a_planet)}與{_zh(b_planet)}對衝(180°)，{_zh(c_planet)}同時刑克(90°)兩者，形成強烈的驅動力與內在張力。{_zh(c_planet)}是此T三角的頂點行星，代表壓力的宣洩口。"
+                        }
+                        if not any(set(p.get('planets_en', [])) == set(trio) and p['type'] == 'T-Square' for p in patterns):
+                            patterns.append(entry)
+        
+        # --- Grand Trine detection ---
+        for i, a_planet in enumerate(planet_list):
+            for j, b_planet in enumerate(planet_list):
+                if j <= i:
+                    continue
+                if not _has_aspect(a_planet, b_planet, 'trine'):
+                    continue
+                for k, c_planet in enumerate(planet_list):
+                    if k <= j:
+                        continue
+                    if _has_aspect(a_planet, c_planet, 'trine') and _has_aspect(b_planet, c_planet, 'trine'):
+                        trio = tuple(sorted([a_planet, b_planet, c_planet]))
+                        # Determine element
+                        signs = []
+                        for p_name in trio:
+                            p_data = planets.get(p_name.lower(), {})
+                            signs.append(p_data.get('sign', ''))
+                        element_map = {
+                            'Ari': '火', 'Leo': '火', 'Sag': '火',
+                            'Tau': '土', 'Vir': '土', 'Cap': '土',
+                            'Gem': '風', 'Lib': '風', 'Aqu': '風',
+                            'Can': '水', 'Sco': '水', 'Pis': '水'
+                        }
+                        elems = [element_map.get(s, '') for s in signs]
+                        elem_str = elems[0] if elems[0] and all(e == elems[0] for e in elems) else '混合'
+                        
+                        entry = {
+                            "type": "Grand Trine",
+                            "type_zh": f"大三角（Grand Trine）— {elem_str}象",
+                            "planets": [_zh(a_planet), _zh(b_planet), _zh(c_planet)],
+                            "planets_en": list(trio),
+                            "description": f"{_zh(a_planet)}、{_zh(b_planet)}、{_zh(c_planet)}兩兩形成拱相(120°)，構成{elem_str}象大三角。代表天賦才能的和諧流動，但也可能因過於安逸而缺乏成長動力。"
+                        }
+                        if not any(set(p.get('planets_en', [])) == set(trio) and p['type'] == 'Grand Trine' for p in patterns):
+                            patterns.append(entry)
+        
+        # --- Grand Cross detection ---
+        for i, a_planet in enumerate(planet_list):
+            for j, b_planet in enumerate(planet_list):
+                if j <= i:
+                    continue
+                if not _has_aspect(a_planet, b_planet, 'opposition'):
+                    continue
+                for k, c_planet in enumerate(planet_list):
+                    if k <= i or c_planet in (a_planet, b_planet):
+                        continue
+                    for l_idx, d_planet in enumerate(planet_list):
+                        if l_idx <= k or d_planet in (a_planet, b_planet, c_planet):
+                            continue
+                        if not _has_aspect(c_planet, d_planet, 'opposition'):
+                            continue
+                        squares = sum([
+                            _has_aspect(a_planet, c_planet, 'square'),
+                            _has_aspect(a_planet, d_planet, 'square'),
+                            _has_aspect(b_planet, c_planet, 'square'),
+                            _has_aspect(b_planet, d_planet, 'square')
+                        ])
+                        if squares >= 3:
+                            quad = tuple(sorted([a_planet, b_planet, c_planet, d_planet]))
+                            entry = {
+                                "type": "Grand Cross",
+                                "type_zh": "大十字（Grand Cross）",
+                                "planets": [_zh(a_planet), _zh(b_planet), _zh(c_planet), _zh(d_planet)],
+                                "planets_en": list(quad),
+                                "description": f"{_zh(a_planet)}、{_zh(b_planet)}、{_zh(c_planet)}、{_zh(d_planet)}形成大十字格局，兩組對衝加四組刑克，代表極大的內在張力與轉化潛能。"
+                            }
+                            if not any(set(p.get('planets_en', [])) == set(quad) and p['type'] == 'Grand Cross' for p in patterns):
+                                patterns.append(entry)
+        
+        return patterns
+
     def _calculate_elements(self, planets: Dict[str, Any]) -> Dict[str, int]:
         """計算四元素分佈"""
         elements = {'Fire': 0, 'Earth': 0, 'Air': 0, 'Water': 0}
@@ -572,9 +755,10 @@ class AstrologyCalculator:
         for planet_key, planet in planets.items():
             if planet_key not in ['ascendant', 'midheaven']:
                 retro = " ℞" if planet.get('retrograde') else ""
+                dignity = f" [{planet['dignity']}]" if planet.get('dignity') else ""
                 output.append(
                     f"{planet['name_zh']:6s} | {planet['sign_zh']:6s} {planet['degree']:.2f}° "
-                    f"| 第{planet.get('house', '?')}宮{retro}"
+                    f"| 第{planet.get('house', '?')}宮{retro}{dignity}"
                 )
         
         # 上升和天頂
@@ -607,6 +791,15 @@ class AstrologyCalculator:
                 )
         else:
             output.append("無主要相位")
+        
+        # v2.3: 相位組型（T-Square / Grand Trine / Grand Cross）
+        aspect_patterns = natal_chart.get('aspect_patterns', [])
+        if aspect_patterns:
+            output.append(f"\n【⚠ 特殊相位組型】")
+            for pat in aspect_patterns:
+                planets_str = '、'.join(pat.get('planets', []))
+                output.append(f"★ {pat['type_zh']}：{planets_str}")
+                output.append(f"  {pat['description']}")
         
         output.append(f"\n【元素分佈】")
         elements = natal_chart['elements']

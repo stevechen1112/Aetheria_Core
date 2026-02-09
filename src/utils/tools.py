@@ -26,26 +26,26 @@ logger = logging.getLogger(__name__)
 TOOL_DEFINITIONS = [
     {
         "name": "calculate_ziwei",
-        "description": "计算紫微斗数命盘。需要用户提供：出生日期（阳历）、出生时间、性别、出生地点。注意：如果系统提示中的「命盘摘要」已包含紫微数据，则无需重复调用此工具，直接引用已有数据分析即可。",
+        "description": "計算紫微斗數命盤。當用戶提供出生日期、時間、性別和地點後，調用此工具排盤分析。",
         "parameters": {
             "type": "object",
             "properties": {
                 "birth_date": {
                     "type": "string",
-                    "description": "出生日期，格式：YYYY-MM-DD（阳历）"
+                    "description": "出生日期，格式：YYYY-MM-DD（陽曆）"
                 },
                 "birth_time": {
                     "type": "string",
-                    "description": "出生时间，格式：HH:MM（24小时制）"
+                    "description": "出生時間，格式：HH:MM（24小時制）"
                 },
                 "gender": {
                     "type": "string",
-                    "description": "性别：男 或 女",
+                    "description": "性別：男 或 女",
                     "enum": ["男", "女"]
                 },
                 "birth_location": {
                     "type": "string",
-                    "description": "出生地点，如：台北、上海、香港"
+                    "description": "出生地點，如：台北、上海、香港"
                 }
             },
             "required": ["birth_date", "birth_time", "gender", "birth_location"]
@@ -53,25 +53,25 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "calculate_bazi",
-        "description": "计算八字命盘（四柱八字、大运、流年）。需要用户提供：出生年月日时、性别。注意：如果系统提示中的「命盘摘要」已包含八字数据，则无需重复调用此工具，直接引用已有数据分析即可。",
+        "description": "計算八字命盤（四柱八字、大運、流年）。當用戶提供完整生辰（年月日時）和性別後，調用此工具排盤分析。",
         "parameters": {
             "type": "object",
             "properties": {
                 "year": {
                     "type": "integer",
-                    "description": "出生年（公历）"
+                    "description": "出生年（公曆）"
                 },
                 "month": {
                     "type": "integer",
-                    "description": "出生月（公历）"
+                    "description": "出生月（公曆）"
                 },
                 "day": {
                     "type": "integer",
-                    "description": "出生日（公历）"
+                    "description": "出生日（公曆）"
                 },
                 "hour": {
                     "type": "integer",
-                    "description": "出生时（24小时制，0-23）"
+                    "description": "出生時（24小時制，0-23）"
                 },
                 "minute": {
                     "type": "integer",
@@ -80,12 +80,12 @@ TOOL_DEFINITIONS = [
                 },
                 "gender": {
                     "type": "string",
-                    "description": "性别：男 或 女",
+                    "description": "性別：男 或 女",
                     "enum": ["男", "女"]
                 },
                 "longitude": {
                     "type": "number",
-                    "description": "出生地经度（用于真太阳时校正），默认120.0",
+                    "description": "出生地經度（用於真太陽時校正），默認120.0",
                     "default": 120.0
                 }
             },
@@ -94,30 +94,30 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "calculate_astrology",
-        "description": "计算西洋占星本命盘（行星、宫位、相位）。需要用户提供：出生年月日时、出生地点。注意：如果系统提示中的「命盘摘要」已包含占星数据，则无需重复调用此工具。",
+        "description": "計算西洋占星本命盤（行星、宮位、相位）。當用戶提供出生年月日時和地點後，調用此工具排盤分析。",
         "parameters": {
             "type": "object",
             "properties": {
                 "name": {
                     "type": "string",
-                    "description": "姓名（可选，用于标识）",
+                    "description": "姓名（可選，用於標識）",
                     "default": "User"
                 },
                 "year": {
                     "type": "integer",
-                    "description": "出生年（公历）"
+                    "description": "出生年（公曆）"
                 },
                 "month": {
                     "type": "integer",
-                    "description": "出生月（公历）"
+                    "description": "出生月（公曆）"
                 },
                 "day": {
                     "type": "integer",
-                    "description": "出生日（公历）"
+                    "description": "出生日（公曆）"
                 },
                 "hour": {
                     "type": "integer",
-                    "description": "出生时（24小时制）"
+                    "description": "出生時（24小時制）"
                 },
                 "minute": {
                     "type": "integer",
@@ -130,7 +130,7 @@ TOOL_DEFINITIONS = [
                 },
                 "nation": {
                     "type": "string",
-                    "description": "国家代码，如：TW, CN",
+                    "description": "國家代碼，如：TW, CN",
                     "default": "TW"
                 }
             },

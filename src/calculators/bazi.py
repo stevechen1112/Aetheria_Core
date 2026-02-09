@@ -206,6 +206,19 @@ class BaziCalculator:
             }
         }
 
+        # 合沖刑害分析（v2.2 新增）
+        all_zhi = [year_gz[1], month_gz[1], day_gz[1], hour_gz[1]]
+        result["合冲刑害"] = self._analyze_dizhi_interactions(all_zhi)
+
+        # 格局分析（v2.2 新增）
+        result["格局"] = self._analyze_pattern(
+            day_master,
+            strength_analysis,
+            [year_gz[0], month_gz[0], day_gz[0], hour_gz[0]],
+            all_zhi,
+            month_gz[1]
+        )
+
         # 兼容繁體鍵名
         result["四柱"]["時柱"] = result["四柱"]["时柱"]
         result["強弱"] = result["强弱"]
@@ -666,6 +679,243 @@ class BaziCalculator:
         
         return result
     
+    # ===== v2.2: 合沖刑害分析 =====
+
+    # 六合
+    LIUHE = {
+        ('子', '丑'): '土', ('丑', '子'): '土',
+        ('寅', '亥'): '木', ('亥', '寅'): '木',
+        ('卯', '戌'): '火', ('戌', '卯'): '火',
+        ('辰', '酉'): '金', ('酉', '辰'): '金',
+        ('巳', '申'): '水', ('申', '巳'): '水',
+        ('午', '未'): '土', ('未', '午'): '土',
+    }
+
+    # 六沖
+    LIUCHONG = [
+        ('子', '午'), ('午', '子'),
+        ('丑', '未'), ('未', '丑'),
+        ('寅', '申'), ('申', '寅'),
+        ('卯', '酉'), ('酉', '卯'),
+        ('辰', '戌'), ('戌', '辰'),
+        ('巳', '亥'), ('亥', '巳'),
+    ]
+
+    # 三合局
+    SANHE = {
+        ('申', '子', '辰'): '水局',
+        ('寅', '午', '戌'): '火局',
+        ('巳', '酉', '丑'): '金局',
+        ('亥', '卯', '未'): '木局',
+    }
+
+    # 三刑
+    SANXING = [
+        (('寅', '巳'), '恃勢之刑'),
+        (('巳', '申'), '恃勢之刑'),
+        (('寅', '申'), '恃勢之刑'),
+        (('丑', '戌'), '無恩之刑'),
+        (('戌', '未'), '無恩之刑'),
+        (('丑', '未'), '無恩之刑'),
+        (('子', '卯'), '無禮之刑'),
+        (('卯', '子'), '無禮之刑'),
+        (('辰', '辰'), '自刑'),
+        (('午', '午'), '自刑'),
+        (('酉', '酉'), '自刑'),
+        (('亥', '亥'), '自刑'),
+    ]
+
+    # 六害
+    LIUHAI = [
+        (('子', '未'), '子未相害'),
+        (('未', '子'), '子未相害'),
+        (('丑', '午'), '丑午相害'),
+        (('午', '丑'), '丑午相害'),
+        (('寅', '巳'), '寅巳相害'),
+        (('巳', '寅'), '寅巳相害'),
+        (('卯', '辰'), '卯辰相害'),
+        (('辰', '卯'), '卯辰相害'),
+        (('申', '亥'), '申亥相害'),
+        (('亥', '申'), '申亥相害'),
+        (('酉', '戌'), '酉戌相害'),
+        (('戌', '酉'), '酉戌相害'),
+    ]
+
+    PILLAR_NAMES = ['年支', '月支', '日支', '時支']
+
+    def _analyze_dizhi_interactions(self, all_zhi: List[str]) -> Dict:
+        """
+        分析四柱地支間的合沖刑害（v2.2 新增）
+
+        Args:
+            all_zhi: [年支, 月支, 日支, 時支]
+
+        Returns:
+            {"六合": [...], "六沖": [...], "三合": [...], "三刑": [...], "六害": [...]}
+        """
+        results = {"六合": [], "六沖": [], "三合": [], "三刑": [], "六害": []}
+
+        # 所有兩兩組合
+        pairs = []
+        for i in range(len(all_zhi)):
+            for j in range(i + 1, len(all_zhi)):
+                pairs.append((i, j))
+
+        # 六合
+        for i, j in pairs:
+            key = (all_zhi[i], all_zhi[j])
+            if key in self.LIUHE:
+                results["六合"].append(
+                    f"{self.PILLAR_NAMES[i]}{all_zhi[i]}與{self.PILLAR_NAMES[j]}{all_zhi[j]}合化{self.LIUHE[key]}"
+                )
+
+        # 六沖
+        for i, j in pairs:
+            if (all_zhi[i], all_zhi[j]) in self.LIUCHONG:
+                results["六沖"].append(
+                    f"{self.PILLAR_NAMES[i]}{all_zhi[i]}沖{self.PILLAR_NAMES[j]}{all_zhi[j]}"
+                )
+
+        # 三合
+        zhi_set = set(all_zhi)
+        for combo, ju_name in self.SANHE.items():
+            matches = [z for z in combo if z in zhi_set]
+            if len(matches) >= 2:
+                # 半合也列出
+                if len(matches) == 3:
+                    results["三合"].append(f"{''.join(matches)}三合{ju_name}")
+                else:
+                    results["三合"].append(f"{''.join(matches)}半合{ju_name}")
+
+        # 三刑
+        for i, j in pairs:
+            for (a, b), desc in self.SANXING:
+                if all_zhi[i] == a and all_zhi[j] == b:
+                    results["三刑"].append(
+                        f"{self.PILLAR_NAMES[i]}{all_zhi[i]}刑{self.PILLAR_NAMES[j]}{all_zhi[j]}（{desc}）"
+                    )
+
+        # 自刑
+        from collections import Counter
+        zhi_count = Counter(all_zhi)
+        for z, cnt in zhi_count.items():
+            if cnt >= 2 and (z, z) in [(a, b) for (a, b), d in self.SANXING if d == '自刑']:
+                results["三刑"].append(f"{z}自刑（見{cnt}次）")
+
+        # 六害
+        for i, j in pairs:
+            for (a, b), desc in self.LIUHAI:
+                if all_zhi[i] == a and all_zhi[j] == b:
+                    results["六害"].append(
+                        f"{self.PILLAR_NAMES[i]}{all_zhi[i]}害{self.PILLAR_NAMES[j]}{all_zhi[j]}（{desc}）"
+                    )
+
+        return results
+
+    # ===== v2.2: 格局分析 =====
+
+    def _analyze_pattern(self, day_master: str, strength: Dict,
+                         all_gan: List[str], all_zhi: List[str],
+                         month_zhi: str) -> Dict:
+        """
+        分析八字格局（v2.2 新增）
+
+        八大正格判定（以月支透干為主）：
+        正官格、偏官格(七殺格)、正印格、偏印格、
+        正財格、偏財格、食神格、傷官格
+
+        特殊格局：
+        建祿格、月刃格（羊刃格）
+
+        Args:
+            day_master: 日干
+            strength: 強弱分析結果
+            all_gan: [年干, 月干, 日干, 時干]
+            all_zhi: [年支, 月支, 日支, 時支]
+            month_zhi: 月支
+
+        Returns:
+            {"格局名稱": "...", "判定依據": "...", "格局特點": "..."}
+        """
+        day_wuxing = self.WUXING[day_master]
+
+        # 月支藏干（取得本氣、中氣、餘氣）
+        month_canggan = self.CANGGAN[month_zhi]
+
+        # 檢查月支藏干是否透出天干（年、月、時干）
+        transparent_gan = [all_gan[0], all_gan[1], all_gan[3]]  # 年月時干
+
+        # 取月令本氣的十神
+        month_benqi = month_canggan[0]
+        benqi_relation = self._get_shishen_relation(day_master, month_benqi)
+
+        # 先檢查特殊格局
+        # 建祿格：月支為日主的祿位
+        lu_map = {'甲': '寅', '乙': '卯', '丙': '巳', '丁': '午',
+                  '戊': '巳', '己': '午', '庚': '申', '辛': '酉',
+                  '壬': '亥', '癸': '子'}
+        # 羊刃：月支為日主的刃位
+        ren_map = {'甲': '卯', '乙': '寅', '丙': '午', '丁': '巳',
+                   '戊': '午', '己': '巳', '庚': '酉', '辛': '申',
+                   '壬': '子', '癸': '亥'}
+
+        if month_zhi == lu_map.get(day_master):
+            return {
+                "格局名稱": "建祿格",
+                "判定依據": f"月支{month_zhi}為日主{day_master}之祿位",
+                "格局特點": "日主在月令得祿，先天根基穩固，宜看透干何神決定用神方向"
+            }
+
+        if month_zhi == ren_map.get(day_master):
+            return {
+                "格局名稱": "月刃格（羊刃格）",
+                "判定依據": f"月支{month_zhi}為日主{day_master}之刃位",
+                "格局特點": "日主得刃，身旺性剛，宜見官殺制刃，忌再見比劫助旺"
+            }
+
+        # 八大正格：月支藏干透出為準
+        detected = None
+        for cg in month_canggan:
+            if cg == day_master:
+                continue  # 比肩不成格
+            if cg in transparent_gan:
+                ss = self._get_shishen_relation(day_master, cg)
+                detected = (ss, cg)
+                break
+
+        # 若無透干，以月支本氣定格
+        if not detected and month_benqi != day_master:
+            detected = (benqi_relation, month_benqi)
+
+        if detected:
+            ss, gan = detected
+            pattern_names = {
+                '正官': ('正官格', '性情端正，重視規範，適合體制內發展，宜配財印'),
+                '七杀': ('七殺格（偏官格）', '魄力十足，敢闖敢拼，適合開創性事業，宜食制或印化'),
+                '正印': ('正印格', '重視學識修養，心性仁慈，適合學術教育領域'),
+                '偏印': ('偏印格（梟神格）', '思維獨特，具研究精神，需留意偏印奪食'),
+                '正财': ('正財格', '踏實穩健，理財有方，適合穩定性的財務工作'),
+                '偏财': ('偏財格', '交際廣闊，善抓機會，適合商貿流通領域'),
+                '食神': ('食神格', '性情溫和，才藝出眾，適合文藝或服務業'),
+                '伤官': ('傷官格', '聰明伶俐，不拘一格，適合技藝創新領域，需注意人際'),
+            }
+            # 統一十神名稱（簡體→繁體映射）
+            ss_normalized = ss.replace('杀', '殺').replace('财', '財').replace('伤', '傷')
+            found = pattern_names.get(ss) or pattern_names.get(ss_normalized)
+            if found:
+                return {
+                    "格局名稱": found[0],
+                    "判定依據": f"月支{month_zhi}藏{gan}透出，{gan}與日主{day_master}為{ss}關係",
+                    "格局特點": found[1]
+                }
+
+        # 兜底
+        return {
+            "格局名稱": f"雜氣格（以{benqi_relation}取用）",
+            "判定依據": f"月支{month_zhi}本氣{month_benqi}為{benqi_relation}，未明確透干成格",
+            "格局特點": "需綜合全局天干地支配合判定用神方向"
+        }
+
     def _get_nayin(self, gan: str, zhi: str) -> str:
         """获取纳音五行"""
         nayin_map = {

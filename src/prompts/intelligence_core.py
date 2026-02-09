@@ -110,7 +110,8 @@ class AIIntelligenceCore:
     def build_enhanced_system_prompt(
         self,
         intelligence_context: IntelligenceContext,
-        include_strategy_hints: bool = True
+        include_strategy_hints: bool = True,
+        base_prompt: Optional[str] = None
     ) -> str:
         """
         建構增強的 System Prompt
@@ -118,11 +119,14 @@ class AIIntelligenceCore:
         Args:
             intelligence_context: 智慧上下文
             include_strategy_hints: 是否包含策略提示
+            base_prompt: 自訂的基礎 prompt（若未提供則使用 persona registry）
             
         Returns:
             完整的 System Prompt
         """
-        base_prompt = get_persona_system_prompt()
+        # Fix A: 支援使用 agent_persona 作為 base_prompt
+        if base_prompt is None:
+            base_prompt = get_persona_system_prompt()
         
         # 如果沒有特殊情境，直接返回基礎 prompt
         if not include_strategy_hints:
@@ -345,6 +349,8 @@ _OFF_TOPIC_KEYWORDS = [
     "數學題", "方程式", "微積分",
     "寫文章", "寫作業", "幫我寫報告",
     "天氣", "幾度", "會下雨嗎",
+    "電影", "影集", "推薦一部", "好看的劇", "音樂", "歌曲",
+    "新聞", "股票", "比特幣", "匯率",
 ]
 
 
@@ -402,8 +408,6 @@ def _message_contains_personal_info(message: str) -> bool:
         r'\d{1,2}[：:]\d{2}',
         # 地點
         '台灣', '台北', '台中', '高雄', '彰化', '新竹', '嘉義', '台南',
-        # 姓名格式
-        r'[\u4e00-\u9fff]{2,4}',
         # 個性描述
         '內向', '外向', '內斂', '活潑', '夜貓', '早起', '晚睡',
         '安靜', '開朗', '害羞', '積極', '消極', '樂觀', '悲觀',
@@ -459,19 +463,7 @@ def detect_off_topic(
     if len(msg_lower) < 3 or msg_lower in _REPLY_PATTERNS:
         return _NOT_OFF_TOPIC
     
-    # 2. 包含命理關鍵詞 → 不算離題
-    if any(kw in msg_lower for kw in _FORTUNE_KEYWORDS):
-        return _NOT_OFF_TOPIC
-    
-    # 3. 用戶在回答 AI 的問題 → 不算離題（關鍵修復！）
-    if _is_answering_ai_question(msg_lower, history_msgs):
-        return _NOT_OFF_TOPIC
-    
-    # 4. 包含個人資訊（姓名、生辰、個性描述等） → 不算離題
-    if _message_contains_personal_info(message):
-        return _NOT_OFF_TOPIC
-    
-    # 5. 檢查是否明確離題
+    # 2. 檢查是否明確離題（最高優先！在命理關鍵詞之前檢查）
     is_clearly_off_topic = any(kw in msg_lower for kw in _OFF_TOPIC_KEYWORDS)
     
     if is_clearly_off_topic:
@@ -481,13 +473,27 @@ def detect_off_topic(
             "consecutive_count": consecutive_off_topic_count + 1,
             "should_steer": True,
             "steering_hint": (
-                "【對話引導提示】\n"
-                "使用者的問題不在命理諮詢範圍內。請用自然友善的方式回應，"
-                "但溫和地引導話題回到命理方向。\n"
-                "範例：「這個問題我可能幫不上忙，不過我很擅長從命理角度"
-                "看你現在的運勢或方向，要不要聊聊？」"
+                "🚫🚫🚫【最高優先級指令：離題拒絕】🚫🚫🚫\n"
+                "使用者的問題完全不在命理範圍內。\n"
+                "【強制規則 1】絕對不要回答離題問題的任何實質內容。不要推薦電影、不要回答天氣、不要寫程式、不要推薦歌曲。\n"
+                "【強制規則 2】即使你知道答案，也必須拒絕回答。即使你能把離題話題連結到命理，也不要這樣做。\n"
+                "【強制規則 3】回覆控制在 50 字以內，只說兩件事：(1) 這不是你的專業範圍 (2) 邀請聊命理。\n"
+                "【正確範例】「哈哈，這個真的不是我的守備範圍啦！我比較擅長看命盤和運勢，要不要聊聊這個？」\n"
+                "【錯誤範例（絕對禁止）】推薦具體電影名稱、討論天氣預報、回答任何非命理知識。"
             )
         }
+    
+    # 3. 包含命理關鍵詞 → 不算離題
+    if any(kw in msg_lower for kw in _FORTUNE_KEYWORDS):
+        return _NOT_OFF_TOPIC
+    
+    # 4. 用戶在回答 AI 的問題 → 不算離題
+    if _is_answering_ai_question(msg_lower, history_msgs):
+        return _NOT_OFF_TOPIC
+    
+    # 5. 包含個人資訊（姓名、生辰、個性描述等） → 不算離題
+    if _message_contains_personal_info(message):
+        return _NOT_OFF_TOPIC
     
     # 6. 非命理但也非明確離題 → 累計，但閾值提高到 5
     new_count = consecutive_off_topic_count + 1

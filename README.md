@@ -1,15 +1,17 @@
 ﻿# Aetheria Core 2.0 — Agent-Oriented AI 命理顧問
 
 > **六大命理系統**：紫微斗數 · 八字 · 西洋占星 · 靈數 · 姓名學 · 塔羅  
-> **AI 模型**：Gemini 2.0 Flash（Agent + Tool Use 自主決策）  
+> **AI 模型**：Gemini 3 Flash / Pro Preview（Agent + Tool Use 自主決策）  
 > **架構**：Chat-First UI ｜ 三層記憶 ｜ Function Calling ｜ SSE 串流 ｜ 情緒感知
 
 [![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/)
 [![Flask](https://img.shields.io/badge/Flask-3.0+-green.svg)](https://flask.palletsprojects.com/)
 [![React](https://img.shields.io/badge/React-19.2-61dafb.svg)](https://react.dev/)
 [![Vite](https://img.shields.io/badge/Vite-7-646cff.svg)](https://vite.dev/)
-[![Gemini](https://img.shields.io/badge/Gemini-2.0%20Flash-orange.svg)](https://ai.google.dev/)
+[![Gemini](https://img.shields.io/badge/Gemini-3%20Flash%20%2F%20Pro-orange.svg)](https://ai.google.dev/)
 [![Tests](https://img.shields.io/badge/Tests-187%20passed-brightgreen.svg)]()
+[![Quality](https://img.shields.io/badge/Quality%20Score-8.9%2F10-gold.svg)]()
+[![Comprehensive](https://img.shields.io/badge/Comprehensive-16%2F16%20PASS-brightgreen.svg)]()
 [![License](https://img.shields.io/badge/License-GPL%20v2-red.svg)]()
 
 ---
@@ -261,8 +263,12 @@ Aetheria_Core/
 │   └── 20_Agent_Transformation_Plan.md # Agent 2.0 轉型計畫
 │
 └── scripts/                            # 工具腳本
+    ├── test_comprehensive_quality.py   # 綜合品質測試（16 項場景）
+    ├── test_conversation_quality.py    # 對話品質測試
+    ├── test_database.py                # 資料庫驗證
     ├── start_api_and_test.sh           # API 啟動 + 測試
-    └── test_database.py                # 資料庫驗證
+    ├── quick_test.ps1                  # 快速測試腳本
+    └── archive/                        # 歷史測試腳本歸檔
 ```
 
 ---
@@ -283,8 +289,17 @@ python -m pytest tests/test_bazi.py -v
 python -m pytest tests/golden_set/ -v
 ```
 
-**測試結果**：187 通過 · 9 跳過 · 0 失敗（需啟動 API server）  
+**單元 / 整合測試**：187 通過 · 9 跳過 · 0 失敗（需啟動 API server）  
 涵蓋：六大命理計算 · Agent 狀態機 · Tool Use · 三層記憶 · 敏感話題 · 離題偵測 · API 錯誤處理 · API 版本管理 · 命盤鎖定
+
+**綜合品質測試**：16/16 全數通過 · 0 錯誤  
+涵蓋四大類 16 項場景：
+| 類別 | 測試項 | 說明 |
+|------|--------|------|
+| A. 單系統排盤 | A1–A8 | 八字 · 紫微+靈數 · 占星 · 塔羅 · 姓名學 · 生命靈數 · 三系統整合 · 運勢分析 |
+| B. 排盤去重 | B1 | 已有命盤時自動跳過重複排盤 |
+| C. 深度諮詢 | C1–C5 | 八字+占星交叉驗證 · 塔羅+八字聯合 · 情緒偵測 · 靈數+姓名學 · 跨 Session |
+| D. 邊界條件 | D1–D2 | 離題偵測 · 多系統併發 |
 
 ---
 
@@ -292,13 +307,13 @@ python -m pytest tests/golden_set/ -v
 
 | 層級 | 技術 |
 |------|------|
-| AI 模型 | Gemini 2.0 Flash（`google-genai` SDK） |
+| AI 模型 | Gemini 3 Flash Preview（對話）· Gemini 3 Pro Preview（報告）（`google-genai` SDK） |
 | 後端 | Flask 3.0 · Python 3.9+ |
 | 前端 | React 19.2 · Vite 7 |
 | 資料庫 | SQLite（可擴展至 PostgreSQL） |
 | 串流 | Server-Sent Events (SSE) |
 | 命理引擎 | `sxtwl`（天文曆）· `iztro-py`（紫微）· `kerykeion`（占星） |
-| 測試 | pytest · 187+ cases |
+| 測試 | pytest · 187+ unit/integration cases · 16/16 comprehensive quality tests |
 
 ---
 
@@ -320,6 +335,59 @@ python -m pytest tests/golden_set/ -v
 ## 📄 授權
 
 GPL v2
+
+---
+
+## 🔧 修復與改進紀錄
+
+### 2026-02-09：綜合品質提升（8.2 → 8.9 / 10）
+
+經過多輪專家審查與迭代優化，整體諮詢品質評分從 8.2 提升至 8.9：
+
+| 輪次 | 分數 | 主要改進 |
+|------|------|----------|
+| Round 1 | 8.2 | 基線測試 |
+| Round 2 | 8.6 | 修復紫微引擎崩潰、塔羅牌陣名稱、占星相位模式、facts 擷取 |
+| Round 3 | 8.8 | Gemini API 重試機制（5s→10s→20s 指數退避）、模型路由（Flash 對話 / Pro 報告）、熔斷 birth_time 預設值 |
+| Round 4 | 8.9 | Prompt 強制術語、DIGNITY_TABLE 修復、占星無性別分析規則 |
+
+**Round 4 關鍵改進：**
+
+1. **八字回覆必備要素**（`agent_persona.py`）  
+   強制 AI 在八字諮詢中必須提及：用神與喜忌、合沖刑害（附解釋）、格局名稱。  
+   效果：術語命中率 3/6 → 5/6，C1 出現「卯酉六衝」「用神是水」，C4 完整用神選擇邏輯（1259 字）。
+
+2. **占星 DIGNITY_TABLE 修正**（`astrology.py`）  
+   修復 Python dict 重複 key 靜默覆蓋的 bug：  
+   - 處女座 Mercury 原為兩個重複 key，後者覆蓋前者 → 改為 `'Domicile+Exaltation'` 複合格式  
+   - 雙魚座 Mercury 同理 → 改為 `'Detriment+Fall'`  
+   - `_get_planet_dignity()` 新增 `+` 分割解析，輸出例：「入廟（守護）／旺（擢升）」
+
+3. **占星無性別完整分析規則**（`agent_persona.py`）  
+   解決 AI 在已有占星排盤結果時仍拒絕分析、要求性別的問題：  
+   - 新增【占星回覆必備要素 — 最高優先級】：明確「西洋占星完全不需要性別即可分析」  
+   - 修改【不要假設未提供的資訊】：加入占星例外，排盤完成後必須先給完整星盤解讀  
+   - 設定為「違反此規則＝嚴重錯誤」強制層級
+
+---
+
+### 2026-02-09：Gemini 3 Thought Signature 相容性修復
+
+**問題**：升級至 Gemini 3 Flash Preview / Pro Preview 後，所有 Function Calling（工具呼叫）均回傳 400 錯誤：
+
+```
+Function call is missing a thought_signature in functionCall parts.
+```
+
+**根因**：Gemini 3 模型強制要求在 multi-turn Function Calling 中，model 回覆的 `functionCall` part 必須包含 `thoughtSignature`，並在下一輪請求中原封不動傳回。原有代碼在收集 function call 時只保存了 `part.function_call`（丟失 signature），再用 `types.Part(function_call=fc)` 重建新 Part，導致 signature 遺失。
+
+**修復方式**：
+1. **保留原始 Part 對象**：streaming / 非 streaming 路徑改為保存完整的原始 `part`（含 `thoughtSignature`），回傳時直接使用，不重建。
+2. **Fuse（熔斷）路徑**：系統自行注入的 function_call（非 AI 生成）無原始 signature，使用官方提供的 dummy signature `"skip_thought_signature_validator"` 跳過驗證。
+
+**影響範圍**：`src/api/server.py` — streaming 工具迴圈、非 streaming 工具迴圈、單系統熔斷、多系統熔斷、塔羅熔斷共 5 處。
+
+**參考文件**：[Google AI — Thought Signatures](https://ai.google.dev/gemini-api/docs/thought-signatures)
 
 ---
 
