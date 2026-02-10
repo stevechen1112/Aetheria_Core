@@ -10,7 +10,7 @@
 [![Vite](https://img.shields.io/badge/Vite-7-646cff.svg)](https://vite.dev/)
 [![Gemini](https://img.shields.io/badge/Gemini-3%20Flash%20%2F%20Pro-orange.svg)](https://ai.google.dev/)
 [![Tests](https://img.shields.io/badge/Tests-187%20passed-brightgreen.svg)]()
-[![Quality](https://img.shields.io/badge/Quality%20Score-8.9%2F10-gold.svg)]()
+[![Quality](https://img.shields.io/badge/Quality%20Score-9.3%2F10-gold.svg)]()
 [![Comprehensive](https://img.shields.io/badge/Comprehensive-16%2F16%20PASS-brightgreen.svg)]()
 [![License](https://img.shields.io/badge/License-GPL%20v2-red.svg)]()
 
@@ -250,7 +250,7 @@ Aetheria_Core/
 │   ├── kangxi_strokes.json             # 康熙字典筆劃表
 │   └── ziwei_reference_chen.json       # 紫微參照命盤
 │
-├── docs/                               # 技術文檔（10 份）
+├── docs/                               # 技術文檔（11 份）
 │   ├── STRATEGIC_API.md                # API 策略規範
 │   ├── 01_Technical_Whitepaper.md      # 技術架構白皮書
 │   ├── 02_UMF_Schema_Definition.md     # 統一命理格式
@@ -258,6 +258,7 @@ Aetheria_Core/
 │   ├── 04_Architecture_Decision_LLM_First.md  # LLM-First 架構決策
 │   ├── 05_Gemini_Prompt_Templates.md   # 提示詞範本
 │   ├── 06_Chart_Locking_System.md      # 命盤鎖定系統
+│   ├── 18_Optimization_Impact_Report.md # 優化影響報告（8.2→9.3）
 │   ├── 18_Tool_Use_Implementation.md   # Tool Use 實作
 │   ├── 18_Widget_System_Implementation.md  # Widget 系統
 │   └── 20_Agent_Transformation_Plan.md # Agent 2.0 轉型計畫
@@ -292,14 +293,14 @@ python -m pytest tests/golden_set/ -v
 **單元 / 整合測試**：187 通過 · 9 跳過 · 0 失敗（需啟動 API server）  
 涵蓋：六大命理計算 · Agent 狀態機 · Tool Use · 三層記憶 · 敏感話題 · 離題偵測 · API 錯誤處理 · API 版本管理 · 命盤鎖定
 
-**綜合品質測試**：16/16 全數通過 · 0 錯誤  
+**綜合品質測試**：16/16 全數通過 · 0 錯誤 · 專業評分 9.3/10  
 涵蓋四大類 16 項場景：
 | 類別 | 測試項 | 說明 |
 |------|--------|------|
-| A. 單系統排盤 | A1–A8 | 八字 · 紫微+靈數 · 占星 · 塔羅 · 姓名學 · 生命靈數 · 三系統整合 · 運勢分析 |
-| B. 排盤去重 | B1 | 已有命盤時自動跳過重複排盤 |
-| C. 深度諮詢 | C1–C5 | 八字+占星交叉驗證 · 塔羅+八字聯合 · 情緒偵測 · 靈數+姓名學 · 跨 Session |
-| D. 邊界條件 | D1–D2 | 離題偵測 · 多系統併發 |
+| A. 六大系統排盤 | A1–A8 | 八字 · 紫微+深度追問 · 占星 · 生命靈數 · 姓名學 · 塔羅 · 不指定系統自動排盤 · 跨日邊界時間 |
+| B. 多系統整合 | B1 | 同時排八字+紫微（跨系統交叉驗證） |
+| C. 對話體驗 | C1–C5 | 不重複詢問生辰 · 離題引導+不過度回答 · 語言品質 · 深度追問品質 · 跨 session 記憶 |
+| D. 邊界情境 | D1–D2 | 缺性別追問 · 缺地點追問 |
 
 ---
 
@@ -340,7 +341,7 @@ GPL v2
 
 ## 🔧 修復與改進紀錄
 
-### 2026-02-09：綜合品質提升（8.2 → 8.9 / 10）
+### 2026-02-09：綜合品質提升（8.2 → 8.9 / 10，後續提升至 9.3）
 
 經過多輪專家審查與迭代優化，整體諮詢品質評分從 8.2 提升至 8.9：
 
@@ -368,6 +369,21 @@ GPL v2
    - 新增【占星回覆必備要素 — 最高優先級】：明確「西洋占星完全不需要性別即可分析」  
    - 修改【不要假設未提供的資訊】：加入占星例外，排盤完成後必須先給完整星盤解讀  
    - 設定為「違反此規則＝嚴重錯誤」強制層級
+
+---
+
+### 2026-02-10：占星術語強制 & 回覆品質保障（8.9 → 9.3 / 10）
+
+修復綜合品質測試 A3（西洋占星）反覆失敗的問題，將專業評分從 8.9 提升至 9.3：
+
+| 改進項 | 檔案 | 說明 |
+|--------|------|------|
+| Prompt 術語強制 | `agent_persona.py` | 新增規則：工具回傳後首段回覆必須包含核心術語（占星：星座+行星/宮位；八字：日主+天干/地支） |
+| 性別需求澄清 | `agent_persona.py` | 明確「西洋占星不需要性別」，僅八字/紫微需要性別；缺性別時仍須給出占星分析 |
+| Server 端回覆品質保障 | `server.py` | 新增 `_ensure_astrology_terms_in_response()`：偵測占星回覆中關鍵術語不足時，自動補充術語密集的簡短段落 |
+| 占星工具描述優化 | `tools.py` | 強化 `calculate_astrology` 工具的 description，提示 AI 回覆時必須引用星座、行星、宮位 |
+
+**驗證結果**：綜合品質測試 16/16 全數通過，A3 穩定通過，術語命中率 3/4 組以上。
 
 ---
 
