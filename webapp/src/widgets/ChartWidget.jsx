@@ -167,24 +167,27 @@ function ChartWidget({ data, compact = true }) {
       {system === 'bazi' && chart_data?.four_pillars && (
         <div className="chart-section">
           <div className="section-title">四柱八字</div>
-          <div className="bazi-pillars">
-            <div className="pillar">
-              <div className="pillar-label">年柱</div>
-              <div className="pillar-value">{chart_data.four_pillars.year}</div>
-            </div>
-            <div className="pillar">
-              <div className="pillar-label">月柱</div>
-              <div className="pillar-value">{chart_data.four_pillars.month}</div>
-            </div>
-            <div className="pillar">
-              <div className="pillar-label">日柱</div>
-              <div className="pillar-value">{chart_data.four_pillars.day}</div>
-            </div>
-            <div className="pillar">
-              <div className="pillar-label">時柱</div>
-              <div className="pillar-value">{chart_data.four_pillars.hour}</div>
-            </div>
+          <div className="bazi-pillars bazi-visual">
+            {['year', 'month', 'day', 'hour'].map(key => {
+              const labels = { year: '年柱', month: '月柱', day: '日柱', hour: '時柱' }
+              const pillarStr = chart_data.four_pillars[key] || '—'
+              const stem = pillarStr.length >= 2 ? pillarStr[0] : ''
+              const branch = pillarStr.length >= 2 ? pillarStr[1] : pillarStr
+              return (
+                <div className={`pillar ${key === 'day' ? 'pillar-highlight' : ''}`} key={key}>
+                  <div className="pillar-label">{labels[key]}</div>
+                  <div className="pillar-stem">{stem}</div>
+                  <div className="pillar-branch">{branch}</div>
+                </div>
+              )
+            })}
           </div>
+          {chart_data.day_master && (
+            <div className="bazi-day-master">
+              日主：<strong>{chart_data.day_master}</strong>
+              {chart_data.strength && <span className="bazi-strength">（{chart_data.strength}）</span>}
+            </div>
+          )}
         </div>
       )}
 
@@ -345,13 +348,17 @@ function BaziFullDetail({ data }) {
       {data.four_pillars && (
         <div className="detail-block">
           <div className="detail-block-title">四柱排盤</div>
-          <div className="bazi-pillars">
+          <div className="bazi-pillars bazi-visual">
             {['year', 'month', 'day', 'hour'].map(key => {
               const labels = { year: '年柱', month: '月柱', day: '日柱', hour: '時柱' }
+              const pillarStr = data.four_pillars[key] || '—'
+              const stem = pillarStr.length >= 2 ? pillarStr[0] : ''
+              const branch = pillarStr.length >= 2 ? pillarStr[1] : pillarStr
               return (
-                <div className="pillar" key={key}>
+                <div className={`pillar ${key === 'day' ? 'pillar-highlight' : ''}`} key={key}>
                   <div className="pillar-label">{labels[key]}</div>
-                  <div className="pillar-value">{data.four_pillars[key] || '—'}</div>
+                  <div className="pillar-stem">{stem}</div>
+                  <div className="pillar-branch">{branch}</div>
                 </div>
               )
             })}

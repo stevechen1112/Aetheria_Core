@@ -24,9 +24,27 @@ function ChatContainer({ apiBase, token, userId, embedded = false, sidebarCollap
   const [loading, setLoading] = useState(false)
   const [toolExecuting, setToolExecuting] = useState(null)
   const [historyLoaded, setHistoryLoaded] = useState(false)
+  const [loadingTip, setLoadingTip] = useState('')
+
+  // ========== 思考中小知識 ==========
+  const fortuneTips = [
+    '💡 紫微斗數以北極星為首，構建十二宮命盤',
+    '💡 八字中的「日主」代表你自己的本質',
+    '💡 上升星座代表你給人的第一印象',
+    '💡 命理分析最準確的前提是精確的出生時間',
+    '💡 紫微斗數中「空宮」不代表沒有主星影響',
+    '💡 生命靈數源自古希臘畢達哥拉斯學派',
+    '💡 塔羅牌大阿爾克那有 22 張，象徵人生旅程',
+    '💡 八字中的「食神」代表才華與口福',
+    '💡 每個人的星盤都是獨一無二的宇宙指紋',
+    '💡 姓名學中筆畫數影響性格與運勢走向',
+    '💡 紫微斗數的「化忌」未必是壞事，要看整體格局',
+    '💡 太陽星座影響你的外在表現，月亮星座影響內心世界',
+  ]
 
   const messagesEndRef = useRef(null)
   const inputRef = useRef(null)
+  const tipIntervalRef = useRef(null)
   const storagePrefix = userId || token || 'guest'
   const storageSessionKey = `aetheria_session_${storagePrefix}`
   const storageMessagesKey = `aetheria_messages_${storagePrefix}`
@@ -133,6 +151,22 @@ function ChatContainer({ apiBase, token, userId, embedded = false, sidebarCollap
       localStorage.setItem(storageMessagesKey, JSON.stringify(messages.slice(-200)))
     }
   }, [messages, storageMessagesKey])
+
+  // ========== Loading tip 輪換 ==========
+  useEffect(() => {
+    if (loading) {
+      setLoadingTip(fortuneTips[Math.floor(Math.random() * fortuneTips.length)])
+      tipIntervalRef.current = setInterval(() => {
+        setLoadingTip(fortuneTips[Math.floor(Math.random() * fortuneTips.length)])
+      }, 4000)
+    } else {
+      setLoadingTip('')
+      if (tipIntervalRef.current) clearInterval(tipIntervalRef.current)
+    }
+    return () => {
+      if (tipIntervalRef.current) clearInterval(tipIntervalRef.current)
+    }
+  }, [loading]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ========== 在對話中插入系統訊息（取代 alert） ==========
   const pushSystemMessage = useCallback((content) => {
@@ -310,6 +344,36 @@ function ChatContainer({ apiBase, token, userId, embedded = false, sidebarCollap
     }
   }
 
+  // ========== 工具名稱人性化映射 ==========
+  const toolDisplayNames = {
+    'calculate_bazi': '🔮 正在為您排八字命盤...',
+    'calculate_ziwei': '🌟 正在為您排紫微斗數命盤...',
+    'calculate_astrology': '♈ 正在繪製您的星盤...',
+    'calculate_numerology': '🔢 正在計算您的生命靈數...',
+    'analyze_name': '✍️ 正在分析您的姓名...',
+    'draw_tarot': '🃏 正在為您抽取塔羅牌...',
+    'get_fortune': '✨ 正在查看您的運勢...',
+    'calculate_compatibility': '💕 正在分析合盤...',
+    'search_knowledge': '📚 正在查閱命理典籍...',
+    'get_user_profile': '👤 正在讀取您的資料...',
+    'lock_chart': '📋 正在鎖定命盤...',
+  }
+
+  const getToolDisplayName = (name) => {
+    if (toolDisplayNames[name]) return toolDisplayNames[name]
+    // Fallback: convert snake_case to readable
+    return `⏳ 正在執行 ${name.replace(/_/g, ' ')}...`
+  }
+
+  // ========== Textarea 自動擴展 ==========
+  const handleInputChange = (e) => {
+    setInputText(e.target.value)
+    // Auto-expand textarea
+    const textarea = e.target
+    textarea.style.height = 'auto'
+    textarea.style.height = Math.min(textarea.scrollHeight, 150) + 'px'
+  }
+
   // ========== 鍵盤處理 ==========
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -325,6 +389,16 @@ function ChatContainer({ apiBase, token, userId, embedded = false, sidebarCollap
     setTimeout(() => sendMessage(text), 0)
   }
 
+  // ========== 新對話（從 context 操作） ==========
+  const startNewSession = useCallback(() => {
+    setMessages([])
+    setCurrentSession(null)
+    // Reset textarea height
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto'
+    }
+  }, [setMessages, setCurrentSession])
+
   // ========== 歡迎畫面（無歷史訊息時顯示） ==========
   const renderWelcome = () => (
     <div className="welcome-screen">
@@ -339,6 +413,17 @@ function ChatContainer({ apiBase, token, userId, embedded = false, sidebarCollap
         整合紫微斗數、八字、西洋占星、數字命理等多元系統，<br />
         透過對話為你提供深度的命理洞察與人生建議。
       </p>
+
+      {/* 能力標籤 */}
+      <div className="welcome-capabilities">
+        <span className="capability-tag">🌟 紫微斗數</span>
+        <span className="capability-tag">☯️ 八字命理</span>
+        <span className="capability-tag">♈ 西洋占星</span>
+        <span className="capability-tag">🔢 生命靈數</span>
+        <span className="capability-tag">✍️ 姓名學</span>
+        <span className="capability-tag">🃏 塔羅占卜</span>
+      </div>
+
       <div className="welcome-prompts">
         <button onClick={() => handleQuickPrompt('你好！我想了解一下我的命理，該從哪裡開始？')}>
           <span className="prompt-icon">👋</span>
@@ -356,6 +441,15 @@ function ChatContainer({ apiBase, token, userId, embedded = false, sidebarCollap
           <span className="prompt-icon">✨</span>
           <span className="prompt-text">詢問今年運勢</span>
         </button>
+      </div>
+
+      {/* 信任指標 */}
+      <div className="welcome-trust">
+        <span className="trust-item">🔒 對話內容加密保護</span>
+        <span className="trust-divider">·</span>
+        <span className="trust-item">🧠 六大命理系統交叉驗證</span>
+        <span className="trust-divider">·</span>
+        <span className="trust-item">📊 AI 驅動精準分析</span>
       </div>
     </div>
   )
@@ -376,6 +470,16 @@ function ChatContainer({ apiBase, token, userId, embedded = false, sidebarCollap
         <div className="toolbar-session-title">
           {currentSession ? '對話中' : '新對話'}
         </div>
+        {messages.length > 0 && (
+          <button
+            className="toolbar-btn toolbar-new-chat"
+            onClick={startNewSession}
+            title="開始新對話"
+          >
+            <span>＋</span>
+            <span className="new-chat-label">新對話</span>
+          </button>
+        )}
       </div>
 
       {/* 對話區域 */}
@@ -395,7 +499,7 @@ function ChatContainer({ apiBase, token, userId, embedded = false, sidebarCollap
         {toolExecuting && (
           <div className="tool-executing">
             <div className="spinner" />
-            <span>正在分析 {toolExecuting.name}...</span>
+            <span>{getToolDisplayName(toolExecuting.name)}</span>
           </div>
         )}
 
@@ -410,13 +514,16 @@ function ChatContainer({ apiBase, token, userId, embedded = false, sidebarCollap
               <span /><span /><span />
             </div>
             <span className="typing-text">Aetheria 正在思考...</span>
+            {loadingTip && (
+              <span className="loading-tip">{loadingTip}</span>
+            )}
           </div>
         )}
         <div className="input-wrapper">
           <textarea
             ref={inputRef}
             value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
+            onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             placeholder="輸入你的問題... (Shift+Enter 換行)"
             disabled={loading}

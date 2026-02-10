@@ -206,11 +206,22 @@ function App() {
 
         {/* Main area: Sidebar + Chat */}
         <main className="app-main">
+          {/* Mobile backdrop when sidebar is open */}
+          {!sidebarCollapsed && (
+            <div
+              className="sidebar-backdrop visible"
+              onClick={() => setSidebarCollapsed(true)}
+            />
+          )}
           <SessionSidebar
             apiBase={apiBase}
             token={token}
             collapsed={sidebarCollapsed}
             onToggleCollapse={() => setSidebarCollapsed(prev => !prev)}
+            onSessionSelected={() => {
+              // Auto-close sidebar on mobile after session select
+              if (window.innerWidth <= 768) setSidebarCollapsed(true)
+            }}
           />
           <div className="app-chat-area">
             <ChatContainer

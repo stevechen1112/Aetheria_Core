@@ -16,7 +16,8 @@ function SessionSidebar({
   apiBase,
   token,
   collapsed,
-  onToggleCollapse
+  onToggleCollapse,
+  onSessionSelected
 }) {
   const {
     currentSession,
@@ -28,6 +29,7 @@ function SessionSidebar({
   const [loadingSessions, setLoadingSessions] = useState(false)
   const [deletingId, setDeletingId] = useState(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
+  const [searchQuery, setSearchQuery] = useState('')
   const refreshTimerRef = useRef(null)
 
   // ========== 載入對話列表 ==========
@@ -64,6 +66,7 @@ function SessionSidebar({
   const selectSession = useCallback(async (sessionId) => {
     if (sessionId === currentSession) return
     setCurrentSession(sessionId)
+    onSessionSelected?.()
     // 載入該 session 的訊息
     try {
       const resp = await fetch(`${apiBase}/api/chat/messages?session_id=${sessionId}`, {
@@ -157,6 +160,15 @@ function SessionSidebar({
     return '新對話'
   }
 
+  // ========== 過濾對話列表 ==========
+  const filteredSessions = searchQuery.trim()
+    ? sessions.filter(s => {
+        const title = (s.title || '').toLowerCase()
+        const query = searchQuery.trim().toLowerCase()
+        return title.includes(query)
+      })
+    : sessions
+
   // ========== 收合模式 ==========
   if (collapsed) {
     return (
@@ -200,6 +212,25 @@ function SessionSidebar({
         </button>
       </div>
 
+      {/* 搜尋列 */}
+      {sessions.length > 3 && (
+        <div className="sidebar-search">
+          <input
+            type="text"
+            placeholder="🔍 搜尋對話..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="sidebar-search-input"
+          />
+          {searchQuery && (
+            <button
+              className="sidebar-search-clear"
+              onClick={() => setSearchQuery('')}
+            >✕</button>
+          )}
+        </div>
+      )}
+
       {/* 對話列表 */}
       <div className="sidebar-list">
         {loadingSessions && sessions.length === 0 && (
@@ -217,7 +248,14 @@ function SessionSidebar({
           </div>
         )}
 
-        {sessions.map((session) => (
+        {searchQuery && filteredSessions.length === 0 && sessions.length > 0 && (
+          <div className="sidebar-empty">
+            <span className="empty-icon">🔍</span>
+            <span>找不到符合的對話</span>
+          </div>
+        )}
+
+        {filteredSessions.map((session) => (
           <div
             key={session.session_id}
             className={`sidebar-item ${currentSession === session.session_id ? 'active' : ''}`}
@@ -262,7 +300,7 @@ function SessionSidebar({
 
       {/* 底部資訊 */}
       <div className="sidebar-footer">
-        <span>{sessions.length} 個對話</span>
+        <span>{searchQuery ? `${filteredSessions.length}/${sessions.length}` : sessions.length} 個對話</span>
       </div>
     </div>
   )

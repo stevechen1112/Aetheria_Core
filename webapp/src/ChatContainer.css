@@ -33,6 +33,24 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 1;
+}
+
+.toolbar-new-chat {
+  margin-left: auto;
+  border-color: rgba(100, 149, 255, 0.25) !important;
+  color: #a0b8ff !important;
+  gap: 4px !important;
+}
+
+.toolbar-new-chat:hover:not(:disabled) {
+  border-color: rgba(100, 149, 255, 0.5) !important;
+  color: #c0d4ff !important;
+  background: rgba(100, 149, 255, 0.1) !important;
+}
+
+.new-chat-label {
+  font-size: 0.78rem;
 }
 
 .toolbar-btn {
@@ -153,6 +171,54 @@
   max-width: 480px;
 }
 
+/* Capability Tags */
+.welcome-capabilities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-bottom: 28px;
+  max-width: 420px;
+}
+
+.capability-tag {
+  background: rgba(100, 149, 255, 0.08);
+  border: 1px solid rgba(100, 149, 255, 0.2);
+  color: #a0b8ff;
+  padding: 5px 14px;
+  border-radius: 20px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.capability-tag:hover {
+  background: rgba(100, 149, 255, 0.15);
+  border-color: rgba(100, 149, 255, 0.4);
+  transform: translateY(-1px);
+}
+
+/* Trust Indicators */
+.welcome-trust {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 28px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.trust-item {
+  font-size: 0.72rem;
+  color: #666;
+  white-space: nowrap;
+}
+
+.trust-divider {
+  color: #444;
+  font-size: 0.8rem;
+}
+
 .welcome-prompts button {
   display: flex;
   align-items: center;
@@ -231,6 +297,21 @@
   gap: 8px;
   margin-bottom: 8px;
   padding: 0 4px;
+  flex-wrap: wrap;
+}
+
+.loading-tip {
+  width: 100%;
+  font-size: 0.72rem;
+  color: #888;
+  margin-top: 2px;
+  animation: tipFadeIn 0.5s ease;
+  font-style: italic;
+}
+
+@keyframes tipFadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .typing-indicator {
@@ -276,8 +357,10 @@
   font-size: 0.95rem;
   font-family: inherit;
   resize: none;
-  max-height: 120px;
-  transition: all 0.2s;
+  min-height: 44px;
+  max-height: 150px;
+  overflow-y: auto;
+  transition: border-color 0.2s, background 0.2s;
   line-height: 1.5;
 }
 
@@ -346,6 +429,24 @@
   }
 
   .welcome-desc br {
+    display: none;
+  }
+
+  .welcome-capabilities {
+    gap: 6px;
+  }
+
+  .capability-tag {
+    font-size: 0.72rem;
+    padding: 4px 10px;
+  }
+
+  .welcome-trust {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .trust-divider {
     display: none;
   }
 }

@@ -163,6 +163,11 @@
   text-align: center;
 }
 
+.pillar-highlight {
+  border-color: rgba(100, 149, 255, 0.4);
+  background: rgba(100, 149, 255, 0.08);
+}
+
 .pillar-label {
   font-size: 0.8rem;
   color: #aaa;
@@ -174,6 +179,44 @@
   font-weight: 600;
   color: #fff;
   font-family: 'Microsoft JhengHei', serif;
+}
+
+/* Bazi Visual Mode: separated stem/branch */
+.bazi-visual .pillar-stem {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #ffd700;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  margin-bottom: 6px;
+  font-family: 'Microsoft JhengHei', serif;
+}
+
+.bazi-visual .pillar-branch {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #a0d8ff;
+  padding: 6px 0;
+  font-family: 'Microsoft JhengHei', serif;
+}
+
+.bazi-day-master {
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: rgba(100, 149, 255, 0.06);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: #ccc;
+  text-align: center;
+}
+
+.bazi-day-master strong {
+  color: #ffd700;
+}
+
+.bazi-strength {
+  color: #a0b8ff;
+  font-size: 0.8rem;
 }
 
 /* Analysis Text */
