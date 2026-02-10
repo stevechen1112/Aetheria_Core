@@ -16,7 +16,7 @@ import './MessageRenderer.css'
 function MessageRenderer({ message, apiBase, token, sessionId }) {
   const [feedbackGiven, setFeedbackGiven] = useState(null) // 'helpful' | 'not_helpful' | null
   const [isCollapsed, setIsCollapsed] = useState(true)
-  const [copied, setCopied] = useState(false)
+  const [copyStatus, setCopyStatus] = useState('') // '' | 'success' | 'error'
 
   // 長文閾值（字元數）
   const COLLAPSE_THRESHOLD = 600
@@ -25,18 +25,24 @@ function MessageRenderer({ message, apiBase, token, sessionId }) {
   const copyContent = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(message.content || '')
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      setCopyStatus('success')
+      setTimeout(() => setCopyStatus(''), 2000)
     } catch {
       // Fallback
-      const ta = document.createElement('textarea')
-      ta.value = message.content || ''
-      document.body.appendChild(ta)
-      ta.select()
-      document.execCommand('copy')
-      document.body.removeChild(ta)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      try {
+        const ta = document.createElement('textarea')
+        ta.value = message.content || ''
+        document.body.appendChild(ta)
+        ta.select()
+        const success = document.execCommand('copy')
+        document.body.removeChild(ta)
+        if (!success) throw new Error('copy failed')
+        setCopyStatus('success')
+        setTimeout(() => setCopyStatus(''), 2000)
+      } catch {
+        setCopyStatus('error')
+        setTimeout(() => setCopyStatus(''), 2000)
+      }
     }
   }, [message.content])
 
@@ -82,12 +88,13 @@ function MessageRenderer({ message, apiBase, token, sessionId }) {
               <>
                 {message.role === 'assistant' && message.content && message.content.length > COLLAPSE_THRESHOLD ? (
                   <div className={`collapsible-text ${isCollapsed ? 'collapsed' : 'expanded'}`}>
-                    <ReactMarkdown>
-                      {isCollapsed ? message.content.slice(0, COLLAPSE_THRESHOLD) + '...' : message.content}
-                    </ReactMarkdown>
+                    <div className="collapsible-content">
+                      <ReactMarkdown>{message.content}</ReactMarkdown>
+                    </div>
                     <button
                       className="btn-collapse-toggle"
                       onClick={() => setIsCollapsed(prev => !prev)}
+                      aria-label={isCollapsed ? '展開全文' : '收起全文'}
                     >
                       {isCollapsed ? '展開全文 ▼' : '收起 ▲'}
                     </button>
@@ -132,8 +139,9 @@ function MessageRenderer({ message, apiBase, token, sessionId }) {
                 className="action-btn copy-btn"
                 onClick={copyContent}
                 title="複製內容"
+                aria-label="複製內容"
               >
-                {copied ? '✅ 已複製' : '📋 複製'}
+                {copyStatus === 'success' ? '✅ 已複製' : copyStatus === 'error' ? '⚠️ 複製失敗' : '📋 複製'}
               </button>
               <div className="message-feedback">
                 {feedbackGiven ? (
@@ -146,11 +154,13 @@ function MessageRenderer({ message, apiBase, token, sessionId }) {
                       className="feedback-btn feedback-up"
                       onClick={() => submitFeedback('helpful')}
                       title="有幫助"
+                      aria-label="有幫助"
                     >👍</button>
                     <button
                       className="feedback-btn feedback-down"
                       onClick={() => submitFeedback('not_helpful')}
                       title="沒幫助"
+                      aria-label="沒幫助"
                     >👎</button>
                   </>
                 )}

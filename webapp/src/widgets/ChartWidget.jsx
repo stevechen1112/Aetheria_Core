@@ -78,7 +78,7 @@ function ChartWidget({ data, compact = true }) {
               )}
             </div>
           </div>
-          <button className="btn-expand">展開 ▼</button>
+          <button className="btn-expand" aria-label="展開命盤">展開 ▼</button>
         </div>
         {analysis?.summary && (
           <div className="chart-summary">
@@ -106,7 +106,7 @@ function ChartWidget({ data, compact = true }) {
             )}
           </div>
         </div>
-        <button className="btn-collapse" onClick={() => setExpanded(false)}>
+        <button className="btn-collapse" onClick={() => setExpanded(false)} aria-label="收起命盤">
           收起 ▲
         </button>
       </div>
@@ -241,7 +241,7 @@ function ChartWidget({ data, compact = true }) {
       <div className="chart-actions">
         <button className="btn-view-full" onClick={() => {
           setShowFullChart(prev => !prev)
-        }}>
+        }} aria-label={showFullChart ? '收起完整命盤' : '查看完整命盤'}>
           {showFullChart ? '收起完整命盤 ▲' : '查看完整命盤 →'}
         </button>
       </div>

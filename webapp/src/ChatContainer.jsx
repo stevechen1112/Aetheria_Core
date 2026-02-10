@@ -360,6 +360,7 @@ function ChatContainer({ apiBase, token, userId, embedded = false, sidebarCollap
   }
 
   const getToolDisplayName = (name) => {
+    if (!name) return '⏳ 正在處理中...'
     if (toolDisplayNames[name]) return toolDisplayNames[name]
     // Fallback: convert snake_case to readable
     return `⏳ 正在執行 ${name.replace(/_/g, ' ')}...`
@@ -373,6 +374,14 @@ function ChatContainer({ apiBase, token, userId, embedded = false, sidebarCollap
     textarea.style.height = 'auto'
     textarea.style.height = Math.min(textarea.scrollHeight, 150) + 'px'
   }
+
+  // 同步高度（支援快速提問或外部 setInputText）
+  useEffect(() => {
+    if (!inputRef.current) return
+    const textarea = inputRef.current
+    textarea.style.height = 'auto'
+    textarea.style.height = Math.min(textarea.scrollHeight, 150) + 'px'
+  }, [inputText])
 
   // ========== 鍵盤處理 ==========
   const handleKeyDown = (e) => {

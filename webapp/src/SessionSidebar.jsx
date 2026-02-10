@@ -258,7 +258,7 @@ function SessionSidebar({
         {filteredSessions.map((session) => (
           <div
             key={session.session_id}
-            className={`sidebar-item ${currentSession === session.session_id ? 'active' : ''}`}
+            className={`sidebar-item ${currentSession === session.session_id ? 'active' : ''} ${confirmDeleteId === session.session_id ? 'confirming' : ''}`}
             onClick={() => selectSession(session.session_id)}
           >
             <div className="item-content">
@@ -274,12 +274,14 @@ function SessionSidebar({
                     className="delete-yes"
                     onClick={() => deleteSession(session.session_id)}
                     disabled={deletingId === session.session_id}
+                    aria-label="確認刪除"
                   >
                     {deletingId === session.session_id ? '…' : '✓'}
                   </button>
                   <button
                     className="delete-no"
                     onClick={() => setConfirmDeleteId(null)}
+                    aria-label="取消刪除"
                   >
                     ✕
                   </button>
@@ -289,6 +291,7 @@ function SessionSidebar({
                   className="delete-btn"
                   onClick={() => setConfirmDeleteId(session.session_id)}
                   title="刪除對話"
+                  aria-label="刪除對話"
                 >
                   🗑
                 </button>

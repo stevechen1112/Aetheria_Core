@@ -237,7 +237,7 @@
 }
 
 /* Keep visible when confirm shown */
-.sidebar-item .item-actions:has(.delete-confirm-inline) {
+.sidebar-item.confirming .item-actions {
   opacity: 1;
 }
 

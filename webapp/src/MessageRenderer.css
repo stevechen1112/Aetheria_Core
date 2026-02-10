@@ -76,11 +76,20 @@
   position: relative;
 }
 
-.collapsible-text.collapsed {
+.collapsible-content {
   position: relative;
 }
 
-.collapsible-text.collapsed::after {
+.collapsible-text.collapsed .collapsible-content {
+  max-height: 12em;
+  overflow: hidden;
+}
+
+.collapsible-text.expanded .collapsible-content {
+  max-height: none;
+}
+
+.collapsible-text.collapsed .collapsible-content::after {
   content: '';
   position: absolute;
   bottom: 28px;
