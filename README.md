@@ -107,6 +107,33 @@ npm run dev
 
 ---
 
+## 🛰️ Linode 部署（手動 / 自動）
+
+本專案在 Linode 上的部署通常分成兩個路徑（避免「後端已更新但前端仍舊版」）：
+
+- 後端（Flask + systemd）：`/root/Aetheria_Core`
+- 前端（Vite build，Nginx 靜態 root）：`/opt/aetheria/webapp/dist`
+
+### 手動部署（建議第一次用）
+
+在 Windows 本機直接執行：
+
+```powershell
+./deploy_linode.ps1
+```
+
+### 自動部署（GitHub Actions）
+
+當 push 到 `main` 會觸發 workflow：`.github/workflows/deploy.yml`。
+
+需要在 GitHub repo 設定 Secrets：
+
+- `SSH_PRIVATE_KEY`：可登入 Linode 的私鑰（建議只給 deploy 權限）
+
+> 如果遇到「更新了但瀏覽器還是舊畫面」，通常是靜態資源快取：請用強制重新整理（Ctrl+F5）或開無痕視窗驗證。
+
+---
+
 ## 📡 API 端點
 
 ### 對話

@@ -20,33 +20,44 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             set -e
+            echo "== BACKEND (/root/Aetheria_Core) =="
             cd /root/Aetheria_Core
-            
+
             echo "📥 Pulling latest code..."
             git fetch origin
             git reset --hard origin/main
             git log -1 --oneline
-            
+
             echo ""
             echo "📦 Installing Python dependencies..."
-            source venv/bin/activate
+            if [ -d .venv ]; then VENV=.venv; elif [ -d venv ]; then VENV=venv; else VENV=.venv; python3 -m venv "$VENV"; fi
+            . "$VENV/bin/activate"
             pip install -q -r requirements.txt
-            
+
+            echo ""
+            echo "== FRONTEND (/opt/aetheria) =="
+            cd /opt/aetheria
+
+            echo "📥 Pulling latest code..."
+            git fetch origin
+            git reset --hard origin/main
+            git log -1 --oneline
+
             echo ""
             echo "📦 Installing frontend dependencies..."
             cd webapp
-            npm install --silent
-            
+            (npm ci --silent || npm install --silent)
+
             echo ""
             echo "🏗️ Building frontend..."
             npm run build
-            
+
             echo ""
             echo "🔄 Restarting service..."
             systemctl restart aetheria.service
             sleep 3
             systemctl status aetheria.service --no-pager -l
-            
+
             echo ""
             echo "✅ Deployment completed!"
             echo "🔗 Health check: http://172.237.6.53:5001/health"
