@@ -1,25 +1,29 @@
 /* ==========================================
-   Aetheria Core v2.0 — Chat-First App Styles
+   Aetheria Core v3.0 — Redesigned App Shell
    ========================================== */
 
-/* App Root Layout */
+/* ===== App Root ===== */
 .app-root {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-  color: #e0e0e0;
+  background: var(--color-bg);
+  color: var(--color-text);
   overflow: hidden;
 }
 
-/* ========== Top Bar ========== */
+/* ===== Top Bar — sleek glass-morphism ===== */
 .app-topbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 20px;
-  background: rgba(255, 255, 255, 0.03);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 0 24px;
+  padding-top: env(safe-area-inset-top, 0);
+  height: calc(56px + env(safe-area-inset-top, 0));
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--color-border-light);
   flex-shrink: 0;
   z-index: 10;
 }
@@ -27,37 +31,43 @@
 .topbar-brand {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
 .brand-icon {
-  font-size: 1.5rem;
+  font-size: 1.4rem;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--color-primary) 0%, #8b7cf0 100%);
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(108, 92, 231, 0.25);
 }
 
 .brand-name {
-  font-size: 1.2rem;
+  font-family: var(--font-display);
+  font-size: 1.3rem;
   font-weight: 700;
-  letter-spacing: 1px;
-  background: linear-gradient(135deg, #c8b7a6, #a9b7a6);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--color-text);
+  letter-spacing: 0.5px;
 }
 
 .brand-version {
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   padding: 2px 8px;
-  background: rgba(100, 150, 255, 0.15);
-  border: 1px solid rgba(100, 150, 255, 0.3);
-  border-radius: 10px;
-  color: #6495ff;
-  font-weight: 500;
+  background: var(--color-primary-light);
+  border-radius: var(--radius-full);
+  color: var(--color-primary);
+  font-weight: 600;
+  letter-spacing: 0.5px;
 }
 
 .topbar-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .user-info {
@@ -67,35 +77,58 @@
 }
 
 .user-badge {
-  font-size: 1.1rem;
+  font-size: 1rem;
 }
 
 .btn-topbar {
   background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  color: #ccc;
-  padding: 6px 14px;
-  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-light);
+  padding: 7px 16px;
+  min-height: 36px;
+  border-radius: var(--radius-full);
   cursor: pointer;
-  font-size: 0.85rem;
-  transition: all 0.2s;
+  font-size: 0.875rem; /* 14px */
+  font-weight: 500;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
 }
 
 .btn-topbar:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
+  background: var(--color-surface-soft);
+  border-color: var(--color-border);
+  color: var(--color-text);
 }
 
 .btn-login {
-  border-color: rgba(100, 150, 255, 0.4);
-  color: #6495ff;
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #ffffff;
 }
 
 .btn-login:hover {
-  background: rgba(100, 150, 255, 0.1);
+  background: var(--color-primary-dark);
+  border-color: var(--color-primary-dark);
+  color: #ffffff;
+  box-shadow: 0 2px 10px rgba(108, 92, 231, 0.3);
 }
 
-/* ========== Main Area (Sidebar + Chat side by side) ========== */
+.btn-voice {
+  background: var(--color-primary-light);
+  border-color: var(--color-primary-tint);
+  color: var(--color-primary);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.btn-voice:hover {
+  background: var(--color-primary-glow);
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-glow);
+}
+
+/* ===== Main Area ===== */
 .app-main {
   flex: 1;
   overflow: hidden;
@@ -103,33 +136,29 @@
   flex-direction: row;
 }
 
-/* Chat area fills remaining space beside sidebar */
 .app-chat-area {
   flex: 1;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  min-width: 0; /* prevent flex blowout */
+  min-width: 0;
 }
 
-/* Override ChatContainer standalone height since app-main handles it */
 .app-main .chat-container.standalone {
   height: 100%;
 }
 
-/* Remove duplicate header when embedded in app (topbar handles branding) */
 .app-main .chat-header {
   display: none;
 }
 
-/* ========== Loading State ========== */
+/* ===== Loading State ===== */
 .app-loading {
   display: flex;
   align-items: center;
   justify-content: center;
   height: 100vh;
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-  color: #e0e0e0;
+  background: var(--color-bg);
 }
 
 .loading-content {
@@ -137,204 +166,227 @@
 }
 
 .loading-icon {
-  font-size: 4rem;
-  margin-bottom: 16px;
-  animation: pulse-glow 2s ease-in-out infinite;
+  font-size: 3.5rem;
+  margin-bottom: 20px;
+  animation: loadingFloat 2.5s ease-in-out infinite;
 }
 
-@keyframes pulse-glow {
-  0%, 100% { opacity: 0.7; transform: scale(1); }
-  50% { opacity: 1; transform: scale(1.1); }
+@keyframes loadingFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
 }
 
 .loading-content h2 {
-  font-size: 2rem;
+  font-family: var(--font-display);
+  font-size: 1.8rem;
   font-weight: 700;
   margin-bottom: 8px;
-  background: linear-gradient(135deg, #c8b7a6, #a9b7a6);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--color-text);
 }
 
 .loading-content p {
-  color: #aaa;
-  font-size: 0.95rem;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
 }
 
 .retry-btn {
-  margin-top: 16px;
-  padding: 10px 24px;
-  background: rgba(100, 150, 255, 0.2);
-  border: 1px solid rgba(100, 150, 255, 0.4);
-  color: #6495ff;
-  border-radius: 8px;
+  margin-top: 20px;
+  padding: 10px 28px;
+  background: var(--color-primary);
+  border: none;
+  color: #ffffff;
+  border-radius: var(--radius-full);
   cursor: pointer;
-  font-size: 0.95rem;
-  transition: all 0.2s;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: all var(--transition-fast);
 }
 
 .retry-btn:hover {
-  background: rgba(100, 150, 255, 0.3);
+  background: var(--color-primary-dark);
+  box-shadow: 0 4px 16px rgba(108, 92, 231, 0.3);
 }
 
-/* ========== Auth Modal ========== */
+/* ===== Auth Modal — glass card ===== */
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(4px);
+  background: rgba(26, 22, 20, 0.35);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
   justify-content: center;
+  overscroll-behavior: contain;
   z-index: 1000;
-  animation: fadeIn 0.2s ease;
+  animation: modalFadeIn 0.2s ease;
 }
 
-@keyframes fadeIn {
+@keyframes modalFadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
 }
 
 .modal-content {
-  background: #1e2a3a;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 16px;
-  width: 380px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-xl);
+  width: 400px;
   max-width: 90vw;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
-  animation: slideUp 0.3s ease;
+  box-shadow: var(--shadow-xl);
+  animation: modalSlideUp 0.35s var(--transition-slow);
 }
 
-@keyframes slideUp {
-  from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: translateY(0); }
+@keyframes modalSlideUp {
+  from { opacity: 0; transform: translateY(24px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 .modal-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 20px 24px 12px;
+  padding: 24px 28px 12px;
 }
 
 .modal-header h3 {
-  font-size: 1.3rem;
-  font-weight: 600;
-  color: #fff;
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--color-text);
 }
 
 .modal-close {
   background: transparent;
   border: none;
-  color: #888;
-  font-size: 1.3rem;
+  color: var(--color-text-muted);
+  font-size: 1.2rem;
   cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 4px;
+  padding: 6px;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+  line-height: 1;
 }
 
 .modal-close:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.1);
+  color: var(--color-text);
+  background: var(--color-surface-soft);
 }
 
 .modal-body {
-  padding: 12px 24px 24px;
+  padding: 12px 28px 28px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 }
 
 .modal-body input {
   width: 100%;
   padding: 12px 16px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 10px;
-  color: #e0e0e0;
-  font-size: 0.95rem;
-  transition: all 0.2s;
+  background: var(--color-surface-soft);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font-size: 1rem; /* 16px — prevent iOS zoom */
+  transition: all var(--transition-fast);
   box-sizing: border-box;
 }
 
 .modal-body input:focus {
   outline: none;
-  border-color: rgba(100, 150, 255, 0.5);
-  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--color-primary);
+  background: var(--color-surface);
+  box-shadow: 0 0 0 3px var(--color-primary-glow);
 }
 
 .modal-body input::placeholder {
-  color: #666;
+  color: var(--color-text-muted);
 }
 
 .auth-error {
-  color: #ff6b6b;
-  font-size: 0.85rem;
+  color: var(--color-error);
+  font-size: 0.82rem;
   text-align: center;
-  padding: 8px;
-  background: rgba(255, 107, 107, 0.1);
-  border-radius: 8px;
+  padding: 10px;
+  background: var(--color-error-light);
+  border-radius: var(--radius-sm);
 }
 
 .btn-auth-submit {
   width: 100%;
-  padding: 12px;
-  background: linear-gradient(135deg, #6495ff 0%, #4a7cff 100%);
+  padding: 13px;
+  background: var(--color-primary);
   border: none;
-  color: white;
-  font-size: 1rem;
+  color: #ffffff;
+  font-size: 0.95rem;
   font-weight: 600;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--transition-fast);
 }
 
 .btn-auth-submit:hover:not(:disabled) {
+  background: var(--color-primary-dark);
   transform: translateY(-1px);
-  box-shadow: 0 4px 16px rgba(100, 150, 255, 0.4);
+  box-shadow: 0 4px 16px rgba(108, 92, 231, 0.3);
 }
 
 .btn-auth-submit:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
 .auth-switch {
   text-align: center;
-  font-size: 0.85rem;
-  color: #888;
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
 }
 
 .auth-switch button {
   background: none;
   border: none;
-  color: #6495ff;
+  color: var(--color-primary);
   cursor: pointer;
-  font-size: 0.85rem;
-  text-decoration: underline;
+  font-size: 0.82rem;
+  font-weight: 500;
 }
 
 .auth-switch button:hover {
-  color: #8ab0ff;
+  color: var(--color-primary-dark);
+  text-decoration: underline;
 }
 
-/* ========== Responsive ========== */
+/* ===== Responsive ===== */
 @media (max-width: 768px) {
   .app-topbar {
-    padding: 8px 12px;
+    padding: 0 14px;
+    padding-top: env(safe-area-inset-top, 0);
+    height: calc(48px + env(safe-area-inset-top, 0));
+  }
+
+  .brand-icon {
+    width: 30px;
+    height: 30px;
+    font-size: 1.1rem;
+    border-radius: 8px;
   }
 
   .brand-name {
-    font-size: 1rem;
+    font-size: 1.1rem;
   }
 
   .brand-version {
-    font-size: 0.6rem;
+    display: none;
+  }
+
+  .btn-topbar {
+    padding: 8px 14px;
+    min-height: 40px;
+    font-size: 0.8125rem; /* 13px */
   }
 
   .modal-content {
     width: 95vw;
-    border-radius: 12px;
+    border-radius: var(--radius-lg);
   }
 }

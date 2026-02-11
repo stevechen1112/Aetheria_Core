@@ -12,7 +12,7 @@ import './ChatContainer.css'
  * 3. 零摩擦體驗 — 無須先「鎖定命盤」即可聊天
  * 4. 優雅錯誤處理 — 所有錯誤在對話流中呈現，不使用 alert/confirm
  */
-function ChatContainer({ apiBase, token, userId, embedded = false, sidebarCollapsed = true, onToggleSidebar }) {
+function ChatContainer({ apiBase, token, userId, embedded = false, sidebarCollapsed = true, onToggleSidebar, onOpenVoiceChat }) {
   const {
     messages,
     setMessages,
@@ -538,6 +538,16 @@ function ChatContainer({ apiBase, token, userId, embedded = false, sidebarCollap
             disabled={loading}
             rows={1}
           />
+          {onOpenVoiceChat && (
+            <button
+              onClick={onOpenVoiceChat}
+              className="btn-voice-input"
+              title="語音對話"
+              type="button"
+            >
+              🎤
+            </button>
+          )}
           <button
             onClick={() => sendMessage()}
             disabled={loading || !inputText.trim()}

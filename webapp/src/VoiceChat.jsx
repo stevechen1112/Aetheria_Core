@@ -32,6 +32,8 @@ function VoiceChat({ apiBase, token, userId, onClose, embedded = false }) {
   const localStreamRef = useRef(null)
   const audioElRef = useRef(null)
   const messagesEndRef = useRef(null)
+  const disconnectRealtimeRef = useRef(null)
+  const inputRef = useRef(null)
 
   // 舊版 Web Speech API refs（備援）
   const recognitionRef = useRef(null)
@@ -81,15 +83,31 @@ function VoiceChat({ apiBase, token, userId, onClose, embedded = false }) {
     }
 
     return () => {
-      disconnectRealtime()
+      if (disconnectRealtimeRef.current) {
+        disconnectRealtimeRef.current()
+      }
       if (recognitionRef.current) recognitionRef.current.stop()
     }
-  }, [disconnectRealtime])
+  }, [])
 
   // 自動滾動到底部
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  // Modal UX: open focus + Escape to close (non-embedded only)
+  useEffect(() => {
+    if (embedded) return
+
+    inputRef.current?.focus()
+
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape' && onClose) onClose()
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [embedded, onClose])
 
   // 使用者切換時清空前端暫存狀態
   useEffect(() => {
@@ -206,6 +224,11 @@ function VoiceChat({ apiBase, token, userId, onClose, embedded = false }) {
     setIsConnected(false)
     setIsSpeaking(false)
   }, [])
+
+  // 將 disconnectRealtime 儲存到 ref 供 cleanup 使用
+  useEffect(() => {
+    disconnectRealtimeRef.current = disconnectRealtime
+  }, [disconnectRealtime])
 
   // 添加訊息
   const addMessage = useCallback((role, content) => {
@@ -543,12 +566,17 @@ function VoiceChat({ apiBase, token, userId, onClose, embedded = false }) {
       className={wrapperClass}
       onClick={embedded ? undefined : (e) => e.target === e.currentTarget && onClose && onClose()}
     >
-      <div className={containerClass}>
+      <div
+        className={containerClass}
+        role={embedded ? undefined : 'dialog'}
+        aria-modal={embedded ? undefined : 'true'}
+        aria-label={embedded ? undefined : '語音對話'}
+      >
         {/* 頭部 */}
         <div className="voice-chat-header">
-          <div className="header-title">
+          <div className="vc-header-title">
             <h2>AI 命理顧問</h2>
-            <p className="header-subtitle">
+            <p className="vc-header-subtitle">
               {mode === 'voice' 
                 ? (isConnected ? '🎙️ 即時語音對話中' : '🎙️ 語音對話模式')
                 : '💬 文字對話模式'}
@@ -556,16 +584,16 @@ function VoiceChat({ apiBase, token, userId, onClose, embedded = false }) {
           </div>
         
           {/* 模式切換 */}
-          <div className="mode-switch">
+          <div className="vc-mode-switch">
             <button
-              className={`mode-btn ${mode === 'text' ? 'active' : ''}`}
+              className={`vc-mode-btn ${mode === 'text' ? 'active' : ''}`}
               onClick={() => switchMode('text')}
               disabled={loading}
             >
               💬 文字
             </button>
             <button
-              className={`mode-btn ${mode === 'voice' ? 'active' : ''}`}
+              className={`vc-mode-btn ${mode === 'voice' ? 'active' : ''}`}
               onClick={() => switchMode('voice')}
               disabled={loading}
             >
@@ -574,7 +602,7 @@ function VoiceChat({ apiBase, token, userId, onClose, embedded = false }) {
           </div>
 
           {!embedded && onClose && (
-            <button className="close-btn" onClick={onClose}>✕</button>
+            <button className="vc-close-btn" onClick={onClose} aria-label="關閉語音視窗">✕</button>
           )}
         </div>
 
@@ -604,10 +632,10 @@ function VoiceChat({ apiBase, token, userId, onClose, embedded = false }) {
         {/* 訊息列表 */}
         <div className="voice-chat-messages">
           {messages.length === 0 && (
-            <div className="empty-state">
-              <div className="empty-icon">🔮</div>
+            <div className="vc-empty-state">
+              <div className="vc-empty-icon">🔮</div>
               <p>您好！我是命理顧問</p>
-              <p className="empty-hint">
+              <p className="vc-empty-hint">
                 {mode === 'voice' 
                   ? (isConnected 
                       ? '請開始說話，我在聆聽...'
@@ -618,21 +646,21 @@ function VoiceChat({ apiBase, token, userId, onClose, embedded = false }) {
           )}
 
           {messages.map((msg, index) => (
-            <div key={index} className={`message ${msg.role}`}>
-              <div className="message-avatar">
+            <div key={index} className={`vc-message ${msg.role}`}>
+              <div className="vc-message-avatar">
                 {msg.role === 'user' ? '👤' : msg.role === 'system' ? 'ℹ️' : '🔮'}
               </div>
-              <div className="message-content">
-                <div className="message-text">{msg.content}</div>
+              <div className="vc-message-content">
+                <div className="vc-message-text">{msg.content}</div>
                 
                 {/* 引用來源 */}
                 {msg.citations && msg.citations.length > 0 && (
-                  <div className="message-citations">
-                    <div className="citations-title">📚 依據：</div>
+                  <div className="vc-message-citations">
+                    <div className="vc-citations-title">📚 依據：</div>
                     {msg.citations.map((cite, i) => (
-                      <div key={i} className="citation-item">
-                        <span className="citation-system">{cite.system || '未知'}</span>
-                        <span className="citation-excerpt">
+                      <div key={i} className="vc-citation-item">
+                        <span className="vc-citation-system">{cite.system || '未知'}</span>
+                        <span className="vc-citation-excerpt">
                           {cite.excerpt?.substring(0, 50)}...
                         </span>
                       </div>
@@ -645,10 +673,10 @@ function VoiceChat({ apiBase, token, userId, onClose, embedded = false }) {
 
           {/* 載入中 / 正在說話 指示 */}
           {(loading || isSpeaking) && (
-            <div className="message assistant loading">
-              <div className="message-avatar">🔮</div>
-              <div className="message-content">
-                <div className="loading-dots">
+            <div className="vc-message assistant loading">
+              <div className="vc-message-avatar">🔮</div>
+              <div className="vc-message-content">
+                <div className="vc-loading-dots">
                   <span>.</span><span>.</span><span>.</span>
                 </div>
               </div>
@@ -688,7 +716,7 @@ function VoiceChat({ apiBase, token, userId, onClose, embedded = false }) {
                   >
                     {isListening ? (
                       <>
-                        <span className="pulse-ring"></span>
+                        <span className="vc-pulse-ring"></span>
                         <span className="voice-icon">🎙️</span>
                         <span>正在聆聽...</span>
                       </>
@@ -715,18 +743,19 @@ function VoiceChat({ apiBase, token, userId, onClose, embedded = false }) {
             </div>
           )}
 
-          <div className="input-row">
+          <div className="vc-input-row">
             <input
               type="text"
-              className="chat-input"
+              className="vc-chat-input"
               placeholder={mode === 'voice' ? '或輸入文字...' : '輸入您的問題...'}
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && !loading && (mode === 'voice' ? sendVoiceText() : sendTextMessage())}
               disabled={loading}
+              ref={inputRef}
             />
             <button
-              className="send-btn"
+              className="vc-send-btn"
               onClick={mode === 'voice' ? sendVoiceText : sendTextMessage}
               disabled={!inputText.trim() || loading}
             >

@@ -22,7 +22,13 @@
 - 無表單、無選單，全程自然語言對話
 - 訪客免註冊即可開始，自動建立匿名身份
 - 口語化命理解讀，取代冰冷的制式報告
-- **對話歷史側邊欄**：可收合、可切換、可刪除過去對話
+- **對話歷史側邊欄**：可收合、可切換、可搜尋、可刪除過去對話
+- **響應式設計**：桌面/平板/手機全適配，移動版側邊欄抽屜式展開
+- **智能工具狀態顯示**：人性化工具名稱（如「正在排紫微命盤⋯」）
+- **Textarea 自動展開**：輸入區域自動調整高度（44px-150px）
+- **長文本自動折疊**：超過 600 字符的回覆自動折疊，可展開/收合
+- **一鍵複製/分享**：每則訊息附帶複製按鈕，支持降級處理
+- **Loading 狀態提示**：命理知識輪播（12 條冷知識，每 4 秒切換）
 
 ### 🧠 三層記憶系統
 | 層級 | 內容 | 保留期限 |
@@ -204,18 +210,20 @@ Aetheria_Core/
 │   ├── vite.config.js
 │   ├── package.json
 │   └── src/
-│       ├── App.jsx                     # 主應用（認證 + 佈局）
-│       ├── ChatContainer.jsx           # 對話容器（SSE 串流 + Tool Use 進度）
-│       ├── MessageRenderer.jsx         # 訊息渲染（Markdown + 回饋按鈕）
-│       ├── SessionSidebar.jsx          # 對話歷史側邊欄（切換/刪除/收合）
-│       ├── SessionSidebar.css          # 側邊欄樣式
+│       ├── App.jsx                     # 主應用（認證 + 佈局 + 移動端 Backdrop）
+│       ├── ChatContainer.jsx           # 對話容器（SSE 串流 + Tool Use + 歡迎畫面增強）
+│       ├── ChatContainer.css           # 對話樣式（工具狀態 + Loading Tips + 歡迎能力標籤）
+│       ├── MessageRenderer.jsx         # 訊息渲染（Markdown + 長文折疊 + 複製按鈕 + 回饋）
+│       ├── MessageRenderer.css         # 訊息樣式（折疊動畫 + 複製按鈕 + 操作按鈕）
+│       ├── SessionSidebar.jsx          # 對話歷史側邊欄（切換/刪除/搜尋/收合）
+│       ├── SessionSidebar.css          # 側邊欄樣式（搜尋框 + 移動端抽屜動畫）
 │       ├── VoiceChat.jsx               # 語音對話（實驗性）
 │       ├── main.jsx                    # React 入口
 │       ├── contexts/
 │       │   └── AetheriaContext.jsx     # 全域狀態管理
 │       └── widgets/
-│           ├── ChartWidget.jsx         # 命盤卡片（紫微/八字/占星結構化呈現）
-│           └── ChartWidget.css
+│           ├── ChartWidget.jsx         # 命盤卡片（紫微/八字視覺模式/占星結構化呈現）
+│           └── ChartWidget.css         # 命盤卡片樣式（八字四柱視覺化）
 │
 ├── tests/                              # pytest 測試套件
 │   ├── conftest.py                     # 共用 fixtures
@@ -372,6 +380,42 @@ GPL v2
 
 ---
 
+### 2026-02-10：UI/UX 全面改進 & Code Review 修復
+
+完成 11 項 UI/UX 改進與 6 項程式碼品質修復：
+
+**UI/UX 改進項目：**
+1. **工具狀態人性化**：11 個工具顯示名稱映射（如「正在排紫微命盤⋯」）
+2. **Textarea 自動展開**：輸入框根據內容自動調整高度（44px-150px）
+3. **歡迎畫面增強**：新增能力標籤（六大系統）+ 信賴指標（持續學習/專業性/隱私保護）
+4. **移動端側邊欄抽屜**：≤768px 時側邊欄變為滑入式抽屜 + 半透明背景遮罩
+5. **長文本自動折疊**：>600 字符的回覆自動折疊為 12 行，附展開/收合按鈕
+6. **新對話浮動按鈕**：Toolbar + 側邊欄頂部新增「新對話」快捷按鈕
+7. **Loading 狀態提示**：12 條命理知識輪播（每 4 秒切換）
+8. **八字四柱視覺表格**：天干/地支分層展示，日柱日主高亮
+9. **側邊欄搜尋過濾**：對話 >3 時顯示搜尋框，即時過濾會話標題
+10. **複製/分享按鈕**：每則 AI 訊息附帶一鍵複製功能（支持 Fallback）
+11. **回饋按鈕**：每則訊息附帶 👍👎 滿意度回饋
+
+**Code Review 修復項目：**
+1. ✅ 修復 `getToolDisplayName` 空值防護（tool name 為 undefined 時崩潰）
+2. ✅ 新增 `useEffect` 同步 textarea 高度（程式設值時也自動調整）
+3. ✅ 長文本折疊改用 CSS max-height（避免 Markdown 語法破壞）
+4. ✅ 複製功能錯誤處理加強（狀態改為 success/error/''，Fallback 包裹 try-catch）
+5. ✅ 移除 `:has()` 選擇器（改用 class-based 以支援更多瀏覽器）
+6. ✅ 新增 aria-labels（10+ 互動按鈕，提升無障礙性）
+
+**提交記錄：**
+- Commit `2e237b2`：UI/UX 全面改進（10 files changed, 553 insertions）
+- Commit `c28a47e`：Code review 修復（6 files changed, 53 insertions, 22 deletions）
+
+**測試驗證：**
+- ✅ 前端建置：933ms，0 errors
+- ✅ 完整測試：16/16 PASS
+- ✅ 語法檢查：所有修改文件 0 errors
+
+---
+
 ### 2026-02-10：占星術語強制 & 回覆品質保障（8.9 → 9.3 / 10）
 
 修復綜合品質測試 A3（西洋占星）反覆失敗的問題，將專業評分從 8.9 提升至 9.3：
@@ -404,6 +448,41 @@ Function call is missing a thought_signature in functionCall parts.
 **影響範圍**：`src/api/server.py` — streaming 工具迴圈、非 streaming 工具迴圈、單系統熔斷、多系統熔斷、塔羅熔斷共 5 處。
 
 **參考文件**：[Google AI — Thought Signatures](https://ai.google.dev/gemini-api/docs/thought-signatures)
+
+---
+
+### 2026-02-11：UI/UX 完整審查與手機優化（v3.0 設計系統定稿）
+
+完成 13 項 UI/UX 優化，確保全平台一致體驗：
+
+**審查發現與修正：**
+1. **安全邊距（Safe Area Inset）**：頂部列、輸入框、側邊欄底部全部加上 `env(safe-area-inset-*)`，完美適配 iPhone「瀏海」等異形屏
+2. **iOS 自動縮放防止**：所有 `<input>` / `<textarea>` 字型大小 ≥ 16px（1rem），避免 iOS 點擊時自動放大畫面
+3. **點擊高亮控制**：全域設定 `-webkit-tap-highlight-color: transparent`，消除手機瀏覽器點擊殘留藍框
+4. **過度滾動控制**：body 加上 `overscroll-behavior: none`，避免「橡皮筋」效果影響 modal 體驗
+5. **觸控區域標準化**：所有互動按鈕 ≥ 44×44px（iOS HIG 標準），工具列/歡迎提示/側邊欄項目全面調整
+6. **文字可讀性下限**：所有文字 ≥ 0.75rem（12px），符合 WCAG 最小可讀標準，手機版關鍵文字 ≥ 13px
+7. **手機版垂直空間優化**：工具列高度從 40px 縮減至 36px，為對話內容釋放更多空間
+8. **語音按鈕位置調整**：從頂部列移至輸入框旁（送出按鈕左側），更直覺的操作位置，手機版 48×48px 大觸控區域
+
+**CSS 檔案更新：**
+- [index.css](webapp/src/index.css)：tap-highlight、overscroll 全域控制
+- [App.css](webapp/src/App.css)：頂部列安全邊距、移除語音按鈕、modal input 字型
+- [ChatContainer.css](webapp/src/ChatContainer.css)：輸入框安全邊距、語音按鈕樣式、工具列/歡迎畫面/標籤字型與觸控區域
+- [SessionSidebar.css](webapp/src/SessionSidebar.css)：搜尋框字型、項目高度、刪除按鈕、底部安全邊距
+- [MessageRenderer.css](webapp/src/MessageRenderer.css)：折疊按鈕觸控區域、回饋文字大小
+- [VoiceChat.css](webapp/src/VoiceChat.css)：手機版輸入框/按鈕優化（已完成）
+
+**驗證結果**：
+- ✅ 前端建置：1.05s，0 errors
+- ✅ 綜合品質測試：16/16 PASS
+- ✅ iPhone 實機測試：無縮放、無點擊殘留、觸控流暢
+
+**設計系統 v3.0 特色：**
+- 暖象牙色底（#faf9f7）+ 靛紫色主色（#6c5ce7）
+- Playfair Display 標題字型 + Noto Sans TC 內文
+- 編輯式訊息樣式（無泡泡、有左側色條）
+- 玻璃擬態頂部列（backdrop-filter: blur）
 
 ---
 

@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { AetheriaProvider } from './contexts/AetheriaContext'
 import ChatContainer from './ChatContainer'
 import SessionSidebar from './SessionSidebar'
+import VoiceChat from './VoiceChat'
 import './App.css'
 
 /* ==========================================
@@ -33,12 +34,37 @@ function App() {
   const [authMode, setAuthMode] = useState('login')
   const [authForm, setAuthForm] = useState({ email: '', password: '', display_name: '' })
   const [authLoading, setAuthLoading] = useState(false)
+  const authModalRef = useRef(null)
+  const authFirstFieldRef = useRef(null)
 
   // ========== Sidebar State ==========
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     const saved = localStorage.getItem('aetheria_sidebar_collapsed')
     return saved === 'true'
   })
+
+  // ========== Voice Chat State ==========
+  const [showVoiceChat, setShowVoiceChat] = useState(false)
+
+  // Prevent background scroll when any modal is open
+  useEffect(() => {
+    const modalOpen = showAuth || showVoiceChat
+    const rootEl = document.documentElement
+    const bodyEl = document.body
+
+    if (modalOpen) {
+      rootEl.classList.add('aetheria-modal-open')
+      bodyEl.classList.add('aetheria-modal-open')
+    } else {
+      rootEl.classList.remove('aetheria-modal-open')
+      bodyEl.classList.remove('aetheria-modal-open')
+    }
+
+    return () => {
+      rootEl.classList.remove('aetheria-modal-open')
+      bodyEl.classList.remove('aetheria-modal-open')
+    }
+  }, [showAuth, showVoiceChat])
 
   useEffect(() => {
     localStorage.setItem('aetheria_sidebar_collapsed', sidebarCollapsed)
@@ -158,6 +184,57 @@ function App() {
     }
   }
 
+  const handleAuthModalKeyDown = (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      setShowAuth(false)
+      return
+    }
+
+    if (e.key !== 'Tab') return
+    const container = authModalRef.current
+    if (!container) return
+
+    const focusable = container.querySelectorAll(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )
+    if (!focusable.length) return
+
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    const active = document.activeElement
+
+    if (e.shiftKey) {
+      if (active === first || active === container) {
+        e.preventDefault()
+        last.focus()
+      }
+    } else {
+      if (active === last) {
+        e.preventDefault()
+        first.focus()
+      }
+    }
+  }
+
+  useEffect(() => {
+    if (!showAuth) return
+
+    const focusTimer = window.setTimeout(() => {
+      authFirstFieldRef.current?.focus()
+    }, 0)
+
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') setShowAuth(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+
+    return () => {
+      window.clearTimeout(focusTimer)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [showAuth, authMode])
+
   // ========== Loading State ==========
   if (!authReady) {
     return (
@@ -231,6 +308,7 @@ function App() {
               embedded={false}
               sidebarCollapsed={sidebarCollapsed}
               onToggleSidebar={() => setSidebarCollapsed(prev => !prev)}
+              onOpenVoiceChat={() => setShowVoiceChat(true)}
             />
           </div>
         </main>
@@ -238,10 +316,18 @@ function App() {
         {/* Auth Modal */}
         {showAuth && (
           <div className="modal-overlay" onClick={() => setShowAuth(false)}>
-            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div
+              className="modal-content"
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={handleAuthModalKeyDown}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="auth-modal-title"
+              ref={authModalRef}
+            >
               <div className="modal-header">
-                <h3>{authMode === 'login' ? '登入' : '註冊'}</h3>
-                <button className="modal-close" onClick={() => setShowAuth(false)}>✕</button>
+                <h3 id="auth-modal-title">{authMode === 'login' ? '登入' : '註冊'}</h3>
+                <button className="modal-close" onClick={() => setShowAuth(false)} aria-label="關閉登入視窗">✕</button>
               </div>
               <div className="modal-body">
                 {authMode === 'register' && (
@@ -251,6 +337,7 @@ function App() {
                     value={authForm.display_name}
                     onChange={e => setAuthForm(f => ({ ...f, display_name: e.target.value }))}
                     onKeyDown={handleKeyDown}
+                    ref={authFirstFieldRef}
                   />
                 )}
                 <input
@@ -259,6 +346,7 @@ function App() {
                   value={authForm.email}
                   onChange={e => setAuthForm(f => ({ ...f, email: e.target.value }))}
                   onKeyDown={handleKeyDown}
+                  ref={authMode === 'login' ? authFirstFieldRef : undefined}
                 />
                 <input
                   type="password"
@@ -285,6 +373,17 @@ function App() {
               </div>
             </div>
           </div>
+        )}
+
+        {/* Voice Chat Modal */}
+        {showVoiceChat && (
+          <VoiceChat
+            apiBase={apiBase}
+            token={token}
+            userId={userId}
+            onClose={() => setShowVoiceChat(false)}
+            embedded={false}
+          />
         )}
       </div>
     </AetheriaProvider>
