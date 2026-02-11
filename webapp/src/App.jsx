@@ -26,6 +26,7 @@ function App() {
   // ========== Auth State ==========
   const [token, setToken] = useState(localStorage.getItem('aetheria_token') || '')
   const [userId, setUserId] = useState(localStorage.getItem('aetheria_user_id') || '')
+  const [userProfile, setUserProfile] = useState(null) // 新增：用戶資料
   const [authReady, setAuthReady] = useState(false)
   const [authError, setAuthError] = useState('')
 
@@ -90,6 +91,14 @@ function App() {
       localStorage.setItem('aetheria_user_id', data.user_id)
       setToken(data.token)
       setUserId(data.user_id)
+      
+      // 載入訪客資料
+      fetch(`${apiBase}/api/profile`, {
+        headers: { 'Authorization': `Bearer ${data.token}` }
+      }).then(resp => resp.json()).then(profileData => {
+        setUserProfile(profileData.profile)
+      }).catch(() => {})
+      
       return data.token
     } catch (err) {
       console.error('Guest provision error:', err)
@@ -110,6 +119,7 @@ function App() {
           if (resp.ok) {
             const data = await resp.json()
             setUserId(data.profile?.user_id || userId)
+            setUserProfile(data.profile) // 儲存用戶資料
             setAuthReady(true)
             return
           }
@@ -118,6 +128,7 @@ function App() {
           localStorage.removeItem('aetheria_user_id')
           setToken('')
           setUserId('')
+          setUserProfile(null)
         } catch {
           // Server might be down
         }
@@ -160,6 +171,13 @@ function App() {
       setUserId(data.user_id)
       setShowAuth(false)
       setAuthForm({ email: '', password: '', display_name: '' })
+      
+      // 重新載入用戶資料
+      fetch(`${apiBase}/api/profile`, {
+        headers: { 'Authorization': `Bearer ${data.token}` }
+      }).then(resp => resp.json()).then(profileData => {
+        setUserProfile(profileData.profile)
+      }).catch(() => {})
     } catch {
       setAuthError('無法連接到伺服器')
     } finally {
@@ -170,6 +188,7 @@ function App() {
   const handleLogout = () => {
     localStorage.removeItem('aetheria_token')
     localStorage.removeItem('aetheria_user_id')
+    setUserProfile(null)
     setToken('')
     setUserId('')
     setAuthReady(false)
@@ -268,9 +287,10 @@ function App() {
             <span className="brand-version">Agent 2.0</span>
           </div>
           <div className="topbar-actions">
-            {userId && !userId.startsWith('guest_') ? (
+            {userProfile && userProfile.email && !userProfile.email.includes('@guest.aetheria.local') ? (
               <div className="user-info">
                 <span className="user-badge">👤</span>
+                <span className="user-name">{userProfile.display_name || '用戶'}</span>
                 <button className="btn-topbar" onClick={handleLogout}>登出</button>
               </div>
             ) : (
