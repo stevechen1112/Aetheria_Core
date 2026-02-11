@@ -129,6 +129,16 @@ function App() {
           })
           if (resp.ok) {
             const data = await resp.json()
+            // 自動清除舊的訪客 token
+            if (data.profile?.email?.includes('@guest.aetheria.local')) {
+              localStorage.removeItem('aetheria_token')
+              localStorage.removeItem('aetheria_user_id')
+              setToken('')
+              setUserId('')
+              setUserProfile(null)
+              setAuthReady(false)
+              return
+            }
             setUserId(data.profile?.user_id || userId)
             setUserProfile(data.profile)
             setAuthReady(true)
