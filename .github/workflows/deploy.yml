@@ -1,0 +1,52 @@
+name: Deploy to Linode
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy Application
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Deploy to Server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 172.237.6.53
+          username: root
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            cd /root/Aetheria_Core
+            
+            echo "📥 Pulling latest code..."
+            git fetch origin
+            git reset --hard origin/main
+            git log -1 --oneline
+            
+            echo ""
+            echo "📦 Installing Python dependencies..."
+            source venv/bin/activate
+            pip install -q -r requirements.txt
+            
+            echo ""
+            echo "📦 Installing frontend dependencies..."
+            cd webapp
+            npm install --silent
+            
+            echo ""
+            echo "🏗️ Building frontend..."
+            npm run build
+            
+            echo ""
+            echo "🔄 Restarting service..."
+            systemctl restart aetheria.service
+            sleep 3
+            systemctl status aetheria.service --no-pager -l
+            
+            echo ""
+            echo "✅ Deployment completed!"
+            echo "🔗 Health check: http://172.237.6.53:5001/health"
