@@ -33,7 +33,7 @@ function App() {
   // ========== Auth Modal ==========
   const [showAuth, setShowAuth] = useState(false)
   const [authMode, setAuthMode] = useState('login')
-  const [authForm, setAuthForm] = useState({ email: '', password: '', display_name: '' })
+  const [authForm, setAuthForm] = useState({ username: '', password: '', display_name: '' })
   const [authLoading, setAuthLoading] = useState(false)
   const authModalRef = useRef(null)
   const authFirstFieldRef = useRef(null)
@@ -167,11 +167,11 @@ function App() {
     try {
       const endpoint = authMode === 'login' ? '/api/auth/login' : '/api/auth/register'
       const payload = authMode === 'login'
-        ? { email: authForm.email.trim(), password: authForm.password.trim() }
+        ? { username: authForm.username.trim(), password: authForm.password.trim() }
         : {
-            email: authForm.email.trim(),
+            username: authForm.username.trim(),
             password: authForm.password.trim(),
-            display_name: authForm.display_name.trim() || '使用者',
+            display_name: authForm.display_name.trim() || authForm.username.trim(),
             consents: { terms_accepted: true, data_usage_accepted: true }
           }
 
@@ -190,7 +190,7 @@ function App() {
       setToken(data.token)
       setUserId(data.user_id)
       setShowAuth(false)
-      setAuthForm({ email: '', password: '', display_name: '' })
+      setAuthForm({ username: '', password: '', display_name: '' })
       
       // 重新載入用戶資料
       fetch(`${apiBase}/api/profile`, {
@@ -305,22 +305,24 @@ function App() {
               {authMode === 'register' && (
                 <input
                   type="text"
-                  placeholder="顯示名稱"
+                  placeholder="顯示名稱（選填）"
                   value={authForm.display_name}
                   onChange={(e) => setAuthForm(prev => ({ ...prev, display_name: e.target.value }))}
                 />
               )}
               <input
-                type="email"
-                placeholder="電子郵件"
-                value={authForm.email}
-                onChange={(e) => setAuthForm(prev => ({ ...prev, email: e.target.value }))}
+                type="text"
+                placeholder="使用者名稱"
+                value={authForm.username}
+                onChange={(e) => setAuthForm(prev => ({ ...prev, username: e.target.value }))}
+                autoComplete="username"
               />
               <input
                 type="password"
                 placeholder="密碼"
                 value={authForm.password}
                 onChange={(e) => setAuthForm(prev => ({ ...prev, password: e.target.value }))}
+                autoComplete="current-password"
               />
 
               {authError && <div className="auth-error">{authError}</div>}
@@ -433,7 +435,7 @@ function App() {
                 {authMode === 'register' && (
                   <input
                     type="text"
-                    placeholder="顯示名稱"
+                    placeholder="顯示名稱（選填）"
                     value={authForm.display_name}
                     onChange={e => setAuthForm(f => ({ ...f, display_name: e.target.value }))}
                     onKeyDown={handleKeyDown}
@@ -441,12 +443,13 @@ function App() {
                   />
                 )}
                 <input
-                  type="email"
-                  placeholder="Email"
-                  value={authForm.email}
-                  onChange={e => setAuthForm(f => ({ ...f, email: e.target.value }))}
+                  type="text"
+                  placeholder="使用者名稱"
+                  value={authForm.username}
+                  onChange={e => setAuthForm(f => ({ ...f, username: e.target.value }))}
                   onKeyDown={handleKeyDown}
                   ref={authMode === 'login' ? authFirstFieldRef : undefined}
+                  autoComplete="username"
                 />
                 <input
                   type="password"
@@ -454,6 +457,7 @@ function App() {
                   value={authForm.password}
                   onChange={e => setAuthForm(f => ({ ...f, password: e.target.value }))}
                   onKeyDown={handleKeyDown}
+                  autoComplete="current-password"
                 />
                 {authError && <div className="auth-error">{authError}</div>}
                 <button

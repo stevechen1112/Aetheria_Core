@@ -28,27 +28,29 @@ from src.utils.auth_utils import hash_password, verify_password, get_auth_token_
 def register_member():
     """會員註冊"""
     data = request.json or {}
-    email = data.get('email')
+    username = data.get('username')
     password = data.get('password')
     phone = data.get('phone')
     display_name = data.get('display_name')
     consents = data.get('consents') or {}
 
-    if not email:
-        raise MissingParameterException('email')
+    if not username:
+        raise MissingParameterException('username')
     if not password:
         raise MissingParameterException('password')
 
-    if db.get_member_by_email(email):
-        return jsonify({'status': 'error', 'message': 'Email 已註冊'}), 409
+    # 檢查使用者名稱是否已註冊
+    if db.get_member_by_username(username):
+        return jsonify({'status': 'error', 'message': '使用者名稱已被使用'}), 409
 
     user_id = uuid.uuid4().hex
     hashed = hash_password(password)
     db.create_member({
         'user_id': user_id,
-        'email': email,
+        'username': username,
+        'email': data.get('email'),  # email 選填
         'phone': phone,
-        'display_name': display_name,
+        'display_name': display_name or username,  # 預設用 username
         'password_hash': hashed['hash'],
         'password_salt': hashed['salt']
     })
@@ -71,15 +73,15 @@ def register_member():
 def login_member():
     """會員登入"""
     data = request.json or {}
-    email = data.get('email')
+    username = data.get('username')
     password = data.get('password')
 
-    if not email:
-        raise MissingParameterException('email')
+    if not username:
+        raise MissingParameterException('username')
     if not password:
         raise MissingParameterException('password')
 
-    member = db.get_member_by_email(email)
+    member = db.get_member_by_username(username)
     if not member:
         return jsonify({'status': 'error', 'message': '帳號或密碼錯誤'}), 401
 

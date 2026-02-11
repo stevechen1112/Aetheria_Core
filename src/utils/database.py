@@ -115,7 +115,8 @@ class AetheriaDatabase:
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS members (
                     user_id TEXT PRIMARY KEY,
-                    email TEXT UNIQUE,
+                    username TEXT UNIQUE NOT NULL,
+                    email TEXT,
                     phone TEXT UNIQUE,
                     display_name TEXT,
                     password_hash TEXT NOT NULL,
@@ -772,10 +773,11 @@ class AetheriaDatabase:
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT INTO members (
-                    user_id, email, phone, display_name, password_hash, password_salt
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                    user_id, username, email, phone, display_name, password_hash, password_salt
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """, (
                 member_data.get('user_id'),
+                member_data.get('username'),
                 member_data.get('email'),
                 member_data.get('phone'),
                 member_data.get('display_name'),
@@ -788,6 +790,13 @@ class AetheriaDatabase:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM members WHERE email = ?", (email,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def get_member_by_username(self, username: str) -> Optional[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM members WHERE username = ?", (username,))
             row = cursor.fetchone()
             return dict(row) if row else None
 
