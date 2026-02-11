@@ -378,6 +378,10 @@ function App() {
     )
   }
 
+  const isSignedIn = !!token && authReady
+  const displayName = userProfile?.display_name || userProfile?.username || '用戶'
+  const isGuestUser = userProfile?.username?.startsWith('guest_')
+
   // ========== Main Chat-First UI ==========
   return (
     <AetheriaProvider apiBase={apiBase} token={token}>
@@ -390,10 +394,10 @@ function App() {
             <span className="brand-version">Agent 2.0</span>
           </div>
           <div className="topbar-actions">
-            {userProfile && userProfile.email && !userProfile.email.includes('@guest.aetheria.local') ? (
+            {isSignedIn ? (
               <div className="user-info">
                 <span className="user-badge">👤</span>
-                <span className="user-name">{userProfile.display_name || '用戶'}</span>
+                <span className="user-name">{displayName}{isGuestUser ? '（訪客）' : ''}</span>
                 <button className="btn-topbar" onClick={handleLogout}>登出</button>
               </div>
             ) : (
