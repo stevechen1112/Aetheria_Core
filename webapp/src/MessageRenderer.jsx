@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import ChartWidget from './widgets/ChartWidget'
 import './MessageRenderer.css'
@@ -15,11 +15,51 @@ import './MessageRenderer.css'
  */
 function MessageRenderer({ message, apiBase, token, sessionId }) {
   const [feedbackGiven, setFeedbackGiven] = useState(null) // 'helpful' | 'not_helpful' | null
-  const [isCollapsed, setIsCollapsed] = useState(true)
+  const [isCollapsed, setIsCollapsed] = useState(false)
   const [copyStatus, setCopyStatus] = useState('') // '' | 'success' | 'error'
+  const [renderedText, setRenderedText] = useState('')
+  const renderIndexRef = useRef(0)
 
   // 長文閾值（字元數）
   const COLLAPSE_THRESHOLD = 600
+
+  // 打字機效果（僅 assistant 訊息）
+  useEffect(() => {
+    if (message.role !== 'assistant') {
+      setRenderedText(message.content || '')
+      return
+    }
+
+    renderIndexRef.current = 0
+    setRenderedText('')
+  }, [message.id, message.role])
+
+  useEffect(() => {
+    if (message.role !== 'assistant') return
+
+    const target = message.content || ''
+    if (!target) {
+      setRenderedText('')
+      renderIndexRef.current = 0
+      return
+    }
+
+    let timerId = null
+    const stepSize = target.length > 1200 ? 3 : target.length > 600 ? 2 : 1
+    const speedMs = 12
+
+    const tick = () => {
+      if (renderIndexRef.current >= target.length) return
+      renderIndexRef.current = Math.min(renderIndexRef.current + stepSize, target.length)
+      setRenderedText(target.slice(0, renderIndexRef.current))
+      timerId = window.setTimeout(tick, speedMs)
+    }
+
+    tick()
+    return () => {
+      if (timerId) window.clearTimeout(timerId)
+    }
+  }, [message.content, message.role])
 
   // 複製訊息內容
   const copyContent = useCallback(async () => {
@@ -81,7 +121,7 @@ function MessageRenderer({ message, apiBase, token, sessionId }) {
           <div className="message-body">
             {message.streaming ? (
               <div className="streaming-text">
-                {message.content}
+                {message.role === 'assistant' ? renderedText : message.content}
                 <span className="cursor">▊</span>
               </div>
             ) : (
@@ -89,7 +129,7 @@ function MessageRenderer({ message, apiBase, token, sessionId }) {
                 {message.role === 'assistant' && message.content && message.content.length > COLLAPSE_THRESHOLD ? (
                   <div className={`collapsible-text ${isCollapsed ? 'collapsed' : 'expanded'}`}>
                     <div className="collapsible-content">
-                      <ReactMarkdown>{message.content}</ReactMarkdown>
+                      <ReactMarkdown>{message.role === 'assistant' ? renderedText : message.content}</ReactMarkdown>
                     </div>
                     <button
                       className="btn-collapse-toggle"
@@ -100,7 +140,7 @@ function MessageRenderer({ message, apiBase, token, sessionId }) {
                     </button>
                   </div>
                 ) : (
-                  <ReactMarkdown>{message.content || '...'}</ReactMarkdown>
+                  <ReactMarkdown>{message.role === 'assistant' ? renderedText : (message.content || '...')}</ReactMarkdown>
                 )}
               </>
             )}
