@@ -213,6 +213,222 @@
   box-shadow: 0 4px 16px rgba(108, 92, 231, 0.3);
 }
 
+/* ===== Full-Page Auth (\u767b\u5165\u9801\u9762) ===== */
+.auth-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #faf9f7 0%, #f5f0ea 50%, #ede8e3 100%);
+  padding: 20px;
+}
+
+.auth-container {
+  width: 100%;
+  max-width: 420px;
+  background: white;
+  border-radius: var(--radius-xl);
+  box-shadow: 0 8px 32px rgba(26, 22, 20, 0.08), 0 2px 8px rgba(26, 22, 20, 0.04);
+  padding: 48px 40px;
+  animation: authFadeIn 0.4s ease;
+}
+
+@keyframes authFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.auth-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.auth-logo {
+  font-size: 3.5rem;
+  margin-bottom: 16px;
+  animation: authLogoFloat 3s ease-in-out infinite;
+}
+
+@keyframes authLogoFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+.auth-header h1 {
+  font-family: var(--font-display);
+  font-size: 2rem;
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0 0 8px 0;
+}
+
+.auth-tagline {
+  font-size: 0.9375rem;
+  color: var(--color-text-light);
+  margin: 0;
+}
+
+.auth-form {
+  width: 100%;
+}
+
+.auth-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+  padding: 4px;
+  background: var(--color-surface-soft);
+  border-radius: var(--radius-lg);
+}
+
+.auth-tab {
+  flex: 1;
+  padding: 12px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--color-text-light);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.auth-tab.active {
+  background: white;
+  color: var(--color-primary);
+  box-shadow: 0 2px 8px rgba(26, 22, 20, 0.06);
+}
+
+.auth-tab:hover:not(.active) {
+  color: var(--color-text);
+}
+
+.auth-form-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.auth-form-fields input {
+  width: 100%;
+  padding: 14px 16px;
+  border: 1.5px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: 1rem; /* 16px \u9632 iOS \u7e2e\u653e */
+  font-family: inherit;
+  background: var(--color-bg);
+  color: var(--color-text);
+  transition: all var(--transition-fast);
+  box-sizing: border-box;
+}
+
+.auth-form-fields input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  background: white;
+  box-shadow: 0 0 0 3px var(--color-primary-light);
+}
+
+.auth-form-fields input::placeholder {
+  color: var(--color-text-lighter);
+}
+
+.btn-auth-submit {
+  width: 100%;
+  padding: 14px;
+  min-height: 48px;
+  background: var(--color-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  color: white;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-auth-submit:hover:not(:disabled) {
+  background: var(--color-primary-dark);
+  box-shadow: 0 4px 16px rgba(108, 92, 231, 0.3);
+  transform: translateY(-1px);
+}
+
+.btn-auth-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.auth-divider {
+  position: relative;
+  text-align: center;
+  margin: 20px 0;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: calc(50% - 30px);
+  height: 1px;
+  background: var(--color-border);
+}
+
+.auth-divider::before { left: 0; }
+.auth-divider::after { right: 0; }
+
+.auth-divider span {
+  display: inline-block;
+  padding: 0 12px;
+  background: white;
+  color: var(--color-text-lighter);
+  font-size: 0.875rem;
+}
+
+.btn-guest-trial {
+  width: 100%;
+  padding: 12px;
+  min-height: 44px;
+  background: transparent;
+  border: 1.5px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-light);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-guest-trial:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+
+.btn-guest-trial:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.auth-footer {
+  margin-top: 24px;
+  text-align: center;
+}
+
+.auth-footer p {
+  font-size: 0.8125rem;
+  color: var(--color-text-lighter);
+  margin: 0;
+  line-height: 1.5;
+}
+
 /* ===== Auth Modal — glass card ===== */
 .modal-overlay {
   position: fixed;

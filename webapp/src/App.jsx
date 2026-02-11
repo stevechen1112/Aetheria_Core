@@ -71,8 +71,18 @@ function App() {
     localStorage.setItem('aetheria_sidebar_collapsed', sidebarCollapsed)
   }, [sidebarCollapsed])
 
-  // ========== Auto-provision guest on first visit ==========
-  const provisionGuest = useCallback(async () => {
+  // ========== Guest trial (明確告知使用者) ==========
+  const startGuestTrial = useCallback(async () => {
+    if (!window.confirm(
+      '⚠️ 訪客試用模式\n\n' +
+      '• 對話記錄僅保存 7 天\n' +
+      '• 無法儲存命盤資料\n' +
+      '• 建議註冊以獲得完整功能\n\n' +
+      '確定要以訪客身份試用嗎？'
+    )) {
+      return null
+    }
+
     try {
       const guestId = `guest_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
       const resp = await fetch(`${apiBase}/api/auth/register`, {
@@ -99,15 +109,16 @@ function App() {
         setUserProfile(profileData.profile)
       }).catch(() => {})
       
+      setAuthReady(true)
       return data.token
     } catch (err) {
-      console.error('Guest provision error:', err)
-      setAuthError('無法連接到伺服器，請確認後端已啟動')
+      console.error('Guest trial error:', err)
+      alert('無法連接到伺服器，請稍後再試')
       return null
     }
   }, [apiBase])
 
-  // ========== Validate existing session or create guest ==========
+  // ========== Validate existing session ==========
   useEffect(() => {
     const init = async () => {
       if (token) {
@@ -119,11 +130,11 @@ function App() {
           if (resp.ok) {
             const data = await resp.json()
             setUserId(data.profile?.user_id || userId)
-            setUserProfile(data.profile) // 儲存用戶資料
+            setUserProfile(data.profile)
             setAuthReady(true)
             return
           }
-          // Token expired — clear and re-provision
+          // Token expired — clear
           localStorage.removeItem('aetheria_token')
           localStorage.removeItem('aetheria_user_id')
           setToken('')
@@ -133,9 +144,8 @@ function App() {
           // Server might be down
         }
       }
-      // No valid token — auto-provision guest
-      const newToken = await provisionGuest()
-      setAuthReady(!!newToken)
+      // No valid token — 顯示登入頁面
+      setAuthReady(false)
     }
     init()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -254,22 +264,82 @@ function App() {
     }
   }, [showAuth, authMode])
 
-  // ========== Loading State ==========
+  // ========== 未登入：顯示登入頁面 ==========
   if (!authReady) {
     return (
-      <div className="app-loading">
-        <div className="loading-content">
-          <div className="loading-icon">🔮</div>
-          <h2>Aetheria</h2>
-          <p>{authError || '正在連接...'}</p>
-          {authError && (
-            <button className="retry-btn" onClick={() => {
-              setAuthError('')
-              provisionGuest().then(t => setAuthReady(!!t))
-            }}>
-              重試
-            </button>
-          )}
+      <div className="auth-page">
+        <div className="auth-container">
+          <div className="auth-header">
+            <div className="auth-logo">🔮</div>
+            <h1>Aetheria</h1>
+            <p className="auth-tagline">AI 命理分析顧問</p>
+          </div>
+
+          <div className="auth-form">
+            <div className="auth-tabs">
+              <button
+                className={authMode === 'login' ? 'auth-tab active' : 'auth-tab'}
+                onClick={() => setAuthMode('login')}
+              >
+                登入
+              </button>
+              <button
+                className={authMode === 'register' ? 'auth-tab active' : 'auth-tab'}
+                onClick={() => setAuthMode('register')}
+              >
+                註冊
+              </button>
+            </div>
+
+            <div className="auth-form-fields">
+              {authMode === 'register' && (
+                <input
+                  type="text"
+                  placeholder="顯示名稱"
+                  value={authForm.display_name}
+                  onChange={(e) => setAuthForm(prev => ({ ...prev, display_name: e.target.value }))}
+                />
+              )}
+              <input
+                type="email"
+                placeholder="電子郵件"
+                value={authForm.email}
+                onChange={(e) => setAuthForm(prev => ({ ...prev, email: e.target.value }))}
+              />
+              <input
+                type="password"
+                placeholder="密碼"
+                value={authForm.password}
+                onChange={(e) => setAuthForm(prev => ({ ...prev, password: e.target.value }))}
+              />
+
+              {authError && <div className="auth-error">{authError}</div>}
+
+              <button
+                className="btn-auth-submit"
+                onClick={handleAuth}
+                disabled={authLoading}
+              >
+                {authLoading ? '處理中...' : authMode === 'login' ? '登入' : '註冊'}
+              </button>
+
+              <div className="auth-divider">
+                <span>或</span>
+              </div>
+
+              <button
+                className="btn-guest-trial"
+                onClick={startGuestTrial}
+                disabled={authLoading}
+              >
+                訪客試用（數據不保存）
+              </button>
+            </div>
+
+            <div className="auth-footer">
+              <p>註冊即表示同意服務條款與隱私政策</p>
+            </div>
+          </div>
         </div>
       </div>
     )
