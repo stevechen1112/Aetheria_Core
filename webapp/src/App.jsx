@@ -121,6 +121,20 @@ function App() {
   // ========== Validate existing session ==========
   useEffect(() => {
     const init = async () => {
+      // 檢查版本，自動清除舊資料（從 email 改為 username）
+      const appVersion = localStorage.getItem('aetheria_app_version')
+      if (appVersion !== '2.0.0') {
+        // 自動清除所有舊資料
+        localStorage.clear()
+        localStorage.setItem('aetheria_app_version', '2.0.0')
+        setToken('')
+        setUserId('')
+        setUserProfile(null)
+        setAuthReady(false)
+        console.log('✓ 已自動清除舊版本資料，現在使用 username 登入')
+        return
+      }
+
       if (token) {
         // Validate existing token
         try {
@@ -144,14 +158,19 @@ function App() {
             setAuthReady(true)
             return
           }
-          // Token expired — clear
+          // Token expired or invalid — clear
           localStorage.removeItem('aetheria_token')
           localStorage.removeItem('aetheria_user_id')
           setToken('')
           setUserId('')
           setUserProfile(null)
         } catch {
-          // Server might be down
+          // Server error or network issue — clear invalid token
+          localStorage.removeItem('aetheria_token')
+          localStorage.removeItem('aetheria_user_id')
+          setToken('')
+          setUserId('')
+          setUserProfile(null)
         }
       }
       // No valid token — 顯示登入頁面
