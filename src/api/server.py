@@ -3313,6 +3313,7 @@ def get_profile():
         'status': 'success',
         'profile': {
             'user_id': user_id,
+            'username': member.get('username'),
             'email': member.get('email'),
             'phone': member.get('phone'),
             'display_name': member.get('display_name'),

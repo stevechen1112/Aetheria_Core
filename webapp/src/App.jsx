@@ -89,7 +89,7 @@ function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email: `${guestId}@guest.aetheria.local`,
+          username: guestId,
           password: guestId,
           display_name: '訪客',
           consents: { terms_accepted: true, data_usage_accepted: true }
@@ -143,8 +143,8 @@ function App() {
           })
           if (resp.ok) {
             const data = await resp.json()
-            // 自動清除舊的訪客 token
-            if (data.profile?.email?.includes('@guest.aetheria.local')) {
+            // 自動清除舊的訪客 token（username 以 guest_ 開頭的）
+            if (data.profile?.username?.startsWith('guest_')) {
               localStorage.removeItem('aetheria_token')
               localStorage.removeItem('aetheria_user_id')
               setToken('')
@@ -216,7 +216,10 @@ function App() {
         headers: { 'Authorization': `Bearer ${data.token}` }
       }).then(resp => resp.json()).then(profileData => {
         setUserProfile(profileData.profile)
-      }).catch(() => {})
+        setAuthReady(true) // 設定為已認證
+      }).catch(() => {
+        setAuthReady(true) // 即使取得 profile 失敗也進入主介面
+      })
     } catch {
       setAuthError('無法連接到伺服器')
     } finally {
@@ -231,8 +234,7 @@ function App() {
     setToken('')
     setUserId('')
     setAuthReady(false)
-    // Re-provision guest
-    provisionGuest().then(t => setAuthReady(!!t))
+    // 登出後顯示登入頁面
   }
 
   const handleKeyDown = (e) => {
