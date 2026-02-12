@@ -93,7 +93,7 @@ git push origin main
 **解決方法**：
 手動檢查伺服器上使用的 process manager：
 ```bash
-ssh root@172.237.6.53 "systemctl status aetheria || supervisorctl status aetheria || pm2 list"
+ssh root@172.237.6.53 "systemctl status aetheria-api || systemctl status aetheria || supervisorctl status aetheria || pm2 list"
 ```
 
 ---

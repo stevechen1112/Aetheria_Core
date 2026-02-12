@@ -53,17 +53,17 @@ Write-Host "Build frontend (dist)..." -ForegroundColor Yellow
 Invoke-Remote ("set -e; cd " + $FRONTEND_DIR + "/webapp; npm run build")
 
 Write-Host "Restart service..." -ForegroundColor Yellow
-Invoke-Remote "systemctl restart aetheria.service"
+Invoke-Remote "systemctl restart aetheria-api.service"
 
 $state = ''
 for ($i = 0; $i -lt 12; $i++) {
     Start-Sleep -Seconds 1
-    $state = ssh $SERVER "systemctl is-active aetheria.service; exit 0"
+    $state = ssh $SERVER "systemctl is-active aetheria-api.service; exit 0"
     if ($state -match 'active') { break }
 }
 
 Write-Host ("Service state: " + ($state -replace "\s+", " ").Trim()) -ForegroundColor Cyan
-ssh $SERVER "systemctl status --no-pager -l aetheria.service | head -n 25; exit 0" | Out-Host
+ssh $SERVER "systemctl status --no-pager -l aetheria-api.service | head -n 25; exit 0" | Out-Host
 
 Write-Host "Deploy done" -ForegroundColor Green
 Write-Host "Health: http://172.237.6.53:5001/health" -ForegroundColor White

@@ -25,14 +25,14 @@ npm run build
 echo ""
 echo "🔄 Restarting service..."
 cd /opt/aetheria
-systemctl restart aetheria.service
+systemctl restart aetheria-api.service
 sleep 3
 
 echo ""
 echo "✅ Deployment completed!"
-systemctl status aetheria.service --no-pager -l
+systemctl status aetheria-api.service --no-pager -l
 
 echo ""
 echo "🧪 Testing health endpoint..."
 sleep 2
-curl -s http://localhost:5001/api/utils/health || echo "Health check failed"
+curl -s http://localhost:5001/health || echo "Health check failed"

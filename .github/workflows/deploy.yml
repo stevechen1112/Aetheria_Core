@@ -54,9 +54,9 @@ jobs:
 
             echo ""
             echo "🔄 Restarting service..."
-            systemctl restart aetheria.service
+            systemctl restart aetheria-api.service
             sleep 3
-            systemctl status aetheria.service --no-pager -l
+            systemctl status aetheria-api.service --no-pager -l
 
             echo ""
             echo "✅ Deployment completed!"
