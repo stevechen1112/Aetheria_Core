@@ -189,6 +189,20 @@ class AetheriaDatabase:
                 )
             """)
 
+            # Geocode 快取（地理編碼結果）
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS geocode_cache (
+                    location_query TEXT PRIMARY KEY,
+                    latitude REAL,
+                    longitude REAL,
+                    formatted TEXT,
+                    confidence REAL,
+                    provider TEXT,
+                    raw_json TEXT,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
             # Chat Sessions
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS chat_sessions (
@@ -308,6 +322,11 @@ class AetheriaDatabase:
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_system_reports_user_id
                 ON system_reports(user_id)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_geocode_cache_updated_at
+                ON geocode_cache(updated_at DESC)
             """)
 
             cursor.execute("""
@@ -606,6 +625,62 @@ class AetheriaDatabase:
             """, values)
             
             return cursor.rowcount > 0
+
+    # ==================== Geocode 快取 ====================
+
+    def get_geocode_cache(self, location_query: str) -> Optional[Dict[str, Any]]:
+        """讀取地理編碼快取。"""
+        if not location_query:
+            return None
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT location_query, latitude, longitude, formatted, confidence, provider, raw_json, updated_at
+                FROM geocode_cache
+                WHERE location_query = ?
+                """,
+                (location_query,)
+            )
+            row = cursor.fetchone()
+
+        if not row:
+            return None
+
+        data = dict(row)
+        raw = data.pop('raw_json', None)
+        if raw:
+            try:
+                data['raw'] = json.loads(raw)
+            except Exception:
+                data['raw'] = None
+        return data
+
+    def upsert_geocode_cache(self, location_query: str, geo_data: Dict[str, Any]) -> bool:
+        """寫入或更新地理編碼快取。"""
+        if not location_query or not isinstance(geo_data, dict):
+            return False
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT OR REPLACE INTO geocode_cache
+                (location_query, latitude, longitude, formatted, confidence, provider, raw_json, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    location_query,
+                    geo_data.get('latitude'),
+                    geo_data.get('longitude'),
+                    geo_data.get('formatted'),
+                    geo_data.get('confidence'),
+                    geo_data.get('provider'),
+                    json.dumps(geo_data.get('raw'), ensure_ascii=False) if geo_data.get('raw') is not None else None,
+                    datetime.now().isoformat(),
+                )
+            )
+            return True
     
     # ==================== 命盤鎖定相關 ====================
     
