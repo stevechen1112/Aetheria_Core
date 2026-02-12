@@ -1688,7 +1688,8 @@ def call_gemini_with_tools(
     max_iterations: int = 5,
     model_name: Optional[str] = None,
     streaming: bool = False,
-    stream_callback = None
+    stream_callback = None,
+    tool_guard = None
 ) -> Tuple[str, List[Dict[str, Any]]]:
     """
     呼叫 Gemini API 並處理 Function Calling 循環
@@ -1768,8 +1769,20 @@ def call_gemini_with_tools(
                                      for param in tool_def['parameters'].get('properties', {}).keys()]:
                         func_args['user_id'] = user_id
                     
-                    # 執行工具
-                    tool_result = execute_tool(func_name, func_args)
+                    # 工具防護（例如：塔羅需確認）
+                    if tool_guard:
+                        guard_result = tool_guard(func_name, func_args)
+                    else:
+                        guard_result = None
+
+                    if isinstance(guard_result, dict) and guard_result.get('blocked'):
+                        tool_result = guard_result.get('result') or {
+                            'status': 'blocked',
+                            'message': 'Tool execution blocked by guard.'
+                        }
+                    else:
+                        # 執行工具
+                        tool_result = execute_tool(func_name, func_args)
                     
                     # 推送工具完成事件
                     if streaming and stream_callback:
@@ -1782,7 +1795,8 @@ def call_gemini_with_tools(
                         "iteration": iteration,
                         "function_name": func_name,
                         "arguments": func_args,
-                        "result": tool_result
+                        "result": tool_result,
+                        "blocked": bool(isinstance(guard_result, dict) and guard_result.get('blocked'))
                     }
                     tool_call_history.append(tool_call_record)
                     
@@ -2269,9 +2283,12 @@ def _build_tool_args(tool_name: str, message: str, user_data: Optional[Dict[str,
         return None
 
     if tool_name == 'draw_tarot':
+        _confirmed, _payload = _parse_tarot_confirm_message(message)
+        if not _confirmed:
+            return None
         return {
-            'question': message,
-            'spread': 'three_card'
+            'question': (_payload.get('question') or '').strip(),
+            'spread': (_payload.get('spread') or 'three_card').strip() or 'three_card'
         }
 
     if tool_name == 'get_location':
@@ -4294,6 +4311,16 @@ def chat_consult():
     session_id = (data.get('session_id') or '').strip() or None
     voice_mode = data.get('voice_mode', False)  # 新增：語音模式標記
 
+    _tarot_confirmed, _tarot_payload = _parse_tarot_confirm_message(message)
+    _user_message_for_llm = (
+        (_tarot_payload.get('question') or '').strip()
+        if _tarot_confirmed else (message or '').strip()
+    )
+    if not _user_message_for_llm:
+        _user_message_for_llm = (message or '').strip()
+    _tarot_keywords = ['塔羅', '塔罗', '抽牌', '牌陣', '牌阵', '占卜']
+    _user_wants_tarot = any(kw in _user_message_for_llm for kw in _tarot_keywords)
+
     if not message:
         session_id = _ensure_session_for_early_return(user_id, session_id, message)
         empty_response = {
@@ -4422,6 +4449,8 @@ def chat_consult():
     cached_payload = None
     if not session_id:
         cached_payload = _get_cached_chat_response(user_id, message)
+    if _user_wants_tarot and not _tarot_confirmed:
+        cached_payload = None
 
     # Session handling
     if session_id:
@@ -4458,7 +4487,47 @@ def chat_consult():
         cached_response = versioner.version_response(cached_response, endpoint='/api/chat/consult')
         return jsonify(cached_response)
 
-    extracted_profile = _extract_user_profile_from_message(message)
+    if _user_wants_tarot and not _tarot_confirmed:
+        _store_message = f"🃏 抽牌：{_user_message_for_llm}" if _user_message_for_llm else "🃏 抽牌"
+        db.add_chat_message(session_id, 'user', _store_message, payload=None)
+        memory_manager.add_conversation_turn(
+            user_id=user_id,
+            session_id=session_id,
+            role='user',
+            content=_store_message
+        )
+
+        tarot_widget = _build_tarot_draw_widget(_user_message_for_llm, spread_type='three_card')
+        reply = "🃏 我已準備好為你抽牌，請送出抽牌確認（或按下介面的抽牌按鈕）後開始。"
+        payload = {
+            'needs_confirmation': True,
+            'tarot_draw': tarot_widget
+        }
+        db.add_chat_message(session_id, 'assistant', reply, payload=payload)
+        memory_manager.add_conversation_turn(
+            user_id=user_id,
+            session_id=session_id,
+            role='assistant',
+            content=reply
+        )
+
+        response_payload = {
+            'status': 'success',
+            'session_id': session_id,
+            'reply': reply,
+            'needs_confirmation': True,
+            'tarot_draw': tarot_widget,
+            'citations': [],
+            'used_systems': ['tarot'],
+            'confidence': 0.3,
+            'next_steps': ['請確認抽牌以繼續']
+        }
+        client_version = get_client_version(request.headers)
+        versioner = get_response_versioner(client_version)
+        response_payload = versioner.version_response(response_payload, endpoint='/api/chat/consult')
+        return jsonify(response_payload)
+
+    extracted_profile = _extract_user_profile_from_message(_user_message_for_llm)
     if extracted_profile:
         try:
             save_user(user_id, extracted_profile)
@@ -4489,7 +4558,7 @@ def chat_consult():
     has_birth_date = bool((user_data or {}).get('birth_date'))
     has_birth_time = bool((user_data or {}).get('birth_time'))
     has_birth_location = bool((user_data or {}).get('birth_location'))
-    requested_systems = detect_requested_systems(message)
+    requested_systems = detect_requested_systems(_user_message_for_llm)
 
     # 可用系統（報告 + 鎖盤）
     available_systems = []
@@ -4505,11 +4574,11 @@ def chat_consult():
 
     meta_profile = fortune_profile.get('meta') if isinstance(fortune_profile, dict) else None
     weighting_rules = load_system_weighting_rules()
-    keyword_topic = detect_topic_keywords(message)
+    keyword_topic = detect_topic_keywords(_user_message_for_llm)
     if keyword_topic:
         classified_topic, classified_conf, classified_rationale = (keyword_topic, 0.7, "keyword:rule")
     else:
-        classified_topic, classified_conf, classified_rationale = classify_question_topic(message, weighting_rules)
+        classified_topic, classified_conf, classified_rationale = classify_question_topic(_user_message_for_llm, weighting_rules)
     suggested_weights = build_suggested_system_weights(
         classified_topic,
         weighting_rules,
@@ -4578,7 +4647,7 @@ def chat_consult():
     
     # 分析使用者輸入（情緒、意圖、策略）
     intelligence_context = intelligence_core.analyze_user_input(
-        user_message=message,
+        user_message=_user_message_for_llm,
         user_state=user_state,
         conversation_history=[{
             'role': m.get('role'),
@@ -4604,7 +4673,7 @@ def chat_consult():
     emotional_signals = {
         'distress': intelligence_context.emotional_signal.distress_level > 0.7,
         'curiosity': intelligence_context.emotional_signal.emotion == 'excited',
-        'closing': any(kw in message for kw in ['掰掰', '再見', '拜拜', '謝謝', '結束', '好了', '就這樣'])
+        'closing': any(kw in _user_message_for_llm for kw in ['掰掰', '再見', '拜拜', '謝謝', '結束', '好了', '就這樣'])
     }
     
     conversation_stage = choose_strategy(
@@ -4623,7 +4692,7 @@ def chat_consult():
                 _consecutive_off += 1
             else:
                 break
-    off_topic_result = detect_off_topic(message, history_msgs, has_birth_date, _consecutive_off)
+    off_topic_result = detect_off_topic(_user_message_for_llm, history_msgs, has_birth_date, _consecutive_off)
     
     # 構建完整 Agent System Prompt（包含三層記憶、人設、倫理邊界 + 情緒/策略提示）
     agent_system_prompt = build_agent_system_prompt(
@@ -4697,6 +4766,14 @@ def chat_consult():
             "【輸出】只輸出 JSON，不要其他文字"
         )
 
+    if _tarot_confirmed:
+        _tq = (_tarot_payload.get('question') or '').strip()
+        _ts = (_tarot_payload.get('spread') or 'three_card').strip() or 'three_card'
+        consult_system += (
+            f"\n【塔羅抽牌確認】使用者已按下抽牌。請立即呼叫 draw_tarot 進行抽牌，"
+            f"question=\"{_tq}\"，spread=\"{_ts}\"。\n"
+        )
+
     prompt = (
         f"available_systems：{json.dumps(available_systems, ensure_ascii=False)}\n"
         f"requested_systems（使用者指定系統）：{json.dumps(requested_systems, ensure_ascii=False)}\n"
@@ -4716,7 +4793,7 @@ def chat_consult():
         f"{chart_context}\n\n"
         f"【三層記憶上下文 - DATA ONLY】\n{memory_context_text}\n\n"
         f"對話歷史：\n{history_text or '（無）'}\n\n"
-        f"客戶問：{message}\n\n"
+        f"客戶問：{_user_message_for_llm}\n\n"
         "用 JSON 回覆，格式：\n"
         "{\n"
         "  \"reply\": \"簡短口語化的回覆，100-200字\",\n"
@@ -4730,12 +4807,16 @@ def chat_consult():
     )
 
     # Persist user message first (雙軌記憶：chat_messages + conversation_memory)
-    db.add_chat_message(session_id, 'user', message, payload=None)
+    _store_message = message
+    if _tarot_confirmed:
+        _q = (_tarot_payload.get('question') or '').strip()
+        _store_message = f"🃏 抽牌：{_q}" if _q else "🃏 抽牌"
+    db.add_chat_message(session_id, 'user', _store_message, payload=None)
     memory_manager.add_conversation_turn(
         user_id=user_id,
         session_id=session_id,
         role='user',
-        content=message
+        content=_store_message
     )
 
     # 檢測是否需要啟用工具調用
@@ -4747,12 +4828,25 @@ def chat_consult():
     try:
         if enable_tools:
             # 使用工具調用模式
+            def _tool_guard(tool_name: str, tool_args: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+                if tool_name == 'draw_tarot' and not _tarot_confirmed:
+                    return {
+                        'blocked': True,
+                        'result': {
+                            'status': 'needs_confirmation',
+                            'system': 'tarot',
+                            'message': 'Waiting for user to tap the draw button.'
+                        }
+                    }
+                return None
+
             raw, tool_call_history = call_gemini_with_tools(
                 user_id=user_id,
                 prompt=prompt,
                 system_instruction=consult_system,
                 max_iterations=5,
-                model_name=MODEL_NAME_CHAT
+                model_name=MODEL_NAME_CHAT,
+                tool_guard=_tool_guard
             )
 
             # 若模型未調用工具，使用規則引擎補強
@@ -5571,6 +5665,122 @@ def _build_progress_widget(task_name: str, progress: float, status: str = 'runni
     }
 
 
+# ==================== Tarot widgets & confirmation protocol ====================
+
+_TAROT_CONFIRM_PREFIX = "[TAROT_DRAW_CONFIRM]"
+
+
+def _parse_tarot_confirm_message(raw_message: str) -> Tuple[bool, Dict[str, Any]]:
+    """Parse the front-end confirmation message for tarot draw.
+
+    Expected formats:
+      1) [TAROT_DRAW_CONFIRM]{"question":"...","spread":"three_card"}
+      2) [TAROT_DRAW_CONFIRM] <question text>
+    """
+    msg = (raw_message or "").strip()
+    if not msg.startswith(_TAROT_CONFIRM_PREFIX):
+        return False, {}
+
+    rest = msg[len(_TAROT_CONFIRM_PREFIX):].strip()
+    if not rest:
+        return True, {"question": "", "spread": "three_card"}
+
+    if rest.startswith("{"):
+        try:
+            payload = json.loads(rest)
+            if isinstance(payload, dict):
+                question = (payload.get("question") or "").strip()
+                spread = (payload.get("spread") or "three_card").strip()
+                return True, {"question": question, "spread": spread}
+        except Exception:
+            pass
+
+    # Fallback: treat rest as question
+    return True, {"question": rest, "spread": "three_card"}
+
+
+def _build_tarot_draw_widget(question: str, spread_type: str = 'three_card') -> dict:
+    """Build a compact widget asking the user to tap to draw."""
+    spread_labels = {
+        'single': '單張牌',
+        'three_card': '三張牌（過去-現在-未來）',
+        'celtic_cross': '賽爾特十字（十張）',
+        'relationship': '關係牌陣（六張）',
+        'decision': '抉擇牌陣（七張）'
+    }
+    positions_map = {
+        'single': ['當前指引'],
+        'three_card': ['過去', '現在', '未來'],
+    }
+    return {
+        'type': 'tarot_draw',
+        'data': {
+            'question': (question or '').strip(),
+            'spread_type': spread_type,
+            'spread_name': spread_labels.get(spread_type, spread_type),
+            'positions': positions_map.get(spread_type, []),
+            'confirm_prefix': _TAROT_CONFIRM_PREFIX,
+        },
+        'compact': True
+    }
+
+
+def _build_tarot_spread_widget(tool_result: Dict[str, Any]) -> Optional[dict]:
+    """Build a widget to display the drawn cards (with images if available)."""
+    if not isinstance(tool_result, dict):
+        return None
+    if tool_result.get('status') != 'success':
+        return None
+    if tool_result.get('system') != 'tarot':
+        return None
+    reading = tool_result.get('data') or {}
+    cards = reading.get('cards') or []
+    if not isinstance(cards, list) or not cards:
+        return None
+
+    widget_cards = []
+    for c in cards:
+        if not isinstance(c, dict):
+            continue
+        meaning = c.get('meaning') or {}
+        arcana = meaning.get('arcana')
+        card_id = c.get('id')
+        name_en = (c.get('name_en') or meaning.get('name_en') or '').strip()
+        name_en_slug = ''.join(ch if ch.isalnum() or ch == '_' else '_' for ch in name_en.replace(' ', '_'))
+
+        image_file = None
+        try:
+            if arcana == 'major' and isinstance(card_id, int):
+                image_file = f"{card_id:02d}_{name_en_slug}.jpg"
+            elif name_en_slug:
+                image_file = f"{name_en_slug}.jpg"
+        except Exception:
+            image_file = None
+
+        image_url = f"/tarot/{image_file}" if image_file else None
+        widget_cards.append({
+            'id': c.get('id'),
+            'name': c.get('name'),
+            'name_en': c.get('name_en'),
+            'is_reversed': bool(c.get('is_reversed')),
+            'position': c.get('position'),
+            'position_index': c.get('position_index'),
+            'image_url': image_url,
+        })
+
+    return {
+        'type': 'tarot_spread',
+        'data': {
+            'reading_id': reading.get('reading_id'),
+            'spread_type': reading.get('spread_type'),
+            'spread_name': reading.get('spread_name'),
+            'question': reading.get('question'),
+            'cards': widget_cards,
+        },
+        'compact': True
+    }
+
+
 def _extract_insights_from_response(response_text: str, used_systems: List[str], confidence: float) -> List[dict]:
     """從 AI 回覆中提取關鍵洞察並生成 insight widgets
     
@@ -5728,11 +5938,49 @@ def chat_consult_stream():
                     pass
             
             # 儲存使用者訊息
-            db.add_chat_message(session_id, 'user', message)
+            _store_message = message
+            _tc, _tp = _parse_tarot_confirm_message(message)
+            if _tc:
+                _q = (_tp.get('question') or '').strip()
+                _store_message = f"🃏 抽牌：{_q}" if _q else "🃏 抽牌"
+            db.add_chat_message(session_id, 'user', _store_message)
             
             # 發送 session_id（讓前端可以立即使用）
             session_data = json.dumps({'session_id': session_id}, ensure_ascii=False)
             yield f"event: session\ndata: {session_data}\n\n"
+
+            _tarot_confirmed, _tarot_payload = _parse_tarot_confirm_message(message)
+            _user_message_for_llm = (
+                (_tarot_payload.get('question') or '').strip()
+                if _tarot_confirmed else (message or '').strip()
+            )
+            if not _user_message_for_llm:
+                _user_message_for_llm = (message or '').strip()
+
+            _tarot_keywords = ['塔羅', '塔罗', '抽牌', '牌陣', '牌阵', '占卜']
+            _user_wants_tarot = any(kw in _user_message_for_llm for kw in _tarot_keywords)
+            if _user_wants_tarot and not _tarot_confirmed:
+                widget_data = _build_tarot_draw_widget(_user_message_for_llm, spread_type='three_card')
+                widget_json = json.dumps(widget_data, ensure_ascii=False)
+                yield f"event: widget\ndata: {widget_json}\n\n"
+
+                nudge = "\n\n🃏 我已準備好為你抽牌。請按下下方『抽牌』按鈕開始。\n\n"
+                event_data = json.dumps({'chunk': nudge}, ensure_ascii=False)
+                yield f"event: text\ndata: {event_data}\n\n"
+
+                db.add_chat_message(session_id, 'assistant', nudge.strip(), payload={
+                    'needs_confirmation': True,
+                    'tarot_draw': widget_data
+                })
+
+                done_data = json.dumps({
+                    'session_id': session_id,
+                    'total_length': len(nudge.strip()),
+                    'tool_calls': 0,
+                    'widgets_sent': 1
+                }, ensure_ascii=False)
+                yield f"event: done\ndata: {done_data}\n\n"
+                return
             
             # Load user data & reports
             reports = db.get_all_system_reports(user_id)
@@ -6118,6 +6366,15 @@ def chat_consult_stream():
                 if _has_all_fields:
                     _chart_hint += "\n⛔ 用戶已提供完整的生辰資料（日期、時間、性別、地點），絕對不要再詢問任何出生資訊。直接排盤或引用已有數據分析。"
             
+            # Tarot: front-end confirmation protocol (user tap-to-draw)
+            _tarot_confirmed, _tarot_payload = _parse_tarot_confirm_message(message)
+            _user_message_for_llm = (
+                (_tarot_payload.get('question') or '').strip()
+                if _tarot_confirmed else (message or '').strip()
+            )
+            if not _user_message_for_llm:
+                _user_message_for_llm = (message or '').strip()
+
             consult_system = enhanced_prompt + f"""
 {steering_hint}
 【可用命盤系統】
@@ -6132,11 +6389,19 @@ def chat_consult_stream():
 【參考事實】
 {chr(10).join(f'• {fact}' for fact in facts[:15]) if facts else '（無）'}
 """
+
+            if _tarot_confirmed:
+                _tq = (_tarot_payload.get('question') or '').strip()
+                _ts = (_tarot_payload.get('spread') or 'three_card').strip() or 'three_card'
+                consult_system += (
+                    f"\n【塔羅抽牌確認】使用者已按下抽牌。請立即呼叫 draw_tarot 進行抽牌，"
+                    f"question=\"{_tq}\"，spread=\"{_ts}\"。\n"
+                )
             
             # Build user prompt
             prompt = f"""
 【用戶提問】
-{message}
+{_user_message_for_llm}
 
 【對話歷史】
 {history_text or '（新對話）'}
@@ -6360,6 +6625,34 @@ def chat_consult_stream():
                     for fc in _iter_function_calls:
                         tool_name = fc.name
                         tool_args = dict(fc.args) if fc.args else {}
+
+                        # Tarot gate: require explicit user confirmation before drawing.
+                        if tool_name == 'draw_tarot' and not _tarot_confirmed:
+                            widget_data = _build_tarot_draw_widget(_user_message_for_llm, spread_type='three_card')
+                            widget_json = json.dumps(widget_data, ensure_ascii=False)
+                            yield f"event: widget\ndata: {widget_json}\n\n"
+                            widget_count += 1
+
+                            result = {
+                                'status': 'needs_confirmation',
+                                'system': 'tarot',
+                                'message': 'Waiting for user to tap the draw button.'
+                            }
+                            tool_calls_made.append({
+                                'name': tool_name,
+                                'args': tool_args,
+                                'result': result,
+                                'blocked': True
+                            })
+                            tool_response_parts.append(
+                                types.Part(
+                                    function_response=types.FunctionResponse(
+                                        name=tool_name,
+                                        response=result
+                                    )
+                                )
+                            )
+                            continue
                         
                         # SSE: 工具開始
                         tool_data = json.dumps({
@@ -6390,6 +6683,13 @@ def chat_consult_stream():
                                 widget_data = _build_chart_widget_from_tool_result(tool_name, result)
                                 if widget_data:
                                     widget_json = json.dumps(widget_data, ensure_ascii=False)
+                                    yield f"event: widget\ndata: {widget_json}\n\n"
+                                    widget_count += 1
+
+                            if tool_name == 'draw_tarot':
+                                tarot_widget = _build_tarot_spread_widget(result)
+                                if tarot_widget:
+                                    widget_json = json.dumps(tarot_widget, ensure_ascii=False)
                                     yield f"event: widget\ndata: {widget_json}\n\n"
                                     widget_count += 1
                             
@@ -6746,99 +7046,116 @@ def chat_consult_stream():
             # ===== Fix X: 塔羅熔斷機制 =====
             # 條件：使用者提到塔羅/抽牌 + AI 沒有呼叫 draw_tarot + 沒有已經觸發的熔斷
             _tarot_keywords = ['塔羅', '塔罗', '抽牌', '牌陣', '牌阵', '占卜']
-            _user_wants_tarot = any(kw in message for kw in _tarot_keywords)
+            _user_wants_tarot = any(kw in (_user_message_for_llm or '') for kw in _tarot_keywords)
             _ai_called_tarot = any(call['name'] == 'draw_tarot' for call in tool_calls_made)
             if _user_wants_tarot and not _ai_called_tarot and not fuse_triggered:
-                logger.warning(
-                    f"[塔羅熔斷觸發] Session {session_id}: 使用者要求塔羅但 AI 未呼叫 draw_tarot，伺服器強制執行"
-                )
-                
-                # 建構 draw_tarot 參數
-                _tarot_args = _build_tool_args('draw_tarot', message, user_data)
-                if _tarot_args:
-                    try:
-                        fuse_message = "\n\n（正在為您抽牌中...）\n\n"
-                        event_data = json.dumps({'chunk': fuse_message}, ensure_ascii=False)
-                        yield f"event: text\ndata: {event_data}\n\n"
-                        accumulated_text += fuse_message
-                        
-                        # 執行 draw_tarot
-                        tool_data = json.dumps({
-                            'status': 'executing',
-                            'name': 'draw_tarot',
-                            'args': _tarot_args,
-                            'fuse_triggered': True
-                        }, ensure_ascii=False)
-                        yield f"event: tool\ndata: {tool_data}\n\n"
-                        
-                        result = execute_tool('draw_tarot', _tarot_args)
-                        tool_calls_made.append({
-                            'name': 'draw_tarot',
-                            'args': _tarot_args,
-                            'result': result,
-                            'fuse_triggered': True
-                        })
-                        
-                        tool_data = json.dumps({
-                            'status': 'completed',
-                            'name': 'draw_tarot',
-                            'result': result,
-                            'fuse_triggered': True
-                        }, ensure_ascii=False)
-                        yield f"event: tool\ndata: {tool_data}\n\n"
-                        
-                        # 讓 AI 根據牌面結果生成解讀
-                        contents.append(types.Content(role="model", parts=[
-                            types.Part(function_call=types.FunctionCall(name='draw_tarot', args=_tarot_args), thought_signature="skip_thought_signature_validator")
-                        ]))
-                        contents.append(types.Content(role="tool", parts=[
-                            types.Part(function_response=types.FunctionResponse(
-                                name='draw_tarot', response=result
-                            ))
-                        ]))
-                        
+                # 未確認：先要求使用者點擊抽牌（不自動抽）
+                if not _tarot_confirmed:
+                    widget_data = _build_tarot_draw_widget(_user_message_for_llm, spread_type='three_card')
+                    widget_json = json.dumps(widget_data, ensure_ascii=False)
+                    yield f"event: widget\ndata: {widget_json}\n\n"
+                    widget_count += 1
+
+                    nudge = "\n\n🃏 我已準備好為你抽牌。請按下下方『抽牌』按鈕開始。\n\n"
+                    event_data = json.dumps({'chunk': nudge}, ensure_ascii=False)
+                    yield f"event: text\ndata: {event_data}\n\n"
+                    accumulated_text += nudge
+                    fuse_triggered = True
+                else:
+                    logger.warning(
+                        f"[塔羅熔斷觸發] Session {session_id}: 已確認抽牌但 AI 未呼叫 draw_tarot，伺服器強制執行"
+                    )
+
+                    # 建構 draw_tarot 參數（僅確認後才會有 args）
+                    _tarot_args = _build_tool_args('draw_tarot', message, user_data)
+                    if _tarot_args:
                         try:
-                            followup_response = gemini_client.generate_content_stream(
-                                prompt=contents,
-                                system_instruction=consult_system,
-                                tools=None,
-                                model_name=MODEL_NAME_CHAT
-                            )
-                            
-                            _fuse_buffer = ""
-                            for chunk in followup_response:
-                                if hasattr(chunk, 'candidates') and chunk.candidates:
-                                    for part in chunk.candidates[0].content.parts:
-                                        if hasattr(part, 'text') and part.text:
-                                            _fuse_buffer += part.text
-                                            if len(_fuse_buffer) >= 60:
-                                                _cleaned_fuse = _stream_clean_chunk(_fuse_buffer, strip_birth_ask=has_birth_date, has_gender=_has_gender_data)
-                                                if _cleaned_fuse.strip():
-                                                    accumulated_text += _cleaned_fuse
-                                                    event_data = json.dumps({'chunk': _cleaned_fuse}, ensure_ascii=False)
-                                                    yield f"event: text\ndata: {event_data}\n\n"
-                                                    time.sleep(0.02)
-                                                _fuse_buffer = ""
-                            if _fuse_buffer:
-                                _cleaned_fuse = _stream_clean_chunk(_fuse_buffer, strip_birth_ask=has_birth_date, has_gender=_has_gender_data)
-                                if _cleaned_fuse.strip():
-                                    accumulated_text += _cleaned_fuse
-                                    event_data = json.dumps({'chunk': _cleaned_fuse}, ensure_ascii=False)
-                                    yield f"event: text\ndata: {event_data}\n\n"
-                        except Exception as e:
-                            if _is_quota_exhausted(e):
-                                fallback_msg = _quota_fallback_message()
-                            else:
-                                logger.error(f"塔羅熔斷後 AI 解讀失敗: {e}")
-                                fallback_msg = f"\n\n塔羅牌已為您抽出，讓我為您解讀...\n"
-                            event_data = json.dumps({'chunk': fallback_msg}, ensure_ascii=False)
+                            fuse_message = "\n\n（正在為您抽牌中...）\n\n"
+                            event_data = json.dumps({'chunk': fuse_message}, ensure_ascii=False)
                             yield f"event: text\ndata: {event_data}\n\n"
-                            accumulated_text += fallback_msg
-                        
-                        fuse_triggered = True
-                        
-                    except Exception as e:
-                        logger.error(f"塔羅熔斷機制執行失敗: {e}")
+                            accumulated_text += fuse_message
+
+                            tool_data = json.dumps({
+                                'status': 'executing',
+                                'name': 'draw_tarot',
+                                'args': _tarot_args,
+                                'fuse_triggered': True
+                            }, ensure_ascii=False)
+                            yield f"event: tool\ndata: {tool_data}\n\n"
+
+                            result = execute_tool('draw_tarot', _tarot_args)
+                            tool_calls_made.append({
+                                'name': 'draw_tarot',
+                                'args': _tarot_args,
+                                'result': result,
+                                'fuse_triggered': True
+                            })
+
+                            tool_data = json.dumps({
+                                'status': 'completed',
+                                'name': 'draw_tarot',
+                                'result': result,
+                                'fuse_triggered': True
+                            }, ensure_ascii=False)
+                            yield f"event: tool\ndata: {tool_data}\n\n"
+
+                            tarot_widget = _build_tarot_spread_widget(result)
+                            if tarot_widget:
+                                widget_json = json.dumps(tarot_widget, ensure_ascii=False)
+                                yield f"event: widget\ndata: {widget_json}\n\n"
+                                widget_count += 1
+
+                            contents.append(types.Content(role="model", parts=[
+                                types.Part(function_call=types.FunctionCall(name='draw_tarot', args=_tarot_args), thought_signature="skip_thought_signature_validator")
+                            ]))
+                            contents.append(types.Content(role="tool", parts=[
+                                types.Part(function_response=types.FunctionResponse(
+                                    name='draw_tarot', response=result
+                                ))
+                            ]))
+
+                            try:
+                                followup_response = gemini_client.generate_content_stream(
+                                    prompt=contents,
+                                    system_instruction=consult_system,
+                                    tools=None,
+                                    model_name=MODEL_NAME_CHAT
+                                )
+
+                                _fuse_buffer = ""
+                                for chunk in followup_response:
+                                    if hasattr(chunk, 'candidates') and chunk.candidates:
+                                        for part in chunk.candidates[0].content.parts:
+                                            if hasattr(part, 'text') and part.text:
+                                                _fuse_buffer += part.text
+                                                if len(_fuse_buffer) >= 60:
+                                                    _cleaned_fuse = _stream_clean_chunk(_fuse_buffer, strip_birth_ask=has_birth_date, has_gender=_has_gender_data)
+                                                    if _cleaned_fuse.strip():
+                                                        accumulated_text += _cleaned_fuse
+                                                        event_data = json.dumps({'chunk': _cleaned_fuse}, ensure_ascii=False)
+                                                        yield f"event: text\ndata: {event_data}\n\n"
+                                                        time.sleep(0.02)
+                                                    _fuse_buffer = ""
+                                if _fuse_buffer:
+                                    _cleaned_fuse = _stream_clean_chunk(_fuse_buffer, strip_birth_ask=has_birth_date, has_gender=_has_gender_data)
+                                    if _cleaned_fuse.strip():
+                                        accumulated_text += _cleaned_fuse
+                                        event_data = json.dumps({'chunk': _cleaned_fuse}, ensure_ascii=False)
+                                        yield f"event: text\ndata: {event_data}\n\n"
+                            except Exception as e:
+                                if _is_quota_exhausted(e):
+                                    fallback_msg = _quota_fallback_message()
+                                else:
+                                    logger.error(f"塔羅熔斷後 AI 解讀失敗: {e}")
+                                    fallback_msg = f"\n\n塔羅牌已為您抽出，讓我為您解讀...\n"
+                                event_data = json.dumps({'chunk': fallback_msg}, ensure_ascii=False)
+                                yield f"event: text\ndata: {event_data}\n\n"
+                                accumulated_text += fallback_msg
+
+                            fuse_triggered = True
+
+                        except Exception as e:
+                            logger.error(f"塔羅熔斷機制執行失敗: {e}")
 
             # ===== 姓名學熔斷機制 =====
             _name_keywords = ['姓名', '名字', '取名', '改名', '姓名學']

@@ -1,0 +1,135 @@
+.tarot-widget {
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  padding: 14px;
+  max-width: 100%;
+}
+
+.tarot-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.tarot-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.tarot-question {
+  font-size: 0.875rem;
+  color: var(--color-text-light);
+  line-height: 1.5;
+}
+
+/* Draw widget */
+.tarot-slots {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+@media (max-width: 520px) {
+  .tarot-slots {
+    grid-template-columns: repeat(3, minmax(90px, 1fr));
+  }
+}
+
+.tarot-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.tarot-card-back {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-soft);
+  border: 1px dashed var(--color-border-light);
+}
+
+.tarot-slot-label {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.tarot-draw-btn {
+  width: 100%;
+  min-height: 44px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-light);
+  background: var(--color-surface-warm);
+  color: var(--color-text);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tarot-draw-btn:hover {
+  border-color: var(--color-primary-tint);
+}
+
+.tarot-hint {
+  margin-top: 10px;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+/* Spread widget */
+.tarot-cards-row {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.tarot-card {
+  flex: 0 0 140px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+@media (max-width: 520px) {
+  .tarot-card {
+    flex-basis: 120px;
+  }
+}
+
+.tarot-card-img,
+.tarot-card-fallback {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-light);
+  background: var(--color-surface-soft);
+  object-fit: cover;
+}
+
+.tarot-card-img.reversed {
+  transform: rotate(180deg);
+}
+
+.tarot-card-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tarot-card-position {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+.tarot-card-name {
+  font-size: 0.875rem;
+  color: var(--color-text);
+  line-height: 1.4;
+}

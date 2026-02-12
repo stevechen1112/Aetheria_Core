@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Aetheria — Register (Mobile, Navy)</title>
+    <style>
+      :root{
+        --bg:#faf9f7;
+        --surface:#ffffff;
+        --soft:#f5f3f0;
+        --border:#e7e2dc;
+        --text:#1f2430;
+        --muted:#6b7280;
+        --primary:#0b2a4a;
+        --primaryDark:#071f36;
+        --primaryLight:#e8f0ff;
+        --shadow: 0 18px 50px rgba(26,22,20,.10);
+        --shadowSm: 0 10px 28px rgba(26,22,20,.08);
+        --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans TC", Arial;
+        --fontDisplay: ui-serif, Georgia, "Times New Roman", serif;
+        --safeTop: env(safe-area-inset-top);
+        --safeBottom: env(safe-area-inset-bottom);
+      }
+      *{box-sizing:border-box}
+      html,body{height:100%}
+      body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font)}
+      a{color:inherit;text-decoration:none}
+      button,input,select{font:inherit}
+
+      .frame{max-width:430px;margin:0 auto;min-height:100vh}
+      @media (min-width: 900px){
+        body{display:flex;justify-content:center}
+        .frame{box-shadow: 0 30px 90px rgba(26,22,20,.15);border-left:1px solid rgba(0,0,0,.04);border-right:1px solid rgba(0,0,0,.04)}
+      }
+
+      .app{min-height:100vh;display:grid;grid-template-rows:auto 1fr auto}
+
+      .topbar{
+        position:sticky;top:0;z-index:10;
+        background:rgba(250,249,247,.78);
+        backdrop-filter: blur(10px);
+        border-bottom:1px solid var(--border);
+        padding-top: var(--safeTop);
+      }
+      .topbar-inner{height:56px;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 14px}
+      .brand{display:flex;align-items:center;gap:10px;min-width:0}
+      .mark{width:34px;height:34px;border-radius:14px;background:linear-gradient(135deg,var(--primary),#163a6a);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;box-shadow:0 10px 26px rgba(11,42,74,.22)}
+      .brand-txt strong{display:block;font-family:var(--fontDisplay);letter-spacing:.02em;font-size:1.0rem}
+      .brand-txt span{display:block;font-size:.78rem;color:var(--muted);margin-top:2px}
+
+      .main{padding:16px 14px 12px}
+
+      .card{
+        background:var(--surface);
+        border:1px solid var(--border);
+        border-radius:22px;
+        box-shadow: var(--shadow);
+        overflow:hidden;
+      }
+      .card-head{
+        padding:16px 14px 12px;
+        border-bottom:1px solid var(--border);
+        background:
+          radial-gradient(900px 220px at 10% 0%, rgba(11,42,74,.12), transparent 58%),
+          var(--surface);
+      }
+      h1{margin:0;font-family:var(--fontDisplay);font-size:1.15rem}
+      .sub{margin:8px 0 0;color:var(--muted);font-size:.86rem;line-height:1.6}
+
+      .card-body{padding:14px}
+      .field{margin-top:10px}
+      label{display:block;font-size:.78rem;color:var(--muted);margin-bottom:6px}
+      .input{
+        width:100%;
+        border:1px solid var(--border);
+        border-radius:16px;
+        padding:12px 12px;
+        background:var(--soft);
+        outline:none;
+      }
+      .input:focus{border-color:rgba(11,42,74,.35);box-shadow:0 0 0 3px var(--primaryLight)}
+
+      details{margin-top:12px}
+      summary{cursor:pointer;user-select:none;color:var(--primary);font-weight:900;font-size:.82rem}
+      .fine{color:var(--muted);font-size:.76rem;line-height:1.6}
+
+      .cta{padding:14px;border-top:1px solid var(--border);display:grid;gap:10px}
+      .btn{
+        border:none;
+        border-radius:18px;
+        padding:12px 14px;
+        cursor:pointer;
+        font-weight:900;
+      }
+      .btn.primary{background:linear-gradient(135deg,var(--primary),#163a6a);color:#fff;box-shadow:0 14px 40px rgba(11,42,74,.22)}
+      .btn.secondary{background:var(--soft);border:1px solid var(--border);color:var(--text);box-shadow:var(--shadowSm)}
+      .btn:focus-visible{outline:3px solid var(--primaryLight);outline-offset:2px}
+
+      .footer{padding: 10px 14px calc(14px + var(--safeBottom));color:var(--muted);font-size:.74rem}
+      .footer a{color:var(--primary);font-weight:900}
+    </style>
+  </head>
+  <body>
+    <div class="frame">
+      <div class="app">
+        <header class="topbar" role="banner">
+          <div class="topbar-inner">
+            <a class="brand" href="auth_mobile_login.html" aria-label="回到登入">
+              <div class="mark" aria-hidden="true">🔮</div>
+              <div class="brand-txt">
+                <strong>Aetheria</strong>
+                <span>註冊 · 海軍藍主題</span>
+              </div>
+            </a>
+          </div>
+        </header>
+
+        <main class="main" role="main" aria-label="註冊">
+          <section class="card" aria-label="註冊卡片">
+            <div class="card-head">
+              <h1>建立帳號</h1>
+              <p class="sub">註冊流程保持最短：先建立帳號，其他資料（生辰、偏好、語音）登入後再用對話引導完成。</p>
+            </div>
+            <div class="card-body">
+              <div class="field">
+                <label for="email">Email</label>
+                <input id="email" class="input" type="email" autocomplete="email" placeholder="you@example.com" />
+              </div>
+              <div class="field">
+                <label for="password">密碼</label>
+                <input id="password" class="input" type="password" autocomplete="new-password" placeholder="至少 8 碼" />
+              </div>
+              <div class="field">
+                <label for="display">顯示名稱（選填）</label>
+                <input id="display" class="input" type="text" autocomplete="nickname" placeholder="例如：張同學" />
+              </div>
+
+              <details>
+                <summary>進階（稍後也能填）</summary>
+                <div class="field">
+                  <label for="voice">偏好聲線</label>
+                  <select id="voice" class="input" aria-label="偏好聲線">
+                    <option>Marin（溫暖自然）</option>
+                    <option>Cedar（沉穩可靠）</option>
+                    <option>Shimmer（活潑輕快）</option>
+                    <option>Echo（穩重低沉）</option>
+                  </select>
+                  <div class="fine" style="margin-top:6px">不會卡住註冊，登入後也能改。</div>
+                </div>
+              </details>
+
+              <p class="fine" style="margin:12px 0 0">
+                建立帳號後，你會直接進入「命理師對話」。我會用最少的問題，把你的需求問清楚。
+              </p>
+            </div>
+            <div class="cta" aria-label="註冊操作">
+              <button class="btn primary" type="button">建立帳號</button>
+              <a class="btn secondary" href="auth_mobile_login.html" role="button" aria-label="前往登入">我已經有帳號</a>
+            </div>
+          </section>
+        </main>
+
+        <footer class="footer" role="contentinfo">
+          <div>建立帳號即代表同意基本服務條款與隱私政策（可在「我的」頁調整）。</div>
+        </footer>
+      </div>
+    </div>
+  </body>
+</html>

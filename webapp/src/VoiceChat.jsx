@@ -7,7 +7,7 @@ import './VoiceChat.css'
  * 1. 文字模式：傳統文字對話
  * 2. 語音模式：使用 OpenAI Realtime WebRTC API 即時語音對話
  */
-function VoiceChat({ apiBase, token, userId, onClose, embedded = false }) {
+function VoiceChat({ apiBase, token, userId, onClose, embedded = false, variant = 'modal' }) {
   // 基本狀態
   const [mode, setMode] = useState('text') // 'text' or 'voice'
   const [messages, setMessages] = useState([])
@@ -558,8 +558,17 @@ function VoiceChat({ apiBase, token, userId, onClose, embedded = false }) {
     setConnectionError('')
   }
 
-  const wrapperClass = embedded ? 'voice-chat-page' : 'voice-chat-overlay'
-  const containerClass = embedded ? 'voice-chat-container embedded' : 'voice-chat-container'
+  const isSheet = !embedded && variant === 'sheet'
+  const wrapperClass = embedded
+    ? 'voice-chat-page'
+    : isSheet
+      ? 'voice-chat-overlay vc-sheet'
+      : 'voice-chat-overlay'
+  const containerClass = embedded
+    ? 'voice-chat-container embedded'
+    : isSheet
+      ? 'voice-chat-container vc-sheet'
+      : 'voice-chat-container'
 
   return (
     <div

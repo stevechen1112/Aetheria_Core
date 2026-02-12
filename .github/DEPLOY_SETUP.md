@@ -125,3 +125,26 @@ ssh root@172.237.6.53 "systemctl status aetheria || supervisorctl status aetheri
 - ✅ 推送代碼到 GitHub 自動觸發部署
 - ✅ 在 Actions 頁面看到部署進度
 - ✅ 部署完成後檢查健康狀態：http://172.237.6.53:5001/health
+
+---
+
+## 🧪 部署後 Smoke Test（建議）
+
+本 repo 提供一個最小可重複的 HTTP 驗證腳本：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\http_smoke_test.py
+```
+
+它會依序驗證：
+- `/health` / `/version`
+- `POST /api/auth/register` → `POST /api/auth/login`
+- `GET /api/chat/sessions`
+- `POST /api/chat/consult`
+
+若要改測遠端，設定環境變數：
+
+```powershell
+$env:AETHERIA_BASE_URL = "http://172.237.6.53:5001"
+.\.venv\Scripts\python.exe scripts\http_smoke_test.py
+```

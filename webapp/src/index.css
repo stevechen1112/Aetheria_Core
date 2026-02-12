@@ -25,12 +25,16 @@
   --color-text-light: #4a4440;
   --color-text-muted: #8a837c;
 
-  /* Primary — mystical indigo-violet */
-  --color-primary: #6c5ce7;
-  --color-primary-dark: #5a48d5;
-  --color-primary-light: #f0eeff;
-  --color-primary-tint: #b8b0f0;
-  --color-primary-glow: rgba(108, 92, 231, 0.15);
+  /* Primary — navy blue (mobile voice-first) */
+  --color-primary: #0b2a4a;
+  --color-primary-dark: #071f36;
+  --color-primary-light: #e8f0ff;
+  --color-primary-tint: #8fb0de;
+  --color-primary-accent: #163a6a;
+  --color-primary-glow: rgba(11, 42, 74, 0.15);
+  --color-primary-shadow-soft: rgba(11, 42, 74, 0.18);
+  --color-primary-shadow: rgba(11, 42, 74, 0.25);
+  --color-primary-shadow-strong: rgba(11, 42, 74, 0.35);
 
   /* Accent — warm gold for fortune/insight */
   --color-accent-gold: #c8963e;
@@ -82,7 +86,7 @@
   --shadow-md: 0 4px 12px rgba(26, 22, 20, 0.08);
   --shadow-lg: 0 12px 32px rgba(26, 22, 20, 0.10);
   --shadow-xl: 0 20px 50px rgba(26, 22, 20, 0.14);
-  --shadow-glow: 0 0 24px rgba(108, 92, 231, 0.12);
+  --shadow-glow: 0 0 24px rgba(11, 42, 74, 0.12);
 
   /* Transitions */
   --transition-fast: 0.15s ease;

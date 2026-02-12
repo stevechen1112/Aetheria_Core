@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import ChartWidget from './widgets/ChartWidget'
+import { TarotDrawWidget, TarotSpreadWidget } from './widgets/TarotWidget'
 import './MessageRenderer.css'
 
 /**
@@ -13,7 +14,7 @@ import './MessageRenderer.css'
  * 
  * §11.2: 包含回饋按鈕（👍👎）供用戶評價
  */
-function MessageRenderer({ message, apiBase, token, sessionId }) {
+function MessageRenderer({ message, apiBase, token, sessionId, onSendMessage }) {
   const [feedbackGiven, setFeedbackGiven] = useState(null) // 'helpful' | 'not_helpful' | null
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [copyStatus, setCopyStatus] = useState('') // '' | 'success' | 'error'
@@ -284,6 +285,17 @@ function MessageRenderer({ message, apiBase, token, sessionId }) {
                 {(message.widget_data.progress * 100).toFixed(0)}%
               </div>
             </div>
+          )}
+
+          {message.widget_type === 'tarot_draw' && (
+            <TarotDrawWidget
+              data={message.widget_data}
+              onSendMessage={onSendMessage}
+            />
+          )}
+
+          {message.widget_type === 'tarot_spread' && (
+            <TarotSpreadWidget data={message.widget_data} />
           )}
           <div className="message-timestamp">
             {new Date(message.timestamp).toLocaleTimeString('zh-TW', {

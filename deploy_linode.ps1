@@ -1,81 +1,69 @@
-<#
-  Aetheria Core - Linode 部署腳本
+# Aetheria Core - Linode deploy script (Windows PowerShell 5.1 safe)
+# Usage: .\deploy_linode.ps1
 
-  使用方式：\.\deploy_linode.ps1
-  - 建議先用 setup_ssh_key.ps1 設定 SSH key（免密部署）
-  - 會同時更新：
-    - 後端：/root/Aetheria_Core（systemd aetheria.service）
-    - 前端：/opt/aetheria（Nginx root 指向 /opt/aetheria/webapp/dist）
-#>
+$ErrorActionPreference = 'Stop'
 
-$SERVER = "root@172.237.6.53"
-$BACKEND_DIR = "/root/Aetheria_Core"  # 後端 repo 位置
-$FRONTEND_DIR = "/opt/aetheria"       # 前端/Nginx root 對應 repo 位置
+$SERVER = 'root@172.237.6.53'
+$BACKEND_DIR = '/root/Aetheria_Core'
+$FRONTEND_DIR = '/opt/aetheria'
 
-function Invoke-Remote($cmd) {
+$FRONTEND_PARENT_DIR = $FRONTEND_DIR.Substring(0, $FRONTEND_DIR.LastIndexOf('/'))
+$FRONTEND_BASENAME = $FRONTEND_DIR.Substring($FRONTEND_DIR.LastIndexOf('/') + 1)
+
+function Invoke-Remote([string]$cmd) {
     ssh $SERVER $cmd
     if ($LASTEXITCODE -ne 0) {
         throw "Remote command failed: $cmd"
     }
 }
 
-Write-Host "🚀 開始部署 Aetheria Core 到 Linode..." -ForegroundColor Cyan
-Write-Host ""
+Write-Host "Deploy to Linode: $SERVER" -ForegroundColor Cyan
 
-Write-Host "📁 檢查後端目錄..." -ForegroundColor Yellow
-$backendExists = ssh $SERVER "test -d $BACKEND_DIR && echo 'exists' || echo 'not_exists'"
-if ($backendExists -match "not_exists") {
-    Write-Host "   ⚠️  後端目錄不存在，正在克隆 repository..." -ForegroundColor Yellow
-    Invoke-Remote "cd /root && git clone https://github.com/stevechen1112/Aetheria_Core.git"
+Write-Host "Check backend dir..." -ForegroundColor Yellow
+$backendExists = ssh $SERVER ("if [ -d " + $BACKEND_DIR + " ]; then echo exists; else echo not_exists; fi")
+if ($backendExists -match 'not_exists') {
+    Write-Host "Backend dir missing, cloning..." -ForegroundColor Yellow
+    Invoke-Remote "set -e; cd /root; git clone https://github.com/stevechen1112/Aetheria_Core.git"
 } else {
-    Write-Host "   ✅ 後端目錄已存在" -ForegroundColor Green
+    Write-Host "Backend dir exists" -ForegroundColor Green
 }
 
-Write-Host "📁 檢查前端目錄..." -ForegroundColor Yellow
-$frontendExists = ssh $SERVER "test -d $FRONTEND_DIR && echo 'exists' || echo 'not_exists'"
-if ($frontendExists -match "not_exists") {
-    Write-Host "   ⚠️  前端目錄不存在，正在克隆 repository..." -ForegroundColor Yellow
-    Invoke-Remote "mkdir -p $FRONTEND_DIR && cd $FRONTEND_DIR/.. && git clone https://github.com/stevechen1112/Aetheria_Core.git $(Split-Path -Leaf $FRONTEND_DIR)"
+Write-Host "Check frontend dir..." -ForegroundColor Yellow
+$frontendExists = ssh $SERVER ("if [ -d " + $FRONTEND_DIR + " ]; then echo exists; else echo not_exists; fi")
+if ($frontendExists -match 'not_exists') {
+    Write-Host "Frontend dir missing, cloning..." -ForegroundColor Yellow
+    Invoke-Remote ("set -e; mkdir -p " + $FRONTEND_PARENT_DIR + "; cd " + $FRONTEND_PARENT_DIR + "; git clone https://github.com/stevechen1112/Aetheria_Core.git " + $FRONTEND_BASENAME)
 } else {
-    Write-Host "   ✅ 前端目錄已存在" -ForegroundColor Green
+    Write-Host "Frontend dir exists" -ForegroundColor Green
 }
 
-Write-Host ""
-Write-Host "📥 更新後端代碼..." -ForegroundColor Yellow
-Invoke-Remote "cd $BACKEND_DIR && git fetch origin && git reset --hard origin/main && git log -1 --oneline"
-Write-Host "   ✅ 後端代碼更新完成" -ForegroundColor Green
+Write-Host "Update backend code..." -ForegroundColor Yellow
+Invoke-Remote ("set -e; cd " + $BACKEND_DIR + "; git fetch origin; git reset --hard origin/main; git log -1 --oneline")
 
-Write-Host ""
-Write-Host "📦 安裝 Python 依賴..." -ForegroundColor Yellow
-Invoke-Remote "cd $BACKEND_DIR && if [ -d .venv ]; then VENV=.venv; elif [ -d venv ]; then VENV=venv; else VENV=.venv; python3 -m venv \"$VENV\"; fi; . \"$VENV/bin/activate\"; pip install -q -r requirements.txt"
-Write-Host "   ✅ Python 依賴安裝完成" -ForegroundColor Green
+Write-Host "Install backend deps..." -ForegroundColor Yellow
+Invoke-Remote ("set -e; cd " + $BACKEND_DIR + "; if [ -d .venv ]; then VENV=.venv; elif [ -d venv ]; then VENV=venv; else VENV=.venv; python3 -m venv `$VENV; fi; . `$VENV/bin/activate; pip install -q -r requirements.txt")
 
-Write-Host ""
-Write-Host "📦 安裝前端依賴..." -ForegroundColor Yellow
-Write-Host "📥 更新前端代碼..." -ForegroundColor Yellow
-Invoke-Remote "cd $FRONTEND_DIR && git fetch origin && git reset --hard origin/main && git log -1 --oneline"
-Write-Host "   ✅ 前端代碼更新完成" -ForegroundColor Green
+Write-Host "Update frontend code..." -ForegroundColor Yellow
+Invoke-Remote ("set -e; cd " + $FRONTEND_DIR + "; git fetch origin; git reset --hard origin/main; git log -1 --oneline")
 
-Write-Host ""
-Write-Host "📦 安裝前端依賴..." -ForegroundColor Yellow
-Invoke-Remote "cd $FRONTEND_DIR/webapp && (npm ci --silent || npm install --silent)"
-Write-Host "   ✅ 前端依賴安裝完成" -ForegroundColor Green
+Write-Host "Install frontend deps..." -ForegroundColor Yellow
+Invoke-Remote ("set -e; cd " + $FRONTEND_DIR + "/webapp; npm install --silent")
 
-Write-Host ""
-Write-Host "🏗️  建置前端（輸出到 dist/）..." -ForegroundColor Yellow
-Invoke-Remote "cd $FRONTEND_DIR/webapp && npm run build"
-Write-Host "   ✅ 前端建置完成" -ForegroundColor Green
+Write-Host "Build frontend (dist)..." -ForegroundColor Yellow
+Invoke-Remote ("set -e; cd " + $FRONTEND_DIR + "/webapp; npm run build")
 
-Write-Host ""
-Write-Host "🔄 重啟服務..." -ForegroundColor Yellow
-
-Write-Host "   使用 systemd 重啟 aetheria.service..." -ForegroundColor Cyan
+Write-Host "Restart service..." -ForegroundColor Yellow
 Invoke-Remote "systemctl restart aetheria.service"
-Invoke-Remote "systemctl is-active aetheria.service"
 
-Write-Host ""
-Write-Host "✅ 部署完成！" -ForegroundColor Green
-Write-Host ""
-Write-Host "🔗 檢查應用狀態：" -ForegroundColor Cyan
-Write-Host "   http://172.237.6.53:5001/health" -ForegroundColor White
-Write-Host ""
+$state = ''
+for ($i = 0; $i -lt 12; $i++) {
+    Start-Sleep -Seconds 1
+    $state = ssh $SERVER "systemctl is-active aetheria.service; exit 0"
+    if ($state -match 'active') { break }
+}
+
+Write-Host ("Service state: " + ($state -replace "\s+", " ").Trim()) -ForegroundColor Cyan
+ssh $SERVER "systemctl status --no-pager -l aetheria.service | head -n 25; exit 0" | Out-Host
+
+Write-Host "Deploy done" -ForegroundColor Green
+Write-Host "Health: http://172.237.6.53:5001/health" -ForegroundColor White

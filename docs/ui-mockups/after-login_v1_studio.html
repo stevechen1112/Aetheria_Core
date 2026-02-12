@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Aetheria — After Login (V1 Studio)</title>
+    <style>
+      :root{
+        --bg: #faf9f7;
+        --surface: #ffffff;
+        --surfaceSoft:#f5f3f0;
+        --border:#e7e2dc;
+        --text:#1f2430;
+        --muted:#6b7280;
+        --primary:#6c5ce7;
+        --primaryLight:#f0eeff;
+        --radius:16px;
+        --radiusSm:12px;
+        --shadow: 0 18px 50px rgba(26,22,20,.10);
+        --shadowSm: 0 8px 22px rgba(26,22,20,.08);
+        --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans TC", Arial;
+        --fontDisplay: ui-serif, Georgia, "Times New Roman", serif;
+      }
+      *{box-sizing:border-box}
+      html,body{height:100%}
+      body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font)}
+      a{color:inherit;text-decoration:none}
+      button,input,textarea{font:inherit}
+
+      .app{
+        min-height:100vh;
+        display:grid;
+        grid-template-rows:auto 1fr;
+      }
+
+      /* Topbar */
+      .topbar{
+        position:sticky;top:0;z-index:10;
+        background:rgba(250,249,247,.72);
+        backdrop-filter: blur(10px);
+        border-bottom:1px solid var(--border);
+      }
+      .topbar-inner{
+        height:64px;
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        gap:12px;
+        padding:0 16px;
+      }
+      .brand{display:flex;align-items:center;gap:10px}
+      .brand-mark{
+        width:34px;height:34px;border-radius:14px;
+        background: linear-gradient(135deg, var(--primary), #8b7cf0);
+        box-shadow: 0 10px 26px rgba(108,92,231,.25);
+        display:flex;align-items:center;justify-content:center;
+        color:white;font-weight:700;
+      }
+      .brand-name{display:flex;flex-direction:column;line-height:1.15}
+      .brand-name strong{font-family:var(--fontDisplay);font-size:1.05rem;letter-spacing:.02em}
+      .brand-name span{font-size:.78rem;color:var(--muted)}
+
+      .topbar-actions{display:flex;align-items:center;gap:8px}
+      .pill{
+        border:1px solid var(--border);
+        background:var(--surface);
+        border-radius:999px;
+        padding:8px 12px;
+        box-shadow: 0 1px 0 rgba(0,0,0,.03);
+        cursor:pointer;
+      }
+      .pill.primary{border-color:transparent;background:var(--primary);color:white}
+      .pill.ghost{background:transparent}
+      .pill:focus-visible{outline:3px solid var(--primaryLight);outline-offset:2px}
+      .search{
+        width:min(440px, 44vw);
+        display:flex;align-items:center;gap:10px;
+        padding:8px 12px;
+        border-radius:999px;
+        border:1px solid var(--border);
+        background:var(--surface);
+      }
+      .search input{border:none;outline:none;flex:1;background:transparent;font-size:.9rem}
+      .kbd{font-size:.74rem;color:var(--muted);border:1px solid var(--border);border-bottom-width:2px;padding:2px 8px;border-radius:10px;background:var(--surfaceSoft)}
+
+      /* Main 3-pane Studio */
+      .shell{
+        height:calc(100vh - 64px);
+        display:grid;
+        grid-template-columns: 280px 1fr 360px;
+        gap:12px;
+        padding:12px;
+      }
+      .panel{
+        background:var(--surface);
+        border:1px solid var(--border);
+        border-radius:var(--radius);
+        box-shadow:var(--shadowSm);
+        overflow:hidden;
+        display:flex;
+        flex-direction:column;
+        min-height:0;
+      }
+      .panel-header{
+        padding:14px 14px 10px;
+        border-bottom:1px solid var(--border);
+        display:flex;align-items:center;justify-content:space-between;gap:10px;
+      }
+      .panel-header h2{margin:0;font-size:.95rem}
+      .panel-header small{color:var(--muted)}
+
+      /* Left: Sessions */
+      .sessions-tools{display:flex;gap:8px;align-items:center}
+      .iconbtn{
+        width:34px;height:34px;border-radius:12px;
+        border:1px solid var(--border);
+        background:var(--surface);
+        cursor:pointer;
+      }
+      .iconbtn:hover{background:var(--surfaceSoft)}
+      .sessions-list{padding:10px;overflow:auto;display:flex;flex-direction:column;gap:8px}
+      .session{
+        border:1px solid transparent;
+        background:var(--surface);
+        border-radius:14px;
+        padding:10px 10px;
+        cursor:pointer;
+        display:flex;gap:10px;align-items:flex-start;
+      }
+      .session:hover{background:var(--surfaceSoft)}
+      .session.active{background:var(--primaryLight);border-color:rgba(108,92,231,.25)}
+      .dot{
+        width:10px;height:10px;border-radius:999px;margin-top:4px;
+        background:rgba(108,92,231,.25);
+      }
+      .session.active .dot{background:var(--primary)}
+      .session-title{font-weight:600;font-size:.86rem}
+      .session-meta{font-size:.74rem;color:var(--muted);margin-top:3px}
+
+      /* Center: Chat */
+      .chat{
+        display:flex;flex-direction:column;min-height:0;
+      }
+      .chat-header{
+        padding:14px;
+        border-bottom:1px solid var(--border);
+        display:flex;align-items:flex-start;justify-content:space-between;gap:10px;
+      }
+      .chat-title{display:flex;flex-direction:column;gap:4px}
+      .chat-title strong{font-family:var(--fontDisplay);font-size:1.05rem}
+      .chat-title span{font-size:.78rem;color:var(--muted)}
+      .chips{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}
+      .chip{font-size:.74rem;color:var(--muted);border:1px solid var(--border);padding:4px 10px;border-radius:999px;background:var(--surfaceSoft)}
+      .chip.on{background:var(--primaryLight);color:var(--primary);border-color:rgba(108,92,231,.25)}
+
+      .chat-stream{padding:14px;overflow:auto;display:flex;flex-direction:column;gap:12px;min-height:0}
+      .msg{display:flex;gap:10px;align-items:flex-start}
+      .avatar{width:34px;height:34px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-weight:700}
+      .avatar.ai{background:linear-gradient(135deg,var(--primary),#8b7cf0);color:white}
+      .avatar.me{background:var(--primaryLight);color:var(--primary)}
+      .bubble{max-width:76%;border-radius:18px;padding:12px 14px;line-height:1.65;border:1px solid var(--border);background:var(--surface)}
+      .msg.me{flex-direction:row-reverse}
+      .msg.me .bubble{background:var(--primary);color:white;border-color:transparent}
+      .bubble .sub{display:block;margin-top:8px;font-size:.78rem;opacity:.75}
+      .bubble code{background:rgba(0,0,0,.04);padding:2px 6px;border-radius:6px}
+      .msg.me .bubble code{background:rgba(255,255,255,.14)}
+
+      .composer{
+        border-top:1px solid var(--border);
+        padding:12px;
+        background:linear-gradient(180deg, rgba(255,255,255,.0), rgba(255,255,255,.6));
+      }
+      .composer-card{
+        display:flex;gap:10px;align-items:flex-end;
+        background:var(--surface);
+        border:1px solid var(--border);
+        border-radius:20px;
+        padding:10px;
+        box-shadow:var(--shadowSm);
+      }
+      .composer-card textarea{
+        flex:1;
+        resize:none;
+        border:none;
+        outline:none;
+        min-height:44px;
+        max-height:140px;
+        padding:10px 10px;
+        background:transparent;
+        line-height:1.5;
+      }
+      .composer-actions{display:flex;gap:8px;align-items:center}
+      .btn{
+        border:none;
+        border-radius:999px;
+        padding:10px 14px;
+        cursor:pointer;
+        font-weight:700;
+      }
+      .btn.send{background:var(--primary);color:white}
+      .btn.secondary{background:var(--surfaceSoft);border:1px solid var(--border);color:var(--text)}
+
+      /* Right: Insight Board */
+      .board{padding:12px;overflow:auto;display:flex;flex-direction:column;gap:10px}
+      .card{
+        border:1px solid var(--border);
+        background:var(--surface);
+        border-radius:18px;
+        padding:12px;
+      }
+      .card h3{margin:0 0 8px;font-size:.9rem}
+      .stat{display:flex;gap:10px;align-items:center}
+      .badge{background:var(--primaryLight);color:var(--primary);border:1px solid rgba(108,92,231,.25);padding:4px 10px;border-radius:999px;font-size:.74rem;font-weight:700}
+      .muted{color:var(--muted);font-size:.82rem;line-height:1.6}
+      .steps{margin:10px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px}
+      .steps li{display:flex;gap:10px;align-items:flex-start}
+      .steps i{width:22px;height:22px;border-radius:8px;background:var(--surfaceSoft);border:1px solid var(--border);display:inline-flex;align-items:center;justify-content:center;font-style:normal;color:var(--muted);font-weight:700}
+
+      /* Responsive */
+      @media (max-width: 1100px){
+        .shell{grid-template-columns: 280px 1fr;}
+        .panel.right{display:none}
+      }
+      @media (max-width: 820px){
+        .shell{grid-template-columns: 1fr;}
+        .panel.left{display:none}
+        .search{display:none}
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar" role="banner">
+        <div class="topbar-inner">
+          <a class="brand" href="#" aria-label="回到主畫面">
+            <div class="brand-mark" aria-hidden="true">🔮</div>
+            <div class="brand-name">
+              <strong>Aetheria</strong>
+              <span>登入後 · Studio 版面</span>
+            </div>
+          </a>
+
+          <div class="search" role="search" aria-label="全域搜尋">
+            <span aria-hidden="true">⌘</span>
+            <input type="search" placeholder="搜尋對話、系統、摘要…" aria-label="搜尋" />
+            <span class="kbd" aria-hidden="true">Ctrl K</span>
+          </div>
+
+          <div class="topbar-actions">
+            <button class="pill ghost" type="button" aria-label="語音模式">🎙️ Voice</button>
+            <button class="pill" type="button" aria-label="通知">🔔</button>
+            <button class="pill" type="button" aria-label="帳號">👤 張同學</button>
+            <button class="pill primary" type="button" aria-label="登出">登出</button>
+          </div>
+        </div>
+      </header>
+
+      <main class="shell" role="main">
+        <!-- Left: Sessions -->
+        <section class="panel left" aria-label="對話列表">
+          <div class="panel-header">
+            <h2>對話</h2>
+            <div class="sessions-tools">
+              <button class="iconbtn" type="button" aria-label="新增對話">＋</button>
+              <button class="iconbtn" type="button" aria-label="收合">⟷</button>
+            </div>
+          </div>
+          <div class="sessions-list" role="list">
+            <a class="session active" href="#" role="listitem" aria-current="true">
+              <span class="dot" aria-hidden="true"></span>
+              <div>
+                <div class="session-title">今日：事業與轉職</div>
+                <div class="session-meta">6 系統 · 12 則訊息 · 2 小時前</div>
+              </div>
+            </a>
+            <a class="session" href="#" role="listitem">
+              <span class="dot" aria-hidden="true"></span>
+              <div>
+                <div class="session-title">感情：關係動態</div>
+                <div class="session-meta">塔羅 · 8 則訊息 · 昨天</div>
+              </div>
+            </a>
+            <a class="session" href="#" role="listitem">
+              <span class="dot" aria-hidden="true"></span>
+              <div>
+                <div class="session-title">命盤：年度流年</div>
+                <div class="session-meta">占星 · 19 則訊息 · 1 週前</div>
+              </div>
+            </a>
+            <a class="session" href="#" role="listitem">
+              <span class="dot" aria-hidden="true"></span>
+              <div>
+                <div class="session-title">姓名學：取名方向</div>
+                <div class="session-meta">姓名 · 6 則訊息 · 2 週前</div>
+              </div>
+            </a>
+          </div>
+        </section>
+
+        <!-- Center: Chat -->
+        <section class="panel chat" aria-label="對話內容">
+          <div class="chat-header">
+            <div class="chat-title">
+              <strong>事業與轉職：2026 Q1</strong>
+              <span>「精準回答」模式 · 你可以切換系統與輸出密度</span>
+            </div>
+            <div class="chips" aria-label="啟用系統">
+              <span class="chip on">八字</span>
+              <span class="chip on">占星</span>
+              <span class="chip">紫微</span>
+              <span class="chip">塔羅</span>
+              <span class="chip on">數字</span>
+            </div>
+          </div>
+
+          <div class="chat-stream" aria-label="訊息串">
+            <div class="msg">
+              <div class="avatar ai" aria-hidden="true">A</div>
+              <div class="bubble">
+                先把你的目標拆成「方向」「節奏」「風險控管」三段，我會用多系統交叉驗證。
+                <span class="sub">提示：你也可以直接丟一段履歷或目前困境。</span>
+              </div>
+            </div>
+            <div class="msg me">
+              <div class="avatar me" aria-hidden="true">你</div>
+              <div class="bubble">
+                我想換到更穩定的職位，但又怕薪資下降。可以用 <code>2026-02</code> 到 <code>2026-06</code> 的節奏給我建議嗎？
+              </div>
+            </div>
+            <div class="msg">
+              <div class="avatar ai" aria-hidden="true">A</div>
+              <div class="bubble">
+                可以。V1 Studio 會把「對話」放在中間，右側是「洞察看板」。你每次問完，我會同步更新右側的重點、下一步與風險提醒。
+              </div>
+            </div>
+          </div>
+
+          <div class="composer" aria-label="輸入區">
+            <div class="composer-card">
+              <button class="btn secondary" type="button" aria-label="快速指令">⚡</button>
+              <textarea placeholder="輸入你的問題…（Enter 送出 / Shift+Enter 換行）" aria-label="輸入訊息"></textarea>
+              <div class="composer-actions">
+                <button class="btn secondary" type="button" aria-label="附加資料">📎</button>
+                <button class="btn send" type="button" aria-label="送出">送出</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Right: Insight Board -->
+        <aside class="panel right" aria-label="洞察看板">
+          <div class="panel-header">
+            <h2>洞察看板</h2>
+            <small>隨對話更新</small>
+          </div>
+          <div class="board">
+            <div class="card">
+              <h3>本回合結論</h3>
+              <div class="stat">
+                <span class="badge">優先</span>
+                <div class="muted">用「不降薪的轉換」當主線，建立 2 條備案路徑。</div>
+              </div>
+            </div>
+            <div class="card">
+              <h3>風險提醒</h3>
+              <div class="muted">避免在壓力期同時更動太多變數（職位＋城市＋產業）。</div>
+            </div>
+            <div class="card">
+              <h3>下一步（可勾選）</h3>
+              <ul class="steps">
+                <li><i>1</i><div class="muted">列出 3 種目標職缺與最低可接受薪資帶。</div></li>
+                <li><i>2</i><div class="muted">用 2 週做履歷與作品集版本 A/B。</div></li>
+                <li><i>3</i><div class="muted">安排 2 次面試演練與 1 次談薪策略。</div></li>
+              </ul>
+            </div>
+          </div>
+        </aside>
+      </main>
+    </div>
+  </body>
+</html>

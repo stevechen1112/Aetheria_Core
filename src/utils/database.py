@@ -126,6 +126,9 @@ class AetheriaDatabase:
                 )
             """)
 
+            # Schema migration: older DBs might not have username column (email-only era).
+            self._migrate_members_schema(cursor)
+
             # 會員偏好表
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS member_preferences (
@@ -420,6 +423,83 @@ class AetheriaDatabase:
             """)
             cursor.execute("DROP TABLE chart_locks")
             cursor.execute("ALTER TABLE chart_locks_v2 RENAME TO chart_locks")
+        except Exception:
+            return
+
+    def _migrate_members_schema(self, cursor: sqlite3.Cursor) -> None:
+        """Best-effort migration for members table.
+
+        Older DB versions used email as the primary identifier and didn't have
+        a dedicated `username` column. Newer auth flows require `username`.
+        This migration:
+        - Adds the column if missing
+        - Backfills empty usernames (prefer email local-part, else user_id)
+        - Creates an index (unique if no duplicates)
+
+        It must never block DB initialization.
+        """
+        try:
+            cursor.execute("PRAGMA table_info(members)")
+            cols = cursor.fetchall() or []
+            col_names = {row[1] for row in cols}
+
+            if 'username' not in col_names:
+                cursor.execute("ALTER TABLE members ADD COLUMN username TEXT")
+
+            # Backfill usernames when missing/empty
+            cursor.execute("SELECT user_id, email, username FROM members")
+            rows = cursor.fetchall() or []
+            existing = set()
+            for r in rows:
+                u = (r['username'] or '').strip() if isinstance(r, sqlite3.Row) else (r[2] or '').strip()
+                if u:
+                    existing.add(u)
+
+            def _base_from_email(email: str) -> str:
+                if not email:
+                    return ''
+                return email.split('@', 1)[0].strip()
+
+            for r in rows:
+                if isinstance(r, sqlite3.Row):
+                    user_id = (r['user_id'] or '').strip()
+                    email = (r['email'] or '').strip()
+                    username = (r['username'] or '').strip()
+                else:
+                    user_id = (r[0] or '').strip()
+                    email = (r[1] or '').strip() if len(r) > 1 else ''
+                    username = (r[2] or '').strip() if len(r) > 2 else ''
+
+                if username:
+                    continue
+
+                base = _base_from_email(email) or (user_id[:12] if user_id else 'user')
+                base = base or 'user'
+
+                candidate = base
+                n = 2
+                while candidate in existing:
+                    candidate = f"{base}_{n}"
+                    n += 1
+
+                if user_id:
+                    cursor.execute(
+                        "UPDATE members SET username = ? WHERE user_id = ?",
+                        (candidate, user_id),
+                    )
+                    existing.add(candidate)
+
+            # Prefer unique index if safe
+            cursor.execute(
+                "SELECT username, COUNT(*) AS c FROM members "
+                "WHERE username IS NOT NULL AND TRIM(username) <> '' "
+                "GROUP BY username HAVING c > 1"
+            )
+            dupes = cursor.fetchall() or []
+            if len(dupes) == 0:
+                cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_members_username ON members(username)")
+            else:
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_members_username ON members(username)")
         except Exception:
             return
     

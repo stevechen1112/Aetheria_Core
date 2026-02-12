@@ -28,11 +28,16 @@ from src.utils.auth_utils import hash_password, verify_password, get_auth_token_
 def register_member():
     """會員註冊"""
     data = request.json or {}
-    username = data.get('username')
+    # Backward-compat: older clients used email instead of username
+    username = (data.get('username') or data.get('email') or '').strip()
     password = data.get('password')
     phone = data.get('phone')
     display_name = data.get('display_name')
     consents = data.get('consents') or {}
+
+    email = (data.get('email') or '').strip() or None
+    if email is None and '@' in username:
+        email = username
 
     if not username:
         raise MissingParameterException('username')
@@ -48,7 +53,7 @@ def register_member():
     db.create_member({
         'user_id': user_id,
         'username': username,
-        'email': data.get('email'),  # email 選填
+        'email': email,  # email 選填
         'phone': phone,
         'display_name': display_name or username,  # 預設用 username
         'password_hash': hashed['hash'],
@@ -73,7 +78,8 @@ def register_member():
 def login_member():
     """會員登入"""
     data = request.json or {}
-    username = data.get('username')
+    # Backward-compat: older clients used email instead of username
+    username = (data.get('username') or data.get('email') or '').strip()
     password = data.get('password')
 
     if not username:

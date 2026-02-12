@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Aetheria — After Login (V2 Focus)</title>
+    <style>
+      :root{
+        --bg:#faf9f7;
+        --surface:#ffffff;
+        --soft:#f5f3f0;
+        --border:#e7e2dc;
+        --text:#1f2430;
+        --muted:#6b7280;
+        --primary:#6c5ce7;
+        --primaryLight:#f0eeff;
+        --radius:18px;
+        --shadow: 0 20px 60px rgba(26,22,20,.10);
+        --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans TC", Arial;
+        --fontDisplay: ui-serif, Georgia, "Times New Roman", serif;
+      }
+      *{box-sizing:border-box}
+      html,body{height:100%}
+      body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font)}
+      a{color:inherit;text-decoration:none}
+      button,input,textarea{font:inherit}
+
+      /* V2: Single-column, minimal, calm — sessions become a lightweight tray */
+      .wrap{min-height:100vh;display:grid;grid-template-rows:auto 1fr auto}
+
+      .header{
+        position:sticky;top:0;z-index:10;
+        background:rgba(250,249,247,.8);
+        backdrop-filter: blur(10px);
+        border-bottom:1px solid var(--border);
+      }
+      .header-inner{
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 14px 16px;
+        display:flex;align-items:center;justify-content:space-between;gap:12px;
+      }
+      .brand{display:flex;align-items:center;gap:10px}
+      .mark{width:34px;height:34px;border-radius:14px;background:var(--primary);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800}
+      .brand strong{font-family:var(--fontDisplay);letter-spacing:.02em}
+      .brand span{display:block;font-size:.78rem;color:var(--muted);margin-top:2px}
+
+      .actions{display:flex;align-items:center;gap:8px}
+      .btn{
+        border:1px solid var(--border);
+        background:var(--surface);
+        padding:8px 12px;
+        border-radius:999px;
+        cursor:pointer;
+      }
+      .btn.primary{background:var(--primary);border-color:transparent;color:#fff}
+      .btn.ghost{background:transparent}
+      .btn:focus-visible{outline:3px solid var(--primaryLight);outline-offset:2px}
+
+      /* Main */
+      .main{max-width:980px;margin:0 auto;width:100%;padding:18px 16px 10px}
+
+      .context{
+        display:flex;align-items:flex-start;justify-content:space-between;gap:12px;
+        margin-bottom:12px;
+      }
+      .context h1{margin:0;font-family:var(--fontDisplay);font-size:1.2rem}
+      .context p{margin:6px 0 0;color:var(--muted);font-size:.86rem;line-height:1.5}
+
+      .tray{
+        display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end
+      }
+      .tray a{
+        font-size:.78rem;
+        border:1px solid var(--border);
+        background:var(--surface);
+        padding:6px 10px;
+        border-radius:999px;
+      }
+      .tray a.active{background:var(--primaryLight);border-color:rgba(108,92,231,.25);color:var(--primary);font-weight:700}
+
+      /* Chat surface */
+      .surface{
+        background:var(--surface);
+        border:1px solid var(--border);
+        border-radius:var(--radius);
+        box-shadow: var(--shadow);
+        overflow:hidden;
+        display:flex;
+        flex-direction:column;
+        min-height: 62vh;
+      }
+      .stream{padding:16px;display:flex;flex-direction:column;gap:12px;overflow:auto;min-height:0}
+
+      .msg{display:flex;gap:10px;align-items:flex-start}
+      .msg.me{flex-direction:row-reverse}
+      .avatar{width:32px;height:32px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-weight:800}
+      .avatar.ai{background:var(--soft);border:1px solid var(--border);color:var(--primary)}
+      .avatar.me{background:var(--primary);color:#fff}
+
+      .bubble{
+        max-width: 78%;
+        border-radius: 18px;
+        padding: 12px 14px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        line-height: 1.7;
+        font-size: .9rem;
+      }
+      .msg.me .bubble{background:var(--primary);border-color:transparent;color:#fff}
+      .meta{margin-top:6px;color:var(--muted);font-size:.74rem}
+      .msg.me .meta{color:rgba(255,255,255,.8)}
+
+      /* Focus mode: assistant helps structure */
+      .outline{
+        margin-top:8px;
+        padding:10px 12px;
+        border-radius: 14px;
+        background: var(--primaryLight);
+        border: 1px solid rgba(108,92,231,.20);
+      }
+      .outline strong{display:block;margin-bottom:6px;color:var(--primary)}
+      .outline ul{margin:0;padding-left:18px}
+      .outline li{margin:4px 0}
+
+      /* Composer */
+      .composer{
+        border-top:1px solid var(--border);
+        padding:12px;
+        background: linear-gradient(180deg, rgba(255,255,255,.0), rgba(255,255,255,.65));
+      }
+      .composer-row{
+        display:flex;gap:10px;align-items:flex-end;
+        background:var(--surface);
+        border:1px solid var(--border);
+        border-radius: 22px;
+        padding: 10px;
+      }
+      textarea{
+        flex:1;
+        border:none;outline:none;
+        resize:none;
+        min-height:44px;
+        max-height:140px;
+        padding:10px 10px;
+        background:transparent;
+        line-height:1.5;
+      }
+      .hint{display:flex;gap:8px;align-items:center;justify-content:space-between;margin-top:8px;color:var(--muted);font-size:.76rem}
+      .modes{display:flex;gap:6px;flex-wrap:wrap}
+      .pill{border:1px solid var(--border);background:var(--soft);padding:4px 10px;border-radius:999px}
+      .pill.on{background:var(--primaryLight);border-color:rgba(108,92,231,.25);color:var(--primary);font-weight:700}
+
+      /* Footer quick actions */
+      .footer{max-width:980px;margin:0 auto;width:100%;padding:12px 16px 18px;display:flex;gap:8px;flex-wrap:wrap}
+      .qa{
+        background:var(--surface);
+        border:1px solid var(--border);
+        border-radius: 999px;
+        padding:8px 12px;
+        color:var(--muted);
+        cursor:pointer;
+      }
+      .qa:hover{background:var(--soft)}
+
+      @media (max-width: 720px){
+        .tray{justify-content:flex-start}
+        .context{flex-direction:column}
+        .bubble{max-width: 92%}
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="header" role="banner">
+        <div class="header-inner">
+          <a class="brand" href="#" aria-label="回到主畫面">
+            <div class="mark" aria-hidden="true">🔮</div>
+            <div>
+              <strong>Aetheria</strong>
+              <span>登入後 · Focus 版面</span>
+            </div>
+          </a>
+
+          <div class="actions" aria-label="頂部操作">
+            <button class="btn ghost" type="button" aria-label="專注模式">🧘 Focus</button>
+            <button class="btn" type="button" aria-label="語音">🎙️ Voice</button>
+            <button class="btn primary" type="button" aria-label="帳號">👤 張同學</button>
+          </div>
+        </div>
+      </header>
+
+      <main class="main" role="main">
+        <div class="context">
+          <div>
+            <h1>今天要解決什麼？</h1>
+            <p>V2 Focus 讓你「一次只做一件事」：對話置中、對話列表變成上方的輕量標籤列，右側看板被收起，避免資訊噪音。</p>
+          </div>
+          <nav class="tray" aria-label="最近對話">
+            <a class="active" href="#" aria-current="true">今日：事業與轉職</a>
+            <a href="#">感情：關係動態</a>
+            <a href="#">命盤：年度流年</a>
+            <a href="#">姓名：取名方向</a>
+          </nav>
+        </div>
+
+        <section class="surface" aria-label="對話內容">
+          <div class="stream" aria-label="訊息串">
+            <div class="msg">
+              <div class="avatar ai" aria-hidden="true">A</div>
+              <div>
+                <div class="bubble">
+                  我們先把問題變成「可決策」：你希望在 2026-02 到 2026-06 之間做出什麼結果？
+                  <div class="outline" aria-label="我會引導你做的三件事">
+                    <strong>本回合我們會做</strong>
+                    <ul>
+                      <li>確認不可退讓的條件（薪資、地點、工時）</li>
+                      <li>設定 2 條路徑：穩定路徑 / 成長路徑</li>
+                      <li>排一個 6 週節奏（投遞、面試、談薪）</li>
+                    </ul>
+                  </div>
+                </div>
+                <div class="meta">精準回答 · 提問導向</div>
+              </div>
+            </div>
+
+            <div class="msg me">
+              <div class="avatar me" aria-hidden="true">你</div>
+              <div>
+                <div class="bubble">我希望換到更穩定的職位，但要避免降薪太多。</div>
+                <div class="meta">你 · 剛剛</div>
+              </div>
+            </div>
+
+            <div class="msg">
+              <div class="avatar ai" aria-hidden="true">A</div>
+              <div>
+                <div class="bubble">好，我會先問 3 個關鍵問題，然後直接產出一份「6 週行動清單」。</div>
+                <div class="meta">下一步：你先回答 3 問</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="composer" aria-label="輸入區">
+            <div class="composer-row">
+              <button class="btn" type="button" aria-label="快速模板">⚡ 模板</button>
+              <textarea placeholder="回答：你的最低可接受薪資帶是？" aria-label="輸入訊息"></textarea>
+              <button class="btn primary" type="button" aria-label="送出">送出</button>
+            </div>
+            <div class="hint">
+              <div class="modes" aria-label="輸出密度">
+                <span class="pill on">短</span>
+                <span class="pill">中</span>
+                <span class="pill">長</span>
+                <span class="pill">行動清單</span>
+              </div>
+              <span>Enter 送出 / Shift+Enter 換行</span>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="footer" role="contentinfo" aria-label="快速動作">
+        <button class="qa" type="button">生成 6 週節奏</button>
+        <button class="qa" type="button">幫我寫一段自我介紹</button>
+        <button class="qa" type="button">列談薪策略</button>
+        <button class="qa" type="button">把答案整理成摘要</button>
+      </footer>
+    </div>
+  </body>
+</html>

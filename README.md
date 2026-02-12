@@ -23,7 +23,8 @@
 - 訪客免註冊即可開始，自動建立匿名身份
 - 口語化命理解讀，取代冰冷的制式報告
 - **對話歷史側邊欄**：可收合、可切換、可搜尋、可刪除過去對話
-- **響應式設計**：桌面/平板/手機全適配，移動版側邊欄抽屜式展開
+- **響應式設計**：桌面/平板/手機全適配
+- **手機 Voice-first**：底部三分頁（對話/語音/我的），語音以底部 Sheet 打開，不壓縮對話視窗
 - **智能工具狀態顯示**：人性化工具名稱（如「正在排紫微命盤⋯」）
 - **Textarea 自動展開**：輸入區域自動調整高度（44px-150px）
 - **長文本自動折疊**：超過 600 字符的回覆自動折疊，可展開/收合
@@ -104,6 +105,72 @@ npm run dev
 ```
 
 打開瀏覽器訪問 **http://localhost:5173**，即可開始對話！
+
+---
+
+## ✅ 本地驗證（Build + HTTP Smoke Test）
+
+### 1) 前端建置
+
+```bash
+cd webapp
+npm run build
+```
+
+### 2) 後端基本健康檢查
+
+```bash
+curl http://localhost:5001/health
+curl http://localhost:5001/version
+```
+
+### 3) HTTP Smoke Test（註冊 → 登入 → sessions → consult）
+
+> 註：Windows 建議直接用 PowerShell（如下）；若你在 Git Bash/WSL 也可用 `curl`。
+
+**PowerShell（Windows）**
+
+```powershell
+# Register
+$r = Invoke-RestMethod -Method Post -Uri "http://localhost:5001/api/auth/register" -ContentType "application/json" -Body (
+   @{ username="smoke_user"; password="smoke_pass"; display_name="Smoke"; consents=@{ terms_accepted=$true; data_usage_accepted=$true } } | ConvertTo-Json -Depth 5
+)
+
+# Login
+$login = Invoke-RestMethod -Method Post -Uri "http://localhost:5001/api/auth/login" -ContentType "application/json" -Body (
+   @{ username="smoke_user"; password="smoke_pass" } | ConvertTo-Json
+)
+$token = $login.token
+
+# Sessions
+Invoke-RestMethod -Method Get -Uri "http://localhost:5001/api/chat/sessions" -Headers @{ Authorization = "Bearer $token" }
+
+# Consult (non-stream)
+Invoke-RestMethod -Method Post -Uri "http://localhost:5001/api/chat/consult" -ContentType "application/json" -Headers @{ Authorization = "Bearer $token" } -Body (
+   @{ message="我想問事業方向，請用 2-3 句先問我關鍵問題" } | ConvertTo-Json
+)
+```
+
+```bash
+# Register
+curl -s -X POST http://localhost:5001/api/auth/register \
+   -H "Content-Type: application/json" \
+   -d '{"username":"smoke_user","password":"smoke_pass","display_name":"Smoke","consents":{"terms_accepted":true,"data_usage_accepted":true}}'
+
+# Login → copy token
+TOKEN=$(curl -s -X POST http://localhost:5001/api/auth/login \
+   -H "Content-Type: application/json" \
+   -d '{"username":"smoke_user","password":"smoke_pass"}' | python -c "import sys,json; print(json.load(sys.stdin).get('token',''))")
+
+# Sessions
+curl -s http://localhost:5001/api/chat/sessions -H "Authorization: Bearer $TOKEN"
+
+# Consult (non-stream)
+curl -s -X POST http://localhost:5001/api/chat/consult \
+   -H "Authorization: Bearer $TOKEN" \
+   -H "Content-Type: application/json" \
+   -d '{"message":"我想問事業方向，請用 2-3 句先問我關鍵問題"}'
+```
 
 ---
 

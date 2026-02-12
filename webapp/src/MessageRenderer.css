@@ -41,9 +41,9 @@
 }
 
 .message-assistant .message-avatar {
-  background: linear-gradient(135deg, var(--color-primary) 0%, #8b7cf0 100%);
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-accent) 100%);
   color: #ffffff;
-  box-shadow: 0 2px 8px rgba(108, 92, 231, 0.18);
+  box-shadow: 0 2px 8px var(--color-primary-shadow-soft);
 }
 
 /* ===== Content Column ===== */
@@ -486,7 +486,7 @@
 }
 
 .progress-bar.progress-running {
-  background: linear-gradient(90deg, var(--color-primary) 0%, #8b7cf0 100%);
+  background: linear-gradient(90deg, var(--color-primary) 0%, var(--color-primary-accent) 100%);
   animation: progressShimmer 2s ease-in-out infinite;
 }
 

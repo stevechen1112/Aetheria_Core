@@ -184,6 +184,20 @@ function ChatContainer({ apiBase, token, userId, embedded = false, sidebarCollap
     const text = (overrideText || inputText).trim()
     if (!text) return
 
+    const TAROT_CONFIRM_PREFIX = '[TAROT_DRAW_CONFIRM]'
+    const isTarotConfirm = text.startsWith(TAROT_CONFIRM_PREFIX)
+    let displayText = text
+    if (isTarotConfirm) {
+      const rest = text.slice(TAROT_CONFIRM_PREFIX.length).trim()
+      try {
+        const payload = rest.startsWith('{') ? JSON.parse(rest) : { question: rest }
+        const q = (payload?.question || '').trim()
+        displayText = q ? `🃏 抽牌：${q}` : '🃏 抽牌'
+      } catch {
+        displayText = '🃏 抽牌'
+      }
+    }
+
     if (!token) {
       pushSystemMessage('⚠️ 連線中斷，請重新整理頁面')
       return
@@ -193,7 +207,7 @@ function ChatContainer({ apiBase, token, userId, embedded = false, sidebarCollap
       id: `user-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       type: 'text',
       role: 'user',
-      content: text,
+      content: displayText,
       timestamp: new Date().toISOString()
     }
 
@@ -502,6 +516,7 @@ function ChatContainer({ apiBase, token, userId, embedded = false, sidebarCollap
             apiBase={apiBase}
             token={token}
             sessionId={sessionId}
+            onSendMessage={(text) => sendMessage(text)}
           />
         ))}
 

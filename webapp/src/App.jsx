@@ -44,8 +44,22 @@ function App() {
     return saved === 'true'
   })
 
+  // ========== Mobile UI ==========
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768)
+  const [mobileTab, setMobileTab] = useState('chat') // chat | me
+
   // ========== Voice Chat State ==========
   const [showVoiceChat, setShowVoiceChat] = useState(false)
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 768)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  useEffect(() => {
+    if (!isMobile) setMobileTab('chat')
+  }, [isMobile])
 
   // Prevent background scroll when any modal is open
   useEffect(() => {
@@ -298,81 +312,110 @@ function App() {
   // ========== 未登入：顯示登入頁面 ==========
   if (!authReady) {
     return (
-      <div className="auth-page">
-        <div className="auth-container">
-          <div className="auth-header">
-            <div className="auth-logo">🔮</div>
-            <h1>Aetheria</h1>
-            <p className="auth-tagline">AI 命理分析顧問</p>
-          </div>
+      <div className="auth-page" role="main" aria-label="登入 / 註冊">
+        <div className="auth-frame">
+          <header className="auth-topbar" role="banner">
+            <div className="auth-topbar-inner">
+              <div className="auth-brand" aria-label="Aetheria">
+                <div className="auth-brand-mark" aria-hidden="true">🔮</div>
+                <div className="auth-brand-text">
+                  <strong>Aetheria</strong>
+                  <span>登入 · 海軍藍主題</span>
+                </div>
+              </div>
+            </div>
+          </header>
 
-          <div className="auth-form">
-            <div className="auth-tabs">
-              <button
-                className={authMode === 'login' ? 'auth-tab active' : 'auth-tab'}
-                onClick={() => setAuthMode('login')}
-              >
-                登入
-              </button>
-              <button
-                className={authMode === 'register' ? 'auth-tab active' : 'auth-tab'}
-                onClick={() => setAuthMode('register')}
-              >
-                註冊
-              </button>
+          <section className="auth-container" aria-label="登入卡片">
+            <div className="auth-header">
+              <h1>{authMode === 'login' ? '歡迎回來' : '建立帳號'}</h1>
+              <p className="auth-tagline">
+                保持簡潔：登入後直接進入「命理師對話」，語音是主要入口。
+              </p>
             </div>
 
-            <div className="auth-form-fields">
-              {authMode === 'register' && (
-                <input
-                  type="text"
-                  placeholder="顯示名稱（選填）"
-                  value={authForm.display_name}
-                  onChange={(e) => setAuthForm(prev => ({ ...prev, display_name: e.target.value }))}
-                />
-              )}
-              <input
-                type="text"
-                placeholder="使用者名稱"
-                value={authForm.username}
-                onChange={(e) => setAuthForm(prev => ({ ...prev, username: e.target.value }))}
-                autoComplete="username"
-              />
-              <input
-                type="password"
-                placeholder="密碼"
-                value={authForm.password}
-                onChange={(e) => setAuthForm(prev => ({ ...prev, password: e.target.value }))}
-                autoComplete="current-password"
-              />
-
-              {authError && <div className="auth-error">{authError}</div>}
-
-              <button
-                className="btn-auth-submit"
-                onClick={handleAuth}
-                disabled={authLoading}
-              >
-                {authLoading ? '處理中...' : authMode === 'login' ? '登入' : '註冊'}
-              </button>
-
-              <div className="auth-divider">
-                <span>或</span>
+            <div className="auth-form">
+              <div className="auth-tabs" role="tablist" aria-label="登入或註冊">
+                <button
+                  className={authMode === 'login' ? 'auth-tab active' : 'auth-tab'}
+                  onClick={() => { setAuthMode('login'); setAuthError('') }}
+                  type="button"
+                  role="tab"
+                  aria-selected={authMode === 'login'}
+                >
+                  登入
+                </button>
+                <button
+                  className={authMode === 'register' ? 'auth-tab active' : 'auth-tab'}
+                  onClick={() => { setAuthMode('register'); setAuthError('') }}
+                  type="button"
+                  role="tab"
+                  aria-selected={authMode === 'register'}
+                >
+                  註冊
+                </button>
               </div>
 
-              <button
-                className="btn-guest-trial"
-                onClick={startGuestTrial}
-                disabled={authLoading}
-              >
-                訪客試用（數據不保存）
-              </button>
-            </div>
+              <div className="auth-form-fields">
+                {authMode === 'register' && (
+                  <input
+                    type="text"
+                    placeholder="顯示名稱（選填）"
+                    value={authForm.display_name}
+                    onChange={(e) => setAuthForm(prev => ({ ...prev, display_name: e.target.value }))}
+                    onKeyDown={handleKeyDown}
+                    autoComplete="nickname"
+                  />
+                )}
 
-            <div className="auth-footer">
-              <p>註冊即表示同意服務條款與隱私政策</p>
+                <input
+                  type="text"
+                  placeholder="Email 或使用者名稱"
+                  value={authForm.username}
+                  onChange={(e) => setAuthForm(prev => ({ ...prev, username: e.target.value }))}
+                  onKeyDown={handleKeyDown}
+                  autoComplete="username"
+                />
+
+                <input
+                  type="password"
+                  placeholder={authMode === 'register' ? '設定密碼（至少 8 碼）' : '密碼'}
+                  value={authForm.password}
+                  onChange={(e) => setAuthForm(prev => ({ ...prev, password: e.target.value }))}
+                  onKeyDown={handleKeyDown}
+                  autoComplete={authMode === 'register' ? 'new-password' : 'current-password'}
+                />
+
+                {authError && <div className="auth-error">{authError}</div>}
+
+                <button
+                  className="btn-auth-submit"
+                  onClick={handleAuth}
+                  disabled={authLoading}
+                  type="button"
+                >
+                  {authLoading ? '處理中...' : authMode === 'login' ? '登入' : '建立帳號'}
+                </button>
+
+                <button
+                  className="btn-guest-trial"
+                  onClick={startGuestTrial}
+                  disabled={authLoading}
+                  type="button"
+                >
+                  訪客試用（不保存）
+                </button>
+              </div>
+
+              <div className="auth-footer">
+                <p>繼續即表示同意服務條款與隱私政策</p>
+              </div>
             </div>
-          </div>
+          </section>
+
+          <footer className="auth-bottom">
+            <span>登入後你會直接進入對話（Voice-first）。</span>
+          </footer>
         </div>
       </div>
     )
@@ -394,7 +437,26 @@ function App() {
             <span className="brand-version">Agent 2.0</span>
           </div>
           <div className="topbar-actions">
-            {isSignedIn ? (
+            {isMobile ? (
+              <>
+                <button
+                  className="btn-topbar btn-icon"
+                  type="button"
+                  aria-label="對話列表"
+                  onClick={() => setSidebarCollapsed(false)}
+                >
+                  🗂️
+                </button>
+                <button
+                  className="btn-topbar btn-icon"
+                  type="button"
+                  aria-label="我的"
+                  onClick={() => setMobileTab('me')}
+                >
+                  👤
+                </button>
+              </>
+            ) : isSignedIn ? (
               <div className="user-info">
                 <span className="user-badge">👤</span>
                 <span className="user-name">{displayName}{isGuestUser ? '（訪客）' : ''}</span>
@@ -409,7 +471,7 @@ function App() {
         </header>
 
         {/* Main area: Sidebar + Chat */}
-        <main className="app-main">
+        <main className={isMobile ? 'app-main mobile' : 'app-main'}>
           {/* Mobile backdrop when sidebar is open */}
           {!sidebarCollapsed && (
             <div
@@ -428,17 +490,76 @@ function App() {
             }}
           />
           <div className="app-chat-area">
-            <ChatContainer
-              apiBase={apiBase}
-              token={token}
-              userId={userId}
-              embedded={false}
-              sidebarCollapsed={sidebarCollapsed}
-              onToggleSidebar={() => setSidebarCollapsed(prev => !prev)}
-              onOpenVoiceChat={() => setShowVoiceChat(true)}
-            />
+            {isMobile && mobileTab === 'me' ? (
+              <div className="mobile-me" role="main" aria-label="我的">
+                <div className="mobile-me-card">
+                  <div className="mobile-me-title">👤 {displayName}{isGuestUser ? '（訪客）' : ''}</div>
+                  <div className="mobile-me-sub">這裡只保留必要項：生辰資料、語音偏好、隱私同意。</div>
+                  <div className="mobile-me-actions">
+                    <button className="mobile-me-btn" type="button">生辰資料</button>
+                    <button className="mobile-me-btn" type="button">語音偏好</button>
+                    <button className="mobile-me-btn" type="button">隱私同意</button>
+                    <button className="mobile-me-btn primary" type="button" onClick={handleLogout}>登出</button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <ChatContainer
+                apiBase={apiBase}
+                token={token}
+                userId={userId}
+                embedded={false}
+                sidebarCollapsed={sidebarCollapsed}
+                onToggleSidebar={() => setSidebarCollapsed(prev => !prev)}
+                onOpenVoiceChat={() => {
+                  setShowVoiceChat(true)
+                }}
+              />
+            )}
           </div>
         </main>
+
+        {/* Mobile bottom nav (voice-first) */}
+        {isMobile && (
+          <nav className="mobile-bottom-nav" aria-label="底部導覽">
+            <button
+              type="button"
+              className={mobileTab !== 'me' && !showVoiceChat ? 'mbn-item active' : 'mbn-item'}
+              aria-current={mobileTab !== 'me' && !showVoiceChat ? 'page' : undefined}
+              onClick={() => {
+                setMobileTab('chat')
+                setShowVoiceChat(false)
+              }}
+            >
+              <span className="mbn-ico" aria-hidden="true">💬</span>
+              <span className="mbn-txt">對話</span>
+            </button>
+            <button
+              type="button"
+              className={showVoiceChat ? 'mbn-item voice active' : 'mbn-item voice'}
+              aria-current={showVoiceChat ? 'page' : undefined}
+              onClick={() => {
+                setMobileTab('chat')
+                setShowVoiceChat(true)
+              }}
+            >
+              <span className="mbn-ico" aria-hidden="true">🎙️</span>
+              <span className="mbn-txt">語音</span>
+            </button>
+            <button
+              type="button"
+              className={mobileTab === 'me' ? 'mbn-item active' : 'mbn-item'}
+              aria-current={mobileTab === 'me' ? 'page' : undefined}
+              onClick={() => {
+                setShowVoiceChat(false)
+                setMobileTab('me')
+              }}
+            >
+              <span className="mbn-ico" aria-hidden="true">👤</span>
+              <span className="mbn-txt">我的</span>
+            </button>
+          </nav>
+        )}
 
         {/* Auth Modal */}
         {showAuth && (
@@ -512,6 +633,7 @@ function App() {
             userId={userId}
             onClose={() => setShowVoiceChat(false)}
             embedded={false}
+            variant={isMobile ? 'sheet' : 'modal'}
           />
         )}
       </div>

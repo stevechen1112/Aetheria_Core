@@ -446,7 +446,7 @@
 .btn-send:hover:not(:disabled) {
   background: var(--color-primary-dark);
   transform: scale(1.05);
-  box-shadow: 0 3px 12px rgba(108, 92, 231, 0.3);
+  box-shadow: 0 3px 12px var(--color-primary-shadow);
 }
 
 .btn-send:disabled {
